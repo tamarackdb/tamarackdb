@@ -1,0 +1,23 @@
+/.idea
+/bin/
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+config.json
+
+# Go
+*.test
+*.out
+coverage.out
+/vendor/
+
+# TLS / secrets
+*.pem
+*.key
+*.crt
+.env
+
+# Editors / OS
+.vscode/
+.DS_Store

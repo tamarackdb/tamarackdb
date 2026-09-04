@@ -1,0 +1,13 @@
+{
+  "bindAddress": "127.0.0.1",
+  "port": 8443,
+  "enableTls": false,
+  "tlsCertFile": "/path/to/cert.pem",
+  "tlsKeyFile": "/path/to/key.pem",
+  "enableAuth": false,
+  "authToken": "changeme",
+  "databasePath": "/path/to/tamarack.db",
+  "defaultLimit": 1000,
+  "maxLimit": 10000,
+  "maxEventSize": 65536
+}
