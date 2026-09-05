@@ -1,12 +1,18 @@
-// Package config loads TamarackDB's JSON startup configuration file: bind
-// address, port, TLS enablement and certificate/key paths, auth token,
-// database path, and pagination/event-size limits.
+// Package config loads TamarackDB's startup configuration: bind address,
+// port, TLS enablement and certificate/key paths, auth token, database path,
+// and pagination/event-size limits.
+//
+// Values come from a JSON file when present, with any field it omits (or
+// the whole file, if missing) filled in from TAMARACKDB_* environment
+// variables, and finally from built-in defaults. The JSON file always wins
+// over the environment when both set the same field.
 package config
 
 import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
 )
 
 const (
@@ -15,8 +21,9 @@ const (
 	defaultEventSize = 65536 // 64 KiB
 )
 
-// Config is TamarackDB's startup configuration, loaded once from a JSON
-// file and never mutated or reloaded while the process runs.
+// Config is TamarackDB's startup configuration, resolved once from a JSON
+// file and/or environment variables and never mutated or reloaded while the
+// process runs.
 type Config struct {
 	BindAddress  string `json:"bindAddress"`
 	Port         int    `json:"port"`
@@ -27,25 +34,35 @@ type Config struct {
 	AuthToken    string `json:"authToken"`
 	DatabasePath string `json:"databasePath"`
 
-	// Optional; defaulted by Load when omitted (zero value in the JSON).
+	// Optional; defaulted by Load when omitted (zero value in the JSON and
+	// unset in the environment).
 	DefaultLimit int `json:"defaultLimit,omitempty"` // default: 1000
 	MaxLimit     int `json:"maxLimit,omitempty"`     // default: 10000
 	MaxEventSize int `json:"maxEventSize,omitempty"` // default: 65536 (64 KiB)
 }
 
-// Load reads and parses the JSON configuration file at path, applies the
-// documented defaults for any omitted optional field, and validates the
-// result. Any non-nil error is fatal at startup: the caller should log it
-// and exit rather than retry.
+// Load reads and parses the JSON configuration file at path if it exists,
+// fills in any field left at its zero value from the matching TAMARACKDB_*
+// environment variable, applies the documented defaults for any field still
+// unset, and validates the result. Any non-nil error is fatal at startup:
+// the caller should log it and exit rather than retry.
 func Load(path string) (*Config, error) {
+	var cfg Config
+
 	data, err := os.ReadFile(path)
-	if err != nil {
+	switch {
+	case err == nil:
+		if err := json.Unmarshal(data, &cfg); err != nil {
+			return nil, fmt.Errorf("config: parse %s: %w", path, err)
+		}
+	case os.IsNotExist(err):
+		// No config file: fall through to environment variables and defaults.
+	default:
 		return nil, fmt.Errorf("config: read %s: %w", path, err)
 	}
 
-	var cfg Config
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		return nil, fmt.Errorf("config: parse %s: %w", path, err)
+	if err := applyEnv(&cfg); err != nil {
+		return nil, fmt.Errorf("config: %w", err)
 	}
 
 	if cfg.DefaultLimit == 0 {
@@ -62,6 +79,92 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("config: %s: %w", path, err)
 	}
 	return &cfg, nil
+}
+
+// applyEnv fills in any field of cfg still at its zero value from the
+// matching TAMARACKDB_* environment variable, in the same order fields
+// appear in Config.
+func applyEnv(cfg *Config) error {
+	if cfg.BindAddress == "" {
+		if v, ok := os.LookupEnv("TAMARACKDB_BIND_ADDRESS"); ok {
+			cfg.BindAddress = v
+		}
+	}
+	if cfg.Port == 0 {
+		if v, ok := os.LookupEnv("TAMARACKDB_PORT"); ok {
+			p, err := strconv.Atoi(v)
+			if err != nil {
+				return fmt.Errorf("invalid TAMARACKDB_PORT %q: %w", v, err)
+			}
+			cfg.Port = p
+		}
+	}
+	if !cfg.EnableTLS {
+		if v, ok := os.LookupEnv("TAMARACKDB_ENABLE_TLS"); ok {
+			b, err := strconv.ParseBool(v)
+			if err != nil {
+				return fmt.Errorf("invalid TAMARACKDB_ENABLE_TLS %q: %w", v, err)
+			}
+			cfg.EnableTLS = b
+		}
+	}
+	if cfg.TLSCertFile == "" {
+		if v, ok := os.LookupEnv("TAMARACKDB_TLS_CERT_FILE"); ok {
+			cfg.TLSCertFile = v
+		}
+	}
+	if cfg.TLSKeyFile == "" {
+		if v, ok := os.LookupEnv("TAMARACKDB_TLS_KEY_FILE"); ok {
+			cfg.TLSKeyFile = v
+		}
+	}
+	if !cfg.EnableAuth {
+		if v, ok := os.LookupEnv("TAMARACKDB_ENABLE_AUTH"); ok {
+			b, err := strconv.ParseBool(v)
+			if err != nil {
+				return fmt.Errorf("invalid TAMARACKDB_ENABLE_AUTH %q: %w", v, err)
+			}
+			cfg.EnableAuth = b
+		}
+	}
+	if cfg.AuthToken == "" {
+		if v, ok := os.LookupEnv("TAMARACKDB_AUTH_TOKEN"); ok {
+			cfg.AuthToken = v
+		}
+	}
+	if cfg.DatabasePath == "" {
+		if v, ok := os.LookupEnv("TAMARACKDB_DATABASE_PATH"); ok {
+			cfg.DatabasePath = v
+		}
+	}
+	if cfg.DefaultLimit == 0 {
+		if v, ok := os.LookupEnv("TAMARACKDB_DEFAULT_LIMIT"); ok {
+			n, err := strconv.Atoi(v)
+			if err != nil {
+				return fmt.Errorf("invalid TAMARACKDB_DEFAULT_LIMIT %q: %w", v, err)
+			}
+			cfg.DefaultLimit = n
+		}
+	}
+	if cfg.MaxLimit == 0 {
+		if v, ok := os.LookupEnv("TAMARACKDB_MAX_LIMIT"); ok {
+			n, err := strconv.Atoi(v)
+			if err != nil {
+				return fmt.Errorf("invalid TAMARACKDB_MAX_LIMIT %q: %w", v, err)
+			}
+			cfg.MaxLimit = n
+		}
+	}
+	if cfg.MaxEventSize == 0 {
+		if v, ok := os.LookupEnv("TAMARACKDB_MAX_EVENT_SIZE"); ok {
+			n, err := strconv.Atoi(v)
+			if err != nil {
+				return fmt.Errorf("invalid TAMARACKDB_MAX_EVENT_SIZE %q: %w", v, err)
+			}
+			cfg.MaxEventSize = n
+		}
+	}
+	return nil
 }
 
 // Validate checks structural sanity only: required fields present, numeric

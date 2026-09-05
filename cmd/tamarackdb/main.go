@@ -27,7 +27,7 @@ import (
 var version = "dev"
 
 func main() {
-	configPath := flag.String("config", "config.json", "path to the JSON configuration file")
+	configPath := flag.String("config", "config.json", "path to the JSON configuration file (optional; falls back to TAMARACKDB_* environment variables)")
 	showVersion := flag.Bool("version", false, "print the version and exit")
 	flag.Parse()
 

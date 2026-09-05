@@ -46,14 +46,20 @@ Copy `config.json.dist` to `config.json` and adjust as needed:
 cp config.json.dist config.json
 ```
 
-| Key | Description |
-|---|---|
-| `bindAddress` / `port` | Address and port the server listens on |
-| `enableTls` / `tlsCertFile` / `tlsKeyFile` | TLS termination (Go's own `ListenAndServeTLS`, no reverse proxy) |
-| `enableAuth` / `authToken` | Bearer token authentication on every endpoint |
-| `databasePath` | Path to the SQLite database file |
-| `defaultLimit` / `maxLimit` | Default and maximum page size for `QUERY /read` |
-| `maxEventSize` | Maximum size in bytes of a single event |
+| Key | Environment variable | Description |
+|---|---|---|
+| `bindAddress` / `port` | `TAMARACKDB_BIND_ADDRESS` / `TAMARACKDB_PORT` | Address and port the server listens on |
+| `enableTls` / `tlsCertFile` / `tlsKeyFile` | `TAMARACKDB_ENABLE_TLS` / `TAMARACKDB_TLS_CERT_FILE` / `TAMARACKDB_TLS_KEY_FILE` | TLS termination (Go's own `ListenAndServeTLS`, no reverse proxy) |
+| `enableAuth` / `authToken` | `TAMARACKDB_ENABLE_AUTH` / `TAMARACKDB_AUTH_TOKEN` | Bearer token authentication on every endpoint |
+| `databasePath` | `TAMARACKDB_DATABASE_PATH` | Path to the SQLite database file |
+| `defaultLimit` / `maxLimit` | `TAMARACKDB_DEFAULT_LIMIT` / `TAMARACKDB_MAX_LIMIT` | Default and maximum page size for `QUERY /read` |
+| `maxEventSize` | `TAMARACKDB_MAX_EVENT_SIZE` | Maximum size in bytes of a single event |
+
+`config.json` is optional: any field it omits, or the whole file if it's absent, falls
+back to the matching `TAMARACKDB_*` environment variable, then to a built-in default.
+A value set in `config.json` always wins over the environment. This makes
+`config.json` the right tool for production, one file per instance, while plain
+environment variables cover a Docker deployment with no file at all.
 
 ## Run
 

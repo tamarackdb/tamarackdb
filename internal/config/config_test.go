@@ -147,7 +147,101 @@ func TestLoadDefaultLimitExceedsMaxLimit(t *testing.T) {
 func TestLoadFileNotFound(t *testing.T) {
 	_, err := Load(filepath.Join(t.TempDir(), "does-not-exist.json"))
 	if err == nil {
-		t.Fatal("Load() error = nil, want error for a missing file")
+		t.Fatal("Load() error = nil, want error for a missing file with no environment variables set")
+	}
+}
+
+func setEnv(t *testing.T, vars map[string]string) {
+	t.Helper()
+	for k, v := range vars {
+		t.Setenv(k, v)
+	}
+}
+
+func TestLoadFromEnvWithoutFile(t *testing.T) {
+	setEnv(t, map[string]string{
+		"TAMARACKDB_BIND_ADDRESS":  "0.0.0.0",
+		"TAMARACKDB_PORT":          "8443",
+		"TAMARACKDB_TLS_CERT_FILE": "cert.pem",
+		"TAMARACKDB_TLS_KEY_FILE":  "key.pem",
+		"TAMARACKDB_AUTH_TOKEN":    "secret",
+		"TAMARACKDB_DATABASE_PATH": "db.sqlite",
+	})
+
+	cfg, err := Load(filepath.Join(t.TempDir(), "does-not-exist.json"))
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	want := Config{
+		BindAddress: "0.0.0.0", Port: 8443,
+		TLSCertFile: "cert.pem", TLSKeyFile: "key.pem",
+		AuthToken: "secret", DatabasePath: "db.sqlite",
+		DefaultLimit: defaultLimit, MaxLimit: defaultMaxLimit, MaxEventSize: defaultEventSize,
+	}
+	if *cfg != want {
+		t.Errorf("Load() = %+v, want %+v", *cfg, want)
+	}
+}
+
+func TestLoadEnvFillsOmittedFields(t *testing.T) {
+	setEnv(t, map[string]string{
+		"TAMARACKDB_ENABLE_AUTH":   "true",
+		"TAMARACKDB_AUTH_TOKEN":    "from-env",
+		"TAMARACKDB_DEFAULT_LIMIT": "250",
+	})
+	path := writeConfigFile(t, `{
+		"bindAddress": "0.0.0.0", "port": 8443,
+		"tlsCertFile": "cert.pem", "tlsKeyFile": "key.pem",
+		"databasePath": "db.sqlite"
+	}`)
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if !cfg.EnableAuth {
+		t.Error("EnableAuth = false, want true (from env)")
+	}
+	if cfg.AuthToken != "from-env" {
+		t.Errorf("AuthToken = %q, want %q (from env)", cfg.AuthToken, "from-env")
+	}
+	if cfg.DefaultLimit != 250 {
+		t.Errorf("DefaultLimit = %d, want 250 (from env)", cfg.DefaultLimit)
+	}
+}
+
+func TestLoadFileTakesPrecedenceOverEnv(t *testing.T) {
+	setEnv(t, map[string]string{
+		"TAMARACKDB_PORT":       "9999",
+		"TAMARACKDB_AUTH_TOKEN": "from-env",
+	})
+	path := writeConfigFile(t, `{
+		"bindAddress": "0.0.0.0", "port": 8443,
+		"tlsCertFile": "cert.pem", "tlsKeyFile": "key.pem",
+		"authToken": "from-file", "databasePath": "db.sqlite"
+	}`)
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Port != 8443 {
+		t.Errorf("Port = %d, want 8443 (file must win over env)", cfg.Port)
+	}
+	if cfg.AuthToken != "from-file" {
+		t.Errorf("AuthToken = %q, want %q (file must win over env)", cfg.AuthToken, "from-file")
+	}
+}
+
+func TestLoadInvalidEnvValue(t *testing.T) {
+	setEnv(t, map[string]string{"TAMARACKDB_PORT": "not-a-number"})
+	path := writeConfigFile(t, `{
+		"bindAddress": "0.0.0.0",
+		"tlsCertFile": "cert.pem", "tlsKeyFile": "key.pem",
+		"authToken": "secret", "databasePath": "db.sqlite"
+	}`)
+	if _, err := Load(path); err == nil {
+		t.Fatal("Load() error = nil, want error for invalid TAMARACKDB_PORT")
 	}
 }
 

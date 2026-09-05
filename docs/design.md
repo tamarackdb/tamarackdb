@@ -162,9 +162,9 @@ Pagination is cursor-based, not offset-based: an offset would be unstable on a l
 
 The response carries a `hasMore` boolean so the client never has to guess whether it reached the end. The server fetches `limit + 1` rows: if it gets that many, it trims the result back to `limit` and returns `hasMore: true`; otherwise it returns everything it got and `hasMore: false`.
 
-Both the default `limit` (applied when a request omits it) and the server-enforced maximum (the highest `limit` a request is allowed to ask for) are configuration, not fixed constants — set in the same startup configuration file as the bind address, TLS paths, auth token, and event size limit. Paging performance depends on how fast a given application's projections can process a batch of events (see Live projection rebuilds), which varies enough between applications, and even between projections in the same application, that a single hardcoded page size wouldn't fit all of them.
+Both the default `limit` (applied when a request omits it) and the server-enforced maximum (the highest `limit` a request is allowed to ask for) are configuration, not fixed constants (see Configuration). Paging performance depends on how fast a given application's projections can process a batch of events (see Live projection rebuilds), which varies enough between applications, and even between projections in the same application, that a single hardcoded page size wouldn't fit all of them.
 
-Left out of the configuration file, `limit` falls back to a default of **1,000** and a server-enforced maximum of **10,000** — sized so a default page stays comfortable to buffer client-side, and a page at the maximum still processes in a matter of seconds even for a fast projection, keeping the underlying SQLite read transaction short (see Production reference data for the sizing behind these numbers). A request asking for more than the configured maximum is rejected with `400 Bad Request` (see Error responses).
+Left unset, `limit` falls back to a default of **1,000** and a server-enforced maximum of **10,000** — sized so a default page stays comfortable to buffer client-side, and a page at the maximum still processes in a matter of seconds even for a fast projection, keeping the underlying SQLite read transaction short (see Production reference data for the sizing behind these numbers). A request asking for more than the configured maximum is rejected with `400 Bad Request` (see Error responses).
 
 ### Live projection rebuilds
 
@@ -246,7 +246,7 @@ The limit is deliberate, not a technical ceiling to raise later: it keeps an eve
 
 Real-world event sizes stay far under the limit, with comfortable headroom over real-world usage rather than being a ceiling anything is currently pushing against (see Production reference data for the numbers).
 
-The default of 64 KiB is configurable in the same startup configuration file as the bind address, TLS paths, and auth token.
+The default of 64 KiB is configurable (see Configuration).
 
 ### Error responses
 
@@ -393,13 +393,37 @@ On startup, the process reads `PRAGMA user_version` and compares it against the 
 
 Migrating an existing database from one schema version to the next is the job of a separate binary, not the TamarackDB process itself — a dedicated migration tool run once, deliberately, between a schema change and the next deployment of the main binary. The TamarackDB server never migrates a schema on its own.
 
+## Configuration
+
+TamarackDB's startup configuration — bind address, port, TLS settings, auth token, database path, and pagination/event-size limits — is resolved from three sources, in order of precedence:
+
+1. A JSON configuration file, passed via `-config` (defaults to `config.json` in the working directory).
+2. `TAMARACKDB_*` environment variables, one per configuration key.
+3. Built-in defaults, for the handful of keys that have one (`defaultLimit`, `maxLimit`, `maxEventSize`).
+
+A value set in the configuration file always wins over the matching environment variable. The configuration file itself is optional: an application deployed as one instance per environment, each with its own file, uses it as the single source of truth; a container deployment with no file at all is configured entirely through the environment instead. Both paths produce the same `Config`, and every field is validated the same way regardless of where it came from (see below).
+
+| Key | Environment variable |
+|---|---|
+| `bindAddress` | `TAMARACKDB_BIND_ADDRESS` |
+| `port` | `TAMARACKDB_PORT` |
+| `enableTls` | `TAMARACKDB_ENABLE_TLS` |
+| `tlsCertFile` | `TAMARACKDB_TLS_CERT_FILE` |
+| `tlsKeyFile` | `TAMARACKDB_TLS_KEY_FILE` |
+| `enableAuth` | `TAMARACKDB_ENABLE_AUTH` |
+| `authToken` | `TAMARACKDB_AUTH_TOKEN` |
+| `databasePath` | `TAMARACKDB_DATABASE_PATH` |
+| `defaultLimit` | `TAMARACKDB_DEFAULT_LIMIT` |
+| `maxLimit` | `TAMARACKDB_MAX_LIMIT` |
+| `maxEventSize` | `TAMARACKDB_MAX_EVENT_SIZE` |
+
 ## Security
 
-TLS and Bearer-token authentication are each controlled independently by their own boolean in the JSON configuration file, `enableTls` and `enableAuth`, so a deployment matches its own network trust boundary instead of the store enforcing one fixed posture. Both default to disabled, for a deployment where the network itself is already isolated upstream — a private network segment, a VPN, a firewall boundary — making TLS and per-request auth redundant weight on top of a trust boundary already enforced elsewhere.
+TLS and Bearer-token authentication are each controlled independently by their own boolean, `enableTls` and `enableAuth`, so a deployment matches its own network trust boundary instead of the store enforcing one fixed posture. Both default to disabled, for a deployment where the network itself is already isolated upstream — a private network segment, a VPN, a firewall boundary — making TLS and per-request auth redundant weight on top of a trust boundary already enforced elsewhere.
 
-When `enableTls` is true, the bind address, port, and TLS certificate/key paths are all set in the same configuration file; the Go process terminates TLS itself via `ListenAndServeTLS`, with no reverse proxy in front of it. When `enableTls` is false, the process serves plain HTTP on the configured bind address and port.
+When `enableTls` is true, the bind address, port, and TLS certificate/key paths are all set the same way (see Configuration); the Go process terminates TLS itself via `ListenAndServeTLS`, with no reverse proxy in front of it. When `enableTls` is false, the process serves plain HTTP on the configured bind address and port.
 
-When `enableAuth` is true, every endpoint — `read`, `append`, `/health`, and any nice-to-have observability endpoint (`/metrics`, `/debug`) — requires a Bearer token in the `Authorization` header (`Authorization: Bearer <token>`). The token is a single static value, defined as `authToken` in the same configuration file. A request without a valid token is rejected with `401 Unauthorized` before reaching any handler logic. Rotating the token means editing the configuration file and restarting the process — there is no in-memory rotation or multi-token acceptance window, consistent with the gatekeeper's own transient, in-memory state. When `enableAuth` is false, the API is served with no authentication at all.
+When `enableAuth` is true, every endpoint — `read`, `append`, `/health`, and any nice-to-have observability endpoint (`/metrics`, `/debug`) — requires a Bearer token in the `Authorization` header (`Authorization: Bearer <token>`). The token is a single static value, defined as `authToken`. A request without a valid token is rejected with `401 Unauthorized` before reaching any handler logic. Rotating the token means changing the configuration file or environment variable and restarting the process — there is no in-memory rotation or multi-token acceptance window, consistent with the gatekeeper's own transient, in-memory state. When `enableAuth` is false, the API is served with no authentication at all.
 
 A single token, with no per-client scoping, is sufficient because a TamarackDB instance has exactly one trusted caller: the owning application. If that application is itself multi-tenant, tenant isolation is its own responsibility, enforced using the `tenantId` metadata already carried by events — it is not something TamarackDB's authentication layer needs to provide.
 
