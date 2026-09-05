@@ -26,6 +26,18 @@ Produces three binaries under `bin/`:
 | `tamarackdb-migrate` | Standalone schema migration tool, run once between a schema change and a server deployment |
 | `tamarackdb-init` | Provisions a new, empty SQLite database file with the current schema applied |
 
+### Cross-compiling for other platforms
+
+Dedicated Makefile targets build for other operating systems, placing each
+platform's binaries under `bin/<os>-<arch>/`:
+
+```sh
+make build-linux    # bin/linux-amd64/, bin/linux-arm64/
+make build-windows  # bin/windows-amd64/, bin/windows-arm64/ (.exe)
+make build-macos    # bin/darwin-amd64/, bin/darwin-arm64/
+make build-all      # all of the above
+```
+
 ## Configure
 
 Copy `config.json.dist` to `config.json` and adjust as needed:
@@ -62,5 +74,6 @@ make test
 ## Other Makefile targets
 
 - `make demo` — builds `tamarackdb-demo`
+- `make build-linux` / `make build-windows` / `make build-macos` / `make build-all` — cross-compile for other platforms, see [Cross-compiling for other platforms](#cross-compiling-for-other-platforms)
 - `make fmt` / `make vet` / `make tidy` — standard Go housekeeping
 - `make clean` — removes `bin/`
