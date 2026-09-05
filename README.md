@@ -1,4 +1,4 @@
-# TamarackDB
+![](docs/tamarackdb-logo.svg)
 
 TamarackDB is an event store in Go, compliant with the [DCB (Dynamic Consistency
 Boundaries) specification](https://dcb.events/specification/), accessible via HTTP,
