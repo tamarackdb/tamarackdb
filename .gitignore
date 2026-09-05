@@ -1,5 +1,9 @@
 /.idea
 /bin/
+/tamarackdb
+/tamarackdb-migrate
+/tamarackdb-init
+/tamarackdb-demo
 *.db
 *.db-wal
 *.db-shm
