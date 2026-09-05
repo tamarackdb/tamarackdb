@@ -26,6 +26,14 @@ import (
 // version is set at build time via -ldflags "-X main.version=...".
 var version = "dev"
 
+// banner is printed to stdout on startup, generated with `figlet TamarackDB`
+// (standard font).
+const banner = " _____                                    _    ____  ____\n" +
+	"|_   _|_ _ _ __ ___   __ _ _ __ __ _  ___| | _|  _ \\| __ )\n" +
+	"  | |/ _` | '_ ` _ \\ / _` | '__/ _` |/ __| |/ / | | |  _ \\\n" +
+	"  | | (_| | | | | | | (_| | | | (_| | (__|   <| |_| | |_) |\n" +
+	"  |_|\\__,_|_| |_| |_|\\__,_|_|  \\__,_|\\___|_|\\_\\____/|____/\n"
+
 func main() {
 	configPath := flag.String("config", "config.json", "path to the JSON configuration file (optional; falls back to TAMARACKDB_* environment variables)")
 	showVersion := flag.Bool("version", false, "print the version and exit")
@@ -35,6 +43,9 @@ func main() {
 		fmt.Println(version)
 		return
 	}
+
+	fmt.Print(banner)
+	fmt.Printf("\ntamarackdb %s\nhttps://github.com/tamarackdb\n\n", version)
 
 	cfg, err := config.Load(*configPath)
 	if err != nil {
@@ -74,6 +85,8 @@ func main() {
 
 	signalCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	log.Printf("tamarackdb: listening on %s (tls=%t, auth=%t)", httpServer.Addr, cfg.EnableTLS, cfg.EnableAuth)
 
 	serveErrCh := make(chan error, 1)
 	if cfg.EnableTLS {
