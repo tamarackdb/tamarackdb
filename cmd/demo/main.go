@@ -41,13 +41,13 @@ var studentFirstNames = []string{
 }
 
 func main() {
-	path := flag.String("p", "", "path of the SQLite database file to seed")
+	path := flag.String("db", "", "path of the SQLite database file to seed")
 	n := flag.Int("n", 1000, "target number of events to append")
 	seed := flag.Int64("seed", 1, "random seed, for reproducible datasets")
 	flag.Parse()
 
 	if *path == "" {
-		log.Fatal("tamarackdb-demo: -p is required")
+		log.Fatal("tamarackdb-demo: -db is required")
 	}
 	if *n <= 0 {
 		log.Fatal("tamarackdb-demo: -n must be positive")
