@@ -71,6 +71,25 @@ environment variables cover a Docker deployment with no file at all.
 `tamarackdb -version` prints the running build's version (from `VERSION`) and exits
 without loading the configuration file or opening the store.
 
+## Docker
+
+```sh
+docker build -t tamarackdb .
+docker run -d -p 8085:8085 -v tamarackdb-data:/data tamarackdb
+```
+
+The image is configured entirely through `TAMARACKDB_*` environment variables (see
+[Configure](#configure)); no `config.json` is needed inside the container. The database
+file defaults to `/data/tamarack.db`, so mount a volume on `/data` to persist it across
+container restarts.
+
+`tamarackdb-migrate` and `tamarackdb-init` are also present in the image, for running
+against the mounted volume:
+
+```sh
+docker exec <container> ./tamarackdb-init -p /data/tamarack.db
+```
+
 ## Test
 
 ```sh
