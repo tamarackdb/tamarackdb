@@ -16,7 +16,7 @@ Produces three binaries under `bin/`:
 |---|---|
 | `tamarackdb` | The HTTP server |
 | `tamarackdb-migrate` | Standalone schema migration tool, run once between a schema change and a server deployment |
-| `tamarackdb-init` | Provisions a new, empty SQLite database file with the current schema applied |
+| `tamarackdb-init` | Provisions a new instance: an empty SQLite database file with the current schema applied, a default JSON configuration file, or both |
 
 ### Cross-compiling for other platforms
 
@@ -32,10 +32,10 @@ make build-all      # all of the above
 
 ## Configure
 
-Copy `config.json.dist` to `config.json` and adjust as needed:
+Generate a starter `config.json` and adjust as needed:
 
 ```sh
-cp config.json.dist config.json
+./bin/tamarackdb-init -config config.json
 ```
 
 | Key | Environment variable | Description |
@@ -56,8 +56,8 @@ environment variables cover a Docker deployment with no file at all.
 ## Run
 
 ```sh
-./bin/tamarackdb-init -p /path/to/tamarack.db
-./bin/tamarackdb -config config.json
+./bin/tamarackdb-init -db /path/to/tamarack.db -config /path/to/config.json
+./bin/tamarackdb -config /path/to/config.json
 ```
 
 `tamarackdb -version` prints the running build's version (from `VERSION`) and exits
@@ -79,7 +79,7 @@ container restarts.
 against the mounted volume:
 
 ```sh
-docker exec <container> ./tamarackdb-init -p /data/tamarack.db
+docker exec <container> ./tamarackdb-init -db /data/tamarack.db
 ```
 
 ## Test
