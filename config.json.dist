@@ -1,6 +1,6 @@
 {
   "bindAddress": "127.0.0.1",
-  "port": 8443,
+  "port": 8085,
   "enableTls": false,
   "tlsCertFile": "/path/to/cert.pem",
   "tlsKeyFile": "/path/to/key.pem",
