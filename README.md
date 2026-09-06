@@ -4,14 +4,6 @@ TamarackDB is an event store in Go, compliant with the [DCB (Dynamic Consistency
 Boundaries) specification](https://dcb.events/specification/), accessible via HTTP,
 using SQLite as the storage engine.
 
-It runs as a single instance ("single brain"), not a cluster: each application owns
-its own TamarackDB instance, backed by its own SQLite database file. It targets
-internal enterprise systems with modest throughput and few concurrent writers — not
-a general-purpose product competing with DCB implementations built for larger scale.
-
-See `docs/design.md` for the full design specification (data model, HTTP API, query
-grammar, concurrency handling, storage schema).
-
 ## Build
 
 ```sh
