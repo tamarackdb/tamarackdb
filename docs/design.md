@@ -345,6 +345,8 @@ SQLite is used as the storage engine, for the following reasons:
 - WAL mode allows concurrent reads without blocking
 - A standard, inspectable file format: the database can be opened and queried with ordinary SQLite tooling, not a proprietary or opaque format, and backed up the same way — through SQLite's own backup mechanism (e.g. `.backup`, `VACUUM INTO`) rather than a raw copy of the main file, which can miss commits still sitting in the WAL
 
+**Enforcing single-writer at the OS level:** `writeDB.SetMaxOpenConns(1)`, WAL, and `_busy_timeout` only serialize writes *within* one process — nothing stops a second `tamarackdb` process from opening the same database file and racing the first. `store.Open` closes that gap directly: before touching the SQLite file, it takes an exclusive, non-blocking `flock(2)` on a sibling `<path>.lock` file and holds it for the life of the process, held open (not just briefly acquired) so the OS releases it automatically on exit or crash — no stale lock file can block a later start. A second process finds the lock held and fails fast at startup with `ErrDatabaseLocked` instead of silently corrupting state or fighting the first process for `SQLITE_BUSY`. This relies on `flock(2)`; TamarackDB targets Linux only (see the Makefile's `build-linux` target) — Docker covers every other platform.
+
 ### Schema
 
 ```sql

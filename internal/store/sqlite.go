@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
 
 	_ "modernc.org/sqlite"
 )
@@ -26,6 +27,7 @@ const (
 type Store struct {
 	writeDB *sql.DB
 	readDB  *sql.DB
+	lock    *os.File
 }
 
 func dsn(path string, extra string) string {
@@ -39,9 +41,19 @@ func dsn(path string, extra string) string {
 // its read and write connection pools, and ensures the schema is present
 // and at the version this binary expects. Any non-nil error is fatal at
 // startup: main.go should log it and exit rather than retry.
+//
+// Open first takes an exclusive lock on path+".lock" (see lock.go) and
+// fails with ErrDatabaseLocked if another tamarackdb process already holds
+// it: two processes are never meant to share one database file.
 func Open(ctx context.Context, path string) (*Store, error) {
+	lock, err := acquireLock(path)
+	if err != nil {
+		return nil, err // ErrDatabaseLocked, or already wrapped
+	}
+
 	writeDB, err := sql.Open("sqlite", dsn(path, "&_txlock=immediate"))
 	if err != nil {
+		releaseLock(lock)
 		return nil, wrapf("open write pool", err)
 	}
 	writeDB.SetMaxOpenConns(1)
@@ -50,6 +62,7 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	readDB, err := sql.Open("sqlite", dsn(path, "&_query_only=1"))
 	if err != nil {
 		writeDB.Close()
+		releaseLock(lock)
 		return nil, wrapf("open read pool", err)
 	}
 	readDB.SetMaxOpenConns(defaultReadPoolSize)
@@ -58,24 +71,27 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	if err := writeDB.PingContext(ctx); err != nil {
 		writeDB.Close()
 		readDB.Close()
+		releaseLock(lock)
 		return nil, wrapf("open database file", err)
 	}
 	if err := readDB.PingContext(ctx); err != nil {
 		writeDB.Close()
 		readDB.Close()
+		releaseLock(lock)
 		return nil, wrapf("open database file", err)
 	}
 	if err := ensureSchema(ctx, writeDB); err != nil {
 		writeDB.Close()
 		readDB.Close()
+		releaseLock(lock)
 		return nil, err // already wrapped, or *SchemaVersionError
 	}
-	return &Store{writeDB: writeDB, readDB: readDB}, nil
+	return &Store{writeDB: writeDB, readDB: readDB, lock: lock}, nil
 }
 
-// Close closes both connection pools.
+// Close closes both connection pools and releases the database file lock.
 func (s *Store) Close() error {
-	return errors.Join(s.writeDB.Close(), s.readDB.Close())
+	return errors.Join(s.writeDB.Close(), s.readDB.Close(), releaseLock(s.lock))
 }
 
 // Ping confirms the store is reachable, for use by GET /health (a trivial

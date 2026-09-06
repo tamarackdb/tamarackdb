@@ -12,6 +12,11 @@ import (
 // JSON; internal/api maps this to 409 {"error":"ConcurrencyException"}.
 var ErrConcurrencyConflict = errors.New("store: an event matching the append condition already exists")
 
+// ErrDatabaseLocked is returned by Open when another process already holds
+// the lock on this database file (see acquireLock in lock.go). Two
+// processes are never meant to share one TamarackDB database file.
+var ErrDatabaseLocked = errors.New("store: database file is locked by another tamarackdb process")
+
 // Primary SQLite result codes (https://www.sqlite.org/rescode.html). An
 // extended result code packs detail into higher bits (e.g.
 // SQLITE_IOERR_WRITE = SQLITE_IOERR | (3<<8)); IsFatal masks with & 0xff

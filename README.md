@@ -18,16 +18,14 @@ Produces three binaries under `bin/`:
 | `tamarackdb-migrate` | Standalone schema migration tool, run once between a schema change and a server deployment |
 | `tamarackdb-init` | Provisions a new instance: an empty SQLite database file with the current schema applied, a default JSON configuration file, or both |
 
-### Cross-compiling for other platforms
+### Cross-compiling for amd64/arm64
 
-Dedicated Makefile targets build for other operating systems, placing each
-platform's binaries under `bin/<os>-<arch>/`:
+TamarackDB targets Linux only (Docker covers every other platform). A
+dedicated Makefile target builds both architectures, placing each under
+`bin/<os>-<arch>/`:
 
 ```sh
 make build-linux    # bin/linux-amd64/, bin/linux-arm64/
-make build-windows  # bin/windows-amd64/, bin/windows-arm64/ (.exe)
-make build-macos    # bin/darwin-amd64/, bin/darwin-arm64/
-make build-all      # all of the above
 ```
 
 ## Configure
@@ -91,6 +89,6 @@ make test
 ## Other Makefile targets
 
 - `make demo` — builds `tamarackdb-demo`
-- `make build-linux` / `make build-windows` / `make build-macos` / `make build-all` — cross-compile for other platforms, see [Cross-compiling for other platforms](#cross-compiling-for-other-platforms)
+- `make build-linux` — cross-compile for both architectures, see [Cross-compiling for amd64/arm64](#cross-compiling-for-amd64arm64)
 - `make fmt` / `make vet` / `make tidy` — standard Go housekeeping
 - `make clean` — removes `bin/`

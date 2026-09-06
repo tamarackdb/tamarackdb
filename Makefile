@@ -2,8 +2,7 @@ BINDIR := bin
 VERSION := $(shell cat VERSION)
 LDFLAGS := -X main.version=$(VERSION)
 
-.PHONY: build demo test run clean fmt vet tidy \
-	build-linux build-windows build-macos build-all
+.PHONY: build demo test run clean fmt vet tidy build-linux
 
 build:
 	go build -ldflags "$(LDFLAGS)" -o $(BINDIR)/tamarackdb ./cmd/tamarackdb
@@ -13,8 +12,9 @@ build:
 demo:
 	go build -o $(BINDIR)/tamarackdb-demo ./cmd/demo
 
-# Cross-compilation targets. CGO_ENABLED=0 because modernc.org/sqlite is
-# pure Go, so no C toolchain is needed for any target platform.
+# Cross-arch build target. CGO_ENABLED=0 because modernc.org/sqlite is pure
+# Go, so no C toolchain is needed. Linux only: Docker covers every other
+# platform.
 
 define build_target
 	mkdir -p $(BINDIR)/$(1)-$(2)
@@ -26,16 +26,6 @@ endef
 build-linux:
 	$(call build_target,linux,amd64,)
 	$(call build_target,linux,arm64,)
-
-build-windows:
-	$(call build_target,windows,amd64,.exe)
-	$(call build_target,windows,arm64,.exe)
-
-build-macos:
-	$(call build_target,darwin,amd64,)
-	$(call build_target,darwin,arm64,)
-
-build-all: build-linux build-windows build-macos
 
 test:
 	go test ./...
