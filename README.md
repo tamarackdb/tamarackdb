@@ -61,6 +61,12 @@ environment variables cover a Docker deployment with no file at all.
 `tamarackdb -version` prints the running build's version (from `VERSION`) and exits
 without loading the configuration file or opening the store.
 
+## Usage
+
+See [docs/usage.md](docs/usage.md) for a guide to reading and appending events over
+HTTP, aimed at applications and client libraries. For the server's internal
+architecture, see [docs/design.md](docs/design.md).
+
 ## Docker
 
 ```sh
