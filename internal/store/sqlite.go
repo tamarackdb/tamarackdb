@@ -102,3 +102,26 @@ func (s *Store) Ping(ctx context.Context) error {
 	err := s.readDB.QueryRowContext(ctx, "SELECT 1").Scan(&one)
 	return wrapf("ping", err)
 }
+
+// Truncate deletes every event, identifier, and metadata row, leaving the
+// schema itself untouched. It runs outside internal/gatekeeper's
+// reservation tracking, so callers must only reach it through the
+// devMode-gated DELETE / endpoint, never during ordinary operation.
+func (s *Store) Truncate(ctx context.Context) error {
+	tx, err := s.writeDB.BeginTx(ctx, nil)
+	if err != nil {
+		return wrapf("begin truncate", err)
+	}
+	defer tx.Rollback() // no-op after Commit
+
+	for _, stmt := range []string{
+		"DELETE FROM identifiers",
+		"DELETE FROM metadata",
+		"DELETE FROM events",
+	} {
+		if _, err := tx.ExecContext(ctx, stmt); err != nil {
+			return wrapf("truncate", err)
+		}
+	}
+	return wrapf("commit truncate", tx.Commit())
+}

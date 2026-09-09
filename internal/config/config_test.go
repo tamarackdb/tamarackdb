@@ -144,6 +144,65 @@ func TestLoadDefaultLimitExceedsMaxLimit(t *testing.T) {
 	}
 }
 
+func TestLoadDevModeFromFile(t *testing.T) {
+	path := writeConfigFile(t, `{
+		"bindAddress": "0.0.0.0", "port": 8443,
+		"tlsCertFile": "cert.pem", "tlsKeyFile": "key.pem",
+		"authToken": "secret", "databasePath": "db.sqlite",
+		"devMode": true
+	}`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if !cfg.DevMode {
+		t.Error("DevMode = false, want true (from file)")
+	}
+}
+
+func TestLoadDevModeDefaultsFalse(t *testing.T) {
+	path := writeConfigFile(t, `{
+		"bindAddress": "0.0.0.0", "port": 8443,
+		"tlsCertFile": "cert.pem", "tlsKeyFile": "key.pem",
+		"authToken": "secret", "databasePath": "db.sqlite"
+	}`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.DevMode {
+		t.Error("DevMode = true, want false (default)")
+	}
+}
+
+func TestLoadDevModeFromEnv(t *testing.T) {
+	setEnv(t, map[string]string{"TAMARACKDB_DEV_MODE": "true"})
+	path := writeConfigFile(t, `{
+		"bindAddress": "0.0.0.0", "port": 8443,
+		"tlsCertFile": "cert.pem", "tlsKeyFile": "key.pem",
+		"authToken": "secret", "databasePath": "db.sqlite"
+	}`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if !cfg.DevMode {
+		t.Error("DevMode = false, want true (from env)")
+	}
+}
+
+func TestLoadDevModeInvalidEnvValue(t *testing.T) {
+	setEnv(t, map[string]string{"TAMARACKDB_DEV_MODE": "not-a-bool"})
+	path := writeConfigFile(t, `{
+		"bindAddress": "0.0.0.0", "port": 8443,
+		"tlsCertFile": "cert.pem", "tlsKeyFile": "key.pem",
+		"authToken": "secret", "databasePath": "db.sqlite"
+	}`)
+	if _, err := Load(path); err == nil {
+		t.Fatal("Load() error = nil, want error for invalid TAMARACKDB_DEV_MODE")
+	}
+}
+
 func TestLoadFileNotFound(t *testing.T) {
 	_, err := Load(filepath.Join(t.TempDir(), "does-not-exist.json"))
 	if err == nil {

@@ -34,6 +34,10 @@ type Config struct {
 	AuthToken    string `json:"authToken"`
 	DatabasePath string `json:"databasePath"`
 
+	// DevMode, when true, registers the DELETE / endpoint, which wipes the
+	// entire database. Never enable this in production.
+	DevMode bool `json:"devMode"`
+
 	// Optional; defaulted by Load when omitted (zero value in the JSON and
 	// unset in the environment).
 	DefaultLimit int `json:"defaultLimit,omitempty"` // default: 1000
@@ -135,6 +139,15 @@ func applyEnv(cfg *Config) error {
 	if cfg.DatabasePath == "" {
 		if v, ok := os.LookupEnv("TAMARACKDB_DATABASE_PATH"); ok {
 			cfg.DatabasePath = v
+		}
+	}
+	if !cfg.DevMode {
+		if v, ok := os.LookupEnv("TAMARACKDB_DEV_MODE"); ok {
+			b, err := strconv.ParseBool(v)
+			if err != nil {
+				return fmt.Errorf("invalid TAMARACKDB_DEV_MODE %q: %w", v, err)
+			}
+			cfg.DevMode = b
 		}
 	}
 	if cfg.DefaultLimit == 0 {

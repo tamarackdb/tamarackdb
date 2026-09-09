@@ -418,6 +418,7 @@ A value set in the configuration file always wins over the matching environment 
 | `defaultLimit` | `TAMARACKDB_DEFAULT_LIMIT` |
 | `maxLimit` | `TAMARACKDB_MAX_LIMIT` |
 | `maxEventSize` | `TAMARACKDB_MAX_EVENT_SIZE` |
+| `devMode` | `TAMARACKDB_DEV_MODE` |
 
 ## Security
 
@@ -428,6 +429,10 @@ When `enableTls` is true, the bind address, port, and TLS certificate/key paths 
 When `enableAuth` is true, every endpoint — `read`, `append`, `/health`, and any nice-to-have observability endpoint (`/metrics`, `/debug`) — requires a Bearer token in the `Authorization` header (`Authorization: Bearer <token>`). The token is a single static value, defined as `authToken`. A request without a valid token is rejected with `401 Unauthorized` before reaching any handler logic. Rotating the token means changing the configuration file or environment variable and restarting the process — there is no in-memory rotation or multi-token acceptance window, consistent with the gatekeeper's own transient, in-memory state. When `enableAuth` is false, the API is served with no authentication at all.
 
 A single token, with no per-client scoping, is sufficient because a TamarackDB instance has exactly one trusted caller: the owning application. If that application is itself multi-tenant, tenant isolation is its own responsibility, enforced using the `tenantId` metadata already carried by events — it is not something TamarackDB's authentication layer needs to provide.
+
+### Dev mode
+
+`devMode` (see Configuration) registers one additional endpoint, `DELETE /`, which wipes every event, identifier, and metadata row from the database — the schema itself is left in place. It responds `204 No Content` on success. The endpoint doesn't exist at all unless `devMode` is `true`: with it left at its default of `false`, `DELETE /` gets the stdlib's plain `404`, the same as any other unregistered path. This keeps the destructive operation unreachable in a normal deployment rather than reachable-but-guarded, matching the "fail loud, keep it simple" posture used throughout — there is no separate permission or confirmation step once `devMode` is on. It runs outside the gatekeeper's reservation tracking, so it is meant for local development and test environments only, never a production instance.
 
 ## Management / observability features
 

@@ -41,6 +41,10 @@ type Options struct {
 	// Default: 65536 (64 KiB).
 	MaxEventSize int
 
+	// DevMode, when true, registers DELETE /, which wipes the entire
+	// database. Never enable this in production.
+	DevMode bool
+
 	// OnFatalStorageError, if non-nil, is called whenever a handler
 	// observes store.IsFatal(err) == true. The handler itself never
 	// crashes the process, only reports; a future main.go supplies a
@@ -104,6 +108,12 @@ func New(gk *gatekeeper.Gatekeeper, st *store.Store, opts Options) *Server {
 	// only fires when truly nothing, including method-agnostic patterns,
 	// matches). An unknown path gets the stdlib's plain-text 404; a known
 	// path with the wrong method correctly gets 405 + Allow.
+	if opts.DevMode {
+		// "DELETE /" is method-scoped, unlike a bare "/": it only ever
+		// matches DELETE requests, so it doesn't reintroduce the
+		// 405-swallowing problem described above for the other methods.
+		mux.HandleFunc("DELETE /", s.handleReset)
+	}
 
 	if opts.EnableAuth {
 		s.handler = s.withAuth(mux)

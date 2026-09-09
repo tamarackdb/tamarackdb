@@ -69,6 +69,7 @@ func main() {
 		DefaultLimit: cfg.DefaultLimit,
 		MaxLimit:     cfg.MaxLimit,
 		MaxEventSize: cfg.MaxEventSize,
+		DevMode:      cfg.DevMode,
 		OnFatalStorageError: func(err error) {
 			select {
 			case fatalCh <- err:
