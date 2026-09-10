@@ -44,6 +44,7 @@ Generate a starter `config.json` and adjust as needed:
 | `databasePath` | `TAMARACKDB_DATABASE_PATH` | Path to the SQLite database file |
 | `defaultLimit` / `maxLimit` | `TAMARACKDB_DEFAULT_LIMIT` / `TAMARACKDB_MAX_LIMIT` | Default and maximum page size for `QUERY /read` |
 | `maxEventSize` | `TAMARACKDB_MAX_EVENT_SIZE` | Maximum size in bytes of a single event |
+| `devMode` | `TAMARACKDB_DEV_MODE` | Enables development-only maintenance operations, such as `DELETE /` which wipes the entire database (never enable in production) |
 
 `config.json` is optional: any field it omits, or the whole file if it's absent, falls
 back to the matching `TAMARACKDB_*` environment variable, then to a built-in default.
