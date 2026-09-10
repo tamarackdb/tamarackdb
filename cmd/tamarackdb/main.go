@@ -52,6 +52,18 @@ func main() {
 		log.Fatalf("tamarackdb: %v", err)
 	}
 
+	fmt.Printf("bindAddress: %s\n", cfg.BindAddress)
+	fmt.Printf("port: %d\n", cfg.Port)
+	fmt.Printf("enableTls: %t\n", cfg.EnableTLS)
+	fmt.Printf("tlsCertFile: %s\n", cfg.TLSCertFile)
+	fmt.Printf("tlsKeyFile: %s\n", cfg.TLSKeyFile)
+	fmt.Printf("enableAuth: %t\n", cfg.EnableAuth)
+	fmt.Printf("databasePath: %s\n", cfg.DatabasePath)
+	fmt.Printf("devMode: %t\n", cfg.DevMode)
+	fmt.Printf("defaultLimit: %d\n", cfg.DefaultLimit)
+	fmt.Printf("maxLimit: %d\n", cfg.MaxLimit)
+	fmt.Printf("maxEventSize: %d\n\n", cfg.MaxEventSize)
+
 	st, err := store.Open(context.Background(), cfg.DatabasePath)
 	if err != nil {
 		log.Fatalf("tamarackdb: %v", err)
