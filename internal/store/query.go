@@ -39,10 +39,12 @@ func queryToSQL(q dcb.Query) (string, []any) {
 }
 
 // queryItemToSQL mirrors dcb.Matches for one QueryItem: OR across Types
-// (events.type IN (...)), AND across Identifiers/Metadata (one EXISTS per
-// tag, correlated on event_sequence), the three axes AND'd together.
-// Returns ("", nil) for a QueryItem{} (matches everything, per
-// dcb's containsAll being vacuously true on an empty want).
+// (events.type IN (...)), AND across Identifiers/Metadata (one uncorrelated
+// "sequence IN (SELECT event_sequence FROM ... WHERE name = ? AND value = ?)"
+// per tag, so SQLite can run each subquery once via its name/value index
+// instead of re-evaluating a correlated EXISTS per events row), the three
+// axes AND'd together. Returns ("", nil) for a QueryItem{} (matches
+// everything, per dcb's containsAll being vacuously true on an empty want).
 func queryItemToSQL(item dcb.QueryItem) (string, []any) {
 	var clauses []string
 	var args []any
@@ -56,12 +58,12 @@ func queryItemToSQL(item dcb.QueryItem) (string, []any) {
 	}
 	for _, id := range item.Identifiers {
 		clauses = append(clauses,
-			"EXISTS (SELECT 1 FROM identifiers WHERE identifiers.event_sequence = events.sequence AND identifiers.name = ? AND identifiers.value = ?)")
+			"events.sequence IN (SELECT event_sequence FROM identifiers WHERE identifiers.name = ? AND identifiers.value = ?)")
 		args = append(args, id.Name, id.Value)
 	}
 	for _, md := range item.Metadata {
 		clauses = append(clauses,
-			"EXISTS (SELECT 1 FROM metadata WHERE metadata.event_sequence = events.sequence AND metadata.name = ? AND metadata.value = ?)")
+			"events.sequence IN (SELECT event_sequence FROM metadata WHERE metadata.name = ? AND metadata.value = ?)")
 		args = append(args, md.Name, md.Value)
 	}
 	if len(clauses) == 0 {
