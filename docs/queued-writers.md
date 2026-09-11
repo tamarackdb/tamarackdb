@@ -116,6 +116,45 @@ per-event round trip to fetch an ID between each event and its tags. This matter
 grows: a single `/append` call can carry up to 100 events with up to 20 identifiers and 20
 metadata entries each, up to 4,100 rows in the extreme case.
 
+## Skipping the conflict check when nothing has been appended since the read
+
+Application-controlled sequencing has a further consequence beyond batching inserts: because the
+in-memory counter is always exactly the true maximum `sequence` at the moment a writer becomes
+active, the writer can sometimes tell, before touching SQLite at all, that its Append Condition is
+guaranteed to hold.
+
+**The check:** when a writer carrying `condition.failIfEventsMatch` and `afterSequence` becomes
+active, compare `afterSequence` to the highest sequence the counter has actually assigned so far
+(the counter's value minus one). If they're equal, no event with `sequence > afterSequence` exists
+at all — so none can match `failIfEventsMatch` either, whatever that Query says. The Append
+Condition holds by construction, and the SELECT that would otherwise check `failIfEventsMatch`
+against events committed since `afterSequence` (see "Why checking at execution time is still
+correct" above) is skipped entirely: the writer goes straight to computing sequence numbers and
+inserting. This is the common case in practice — a `read` immediately followed by an `append`, with
+no other writer interleaved.
+
+If the counter is ahead of `afterSequence`, at least one event has been committed since the read,
+and the full check runs as usual: the SELECT resolves whether any of those events match
+`failIfEventsMatch`.
+
+**Why this is correct:** `afterSequence` is defined as the highest `sequence` the client had seen
+(see "Append Condition and concurrency" in `design.md`), and the concurrency check is exactly
+`sequence > afterSequence` over the matching set. When the counter hasn't moved since that read,
+the candidate set for that comparison is empty by construction — a Query cannot produce a match out
+of zero candidate events, regardless of what the Query is. The guarantee depends only on how many
+events were committed since `afterSequence`, never on what they contain, so this shortcut needs no
+knowledge of `failIfEventsMatch` itself to be sound.
+
+**Doesn't apply to a bare `afterSequence`.** When `condition.failIfEventsMatch` is absent and only
+`afterSequence` is given (the idempotent-retry case described in "Startup and crash behavior"), the
+check was already nothing more than an integer comparison — no SELECT was ever needed there, so
+this optimization has nothing to remove in that case.
+
+**No externally observable change.** This is purely an internal shortcut: it changes what work a
+writer does to reach its decision, never the decision itself or anything in the HTTP contract. A
+client cannot tell, from the response, whether its Append Condition was resolved by this shortcut
+or by the full SELECT.
+
 ## Dev mode's `DELETE /` joins the same queue
 
 In the current design, `DELETE /` (see "Dev mode" in `design.md`) runs outside the gatekeeper's
@@ -209,3 +248,6 @@ simplify along with the mechanism:
   cases.
 - `docs/usage.md` references "the reservation manager" in its intro — would need updating to "the
   queue manager" for consistency.
+- "Append Condition and concurrency" — no change needed. Skipping the conflict check when nothing
+  has been appended since the read (see above) is an internal shortcut with no effect on the
+  documented protocol or `409` behavior.
