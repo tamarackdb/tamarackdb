@@ -444,6 +444,10 @@ A lightweight `GET /health` endpoint confirming the process is responsive and SQ
 
 The running build's version is a single value, read from the `VERSION` file at the root of the repository and baked into the binary at build time via `-ldflags "-X main.version=..."` — not something the process reads or reloads at runtime. `./tamarackdb -version` prints that value and exits immediately, without loading the configuration file or opening the store, for a quick check of what's actually running without having to reach it over the network. That same value is what `GET /health` reports in its `version` field above.
 
+### Request logging
+
+Every request logs one line to stdout once its handler completes: HTTP method, path, resulting status code, and duration, e.g. `tamarackdb: POST /append 200 1.2ms`. This wraps the entire routed handler, authentication included, so a request rejected with `401 Unauthorized` is logged the same as any other.
+
 ### Nice to have: gatekeeper observability
 
 Event and row counts, per-type breakdowns, database file size — anything derivable from the store's own content — are a query away against the SQLite file directly, so the store doesn't need to expose them itself. What the file can't answer is the gatekeeper's own live, in-memory state, which only exists for the lifetime of the process. Two endpoints cover that, kept separate because they serve different needs:

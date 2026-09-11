@@ -205,3 +205,10 @@ curl http://127.0.0.1:8085/health
 ```json
 { "status": "ok", "version": "1.2.3" }
 ```
+
+## Logs
+
+While you're testing an integration, the server logs one line per request to its
+stdout — method, path, status code, and duration, e.g. `tamarackdb: POST /append 200
+1.2ms` — so you can watch your `read`/`append` calls go by without printing anything
+client-side.

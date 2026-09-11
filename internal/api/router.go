@@ -115,11 +115,11 @@ func New(gk *gatekeeper.Gatekeeper, st *store.Store, opts Options) *Server {
 		mux.HandleFunc("DELETE /", s.handleReset)
 	}
 
+	var h http.Handler = mux
 	if opts.EnableAuth {
-		s.handler = s.withAuth(mux)
-	} else {
-		s.handler = mux
+		h = s.withAuth(h)
 	}
+	s.handler = s.withLogging(h)
 	return s
 }
 

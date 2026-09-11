@@ -62,6 +62,9 @@ environment variables cover a Docker deployment with no file at all.
 `tamarackdb -version` prints the running build's version (from `VERSION`) and exits
 without loading the configuration file or opening the store.
 
+Once running, the server logs one line per request to stdout — method, path, status
+code, and duration (e.g. `tamarackdb: POST /append 200 1.2ms`).
+
 ## Usage
 
 See [docs/usage.md](docs/usage.md) for a guide to reading and appending events over
