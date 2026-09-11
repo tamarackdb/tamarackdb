@@ -322,7 +322,11 @@ Consistency is guaranteed by SQLite's **MVCC** mode (WAL): a read sees a consist
 
 **Sequence Position assignment:** the `events` table's primary key is a SQLite `INTEGER PRIMARY KEY AUTOINCREMENT` column, which *is* the Sequence Position — SQLite assigns it at INSERT time, strictly increasing with each row. The gatekeeper never tracks or assigns it itself; only the actual commit order matters.
 
-### Startup and crash behavior
+### Startup, shutdown, and crash behavior
+
+On startup, before opening the store, the process prints a banner and the resolved configuration to stdout — bind address, port, the TLS and auth flags and file paths (`authToken` itself is never printed), database path, dev mode, and the pagination/event-size limits — as a plain operational aid for confirming at a glance what a given instance is actually configured to do, not a machine-readable format meant for parsing.
+
+On receiving `SIGINT` or `SIGTERM`, the process shuts down in order: the HTTP server stops accepting new connections and finishes in-flight requests (`http.Server.Shutdown`, bounded to 10 seconds), the gatekeeper is closed, then the SQLite store is closed, releasing its connections and the `.lock` file. A fatal storage error detected mid-flight (see Fatal storage errors below) drives this same ordered shutdown rather than an abrupt process exit. The HTTP server also sets `ReadHeaderTimeout` to 10 seconds, closing a connection that never finishes sending its request headers rather than holding it open indefinitely.
 
 The gatekeeper's reservation state is purely transient, held only in memory for the lifetime of the process. Nothing is persisted and nothing needs to be rebuilt on startup: a freshly started process begins with an empty reservation table, which is correct by construction — every reservation that existed before a crash belonged to an HTTP request whose client connection is now gone too.
 
@@ -389,6 +393,8 @@ The `events(sequence)` foreign key on both tables is enforced by setting `PRAGMA
 
 Two more pragmas are set on every connection at startup, alongside `foreign_keys`: `PRAGMA journal_mode = WAL` — the mode this design assumes throughout for MVCC reads and checkpoint behavior — and `PRAGMA synchronous = FULL`. `FULL` costs an extra fsync per commit compared to the `NORMAL` mode WAL usually pairs with, but at this scope's write volume (see Production reference data) that cost is negligible, and it buys the strongest durability guarantee SQLite offers for what is, for each application, its single source of truth with no replication behind it.
 
+The write connection also sets `_busy_timeout = 5000` (five seconds) and opens every transaction with `BEGIN IMMEDIATE` (`_txlock=immediate` in the DSN), taking SQLite's write lock at the start of the transaction rather than deferring it until the first write statement runs — the verification SELECT and the INSERTs that follow it commit as one atomic unit, with no window where another connection could interleave between them. With `writeDB.SetMaxOpenConns(1)` already serializing every write onto a single connection (see Enforcing single-writer at the OS level), the busy timeout only guards against something else briefly holding the file — a passive checkpoint, an external `sqlite3` shell — not against another instance of TamarackDB.
+
 Checkpointing relies on SQLite's own automatic passive checkpoint — triggered on its own once the WAL crosses its default size threshold, non-blocking to any concurrent reader or writer — rather than a separate checkpoint goroutine or schedule. This is exactly what bounded pagination on `/read` protects (see Live projection rebuilds): a long-held read transaction can stall that automatic checkpoint for as long as it runs, but nothing about the checkpoint itself needs to be triggered manually once reads stay short.
 
 On startup, the process reads `PRAGMA user_version` and compares it against the schema version built into the binary. A database file that doesn't exist yet is created fresh, with the schema above establishing it at the current version. An existing file whose version doesn't match — older, from a schema that's since changed, or newer, from a downgraded binary — is fatal: the process logs it and refuses to start, the same treatment as any other storage integrity failure (see Startup and crash behavior).
@@ -453,14 +459,37 @@ Every request logs one line to stdout once its handler completes: HTTP method, p
 Event and row counts, per-type breakdowns, database file size — anything derivable from the store's own content — are a query away against the SQLite file directly, so the store doesn't need to expose them itself. What the file can't answer is the gatekeeper's own live, in-memory state, which only exists for the lifetime of the process. Two endpoints cover that, kept separate because they serve different needs:
 
 **`GET /metrics`** — Prometheus exposition format, for scraping into existing monitoring:
-- Number of currently held reservations (gauge)
-- Number of requests currently queued, waiting for a reservation (gauge)
-- Longest current wait time among queued requests (gauge)
-- Throughput counters: appends granted/sec, appends failed (ConcurrencyException)/sec (counters)
+- `tamarackdb_reservations_held` (gauge) — number of append reservations currently held by in-flight writes
+- `tamarackdb_requests_queued` (gauge) — number of append requests currently waiting for a reservation
+- `tamarackdb_queue_longest_wait_seconds` (gauge) — longest current wait time, in seconds, among queued requests; `0` when the queue is empty
+- `tamarackdb_appends_granted_total` (counter) — total number of reservations granted since startup
+- `tamarackdb_appends_failed_total` (counter) — total number of appends that failed with a concurrency conflict (`409 ConcurrencyException`) since startup
 
 **`GET /debug`** — a JSON snapshot for investigating a specific stuck or slow append, too structured to fit a metric:
-- List of currently held reservations (their Query and pending new events) and their age
-- The queue of pending append requests
+
+```json
+{
+  "time": "2026-09-01T14:23:05.123456Z",
+  "held": [
+    {
+      "condition": { "failIfEventsMatch": [ ... ], "afterSequence": 12345 },
+      "events": [ ... ],
+      "grantedAt": "2026-09-01T14:23:04.900000Z",
+      "ageSeconds": 0.223
+    }
+  ],
+  "queued": [
+    {
+      "condition": { "failIfEventsMatch": [ ... ] },
+      "events": [ ... ],
+      "queuedAt": "2026-09-01T14:23:05.000000Z",
+      "waitSeconds": 0.1
+    }
+  ]
+}
+```
+
+`held` lists every reservation currently granted — its Append Condition, its pending new events, and its age; `queued` lists every request still waiting for one, in the same shape, with `waitSeconds` instead of `ageSeconds`. Both arrays are always present, never `null`, even when empty.
 
 Since the gatekeeper already serializes access to its state via its own channel, answering either request is just another message type it can handle — no separate locking needed to read a consistent snapshot of its own counters. Both are read-only: no endpoint allows forcibly releasing a reservation or otherwise mutating the gatekeeper's state, since that would reintroduce the exact race conditions the gatekeeper exists to prevent.
 

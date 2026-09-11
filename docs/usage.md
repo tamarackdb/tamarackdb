@@ -206,9 +206,24 @@ curl http://127.0.0.1:8085/health
 { "status": "ok", "version": "1.2.3" }
 ```
 
+## Observability
+
+Two more endpoints expose the server's own in-memory state, useful when investigating
+a slow or stuck `append` rather than during normal `read`/`append` usage:
+
+- `GET /metrics` — Prometheus exposition format: reservations currently held, requests
+  currently queued, longest current queue wait, and append throughput counters.
+- `GET /debug` — a JSON snapshot of every currently held and queued append reservation,
+  with its Append Condition and age.
+
+See [design.md](design.md#nice-to-have-gatekeeper-observability) for the exact metric
+names and JSON shape.
+
 ## Logs
 
 While you're testing an integration, the server logs one line per request to its
 stdout — method, path, status code, and duration, e.g. `tamarackdb: POST /append 200
 1.2ms` — so you can watch your `read`/`append` calls go by without printing anything
-client-side.
+client-side. It also prints a banner and its resolved configuration (bind address,
+port, database path, limits, and so on) once at startup, so you can confirm what a
+given instance is actually running with.
