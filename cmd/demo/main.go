@@ -2,8 +2,8 @@
 // schema-agnostic event stream: each event has a random type, 1 or 2
 // identifiers, a tenantId metadata entry, and a garbage-text payload. It
 // exists to exercise /read and storage at scale rather than to model any
-// particular domain. It is not part of the Makefile's build target; build
-// it explicitly with `go build -o bin/tamarackdb-demo ./cmd/demo`.
+// particular domain. Build it via `make demo`, producing
+// bin/tamarackdb-demo.
 package main
 
 import (
