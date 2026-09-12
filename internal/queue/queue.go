@@ -20,12 +20,10 @@ var ErrClosed = errors.New("queue: closed")
 // maxQueued depth; the caller never joins the queue in that case.
 var ErrFull = errors.New("queue: full")
 
-// Manager is TamarackDB's queue manager. Unlike its predecessor (a
-// gatekeeper that tracked Append Conditions to admit non-conflicting
-// writers in parallel), a new arrival here has no multi-entry decision to
-// make: it either finds the manager idle (becomes active immediately) or
-// it doesn't (joins the FIFO). A plain sync.Mutex is enough for that; no
-// background goroutine is needed.
+// Manager is TamarackDB's queue manager. A new arrival has no multi-entry
+// decision to make: it either finds the manager idle (becomes active
+// immediately) or it doesn't (joins the FIFO). A plain sync.Mutex is enough
+// for that; no background goroutine is needed.
 type Manager struct {
 	mu        sync.Mutex
 	closed    bool
@@ -172,9 +170,8 @@ func (m *Manager) done() {
 	close(head.readyCh)
 }
 
-// Snapshot returns a point-in-time view of live queue state. Unlike the
-// predecessor gatekeeper's channel-based Snapshot, this never blocks
-// meaningfully (a short mutex critical section) and never errors.
+// Snapshot returns a point-in-time view of live queue state. It never
+// blocks meaningfully (a short mutex critical section) and never errors.
 func (m *Manager) Snapshot() Snapshot {
 	m.mu.Lock()
 	defer m.mu.Unlock()

@@ -524,7 +524,7 @@ Event and row counts, per-type breakdowns, and database file size (anything you 
 
 `active` describes the current active writer, if any (`null` when the queue manager is idle). `queued` lists every writer still waiting, oldest first, with `waitSeconds` instead of `ageSeconds`. Neither one carries the writer's Append Condition or events: the queue manager never knows either (see Principle: the queue manager). `queued` is always present, never `null`, even when empty.
 
-Since the queue manager already serializes access to its own state behind a mutex, answering either request is just a quick, always-available read of its current counters. Unlike the earlier gatekeeper design's channel-based Snapshot, this never waits behind a queued or in-flight write. Both are read-only: no endpoint lets you force-finish a writer's turn, or otherwise change the queue manager's state, since that would bring back the exact race conditions it exists to prevent.
+Since the queue manager already serializes access to its own state behind a mutex, answering either request is just a quick, always-available read of its current counters, never blocked behind a queued or in-flight write. Both are read-only: no endpoint lets you force-finish a writer's turn, or otherwise change the queue manager's state, since that would bring back the exact race conditions it exists to prevent.
 
 ## Implementation
 
