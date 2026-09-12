@@ -7,10 +7,8 @@ package dcb
 // axes are AND'd together; within Types it's OR.
 //
 // event is EventData, not Event: Sequence and Time never participate in
-// matching, and this lets the same call work for an already-persisted
-// Event (pass event.EventData) and for a new, not-yet-appended event a
-// reservation is holding, when determining whether two reservations
-// conflict.
+// matching, so the same call works for an already-persisted Event (pass
+// event.EventData) or for an event not yet appended.
 func Matches(event EventData, item QueryItem) bool {
 	return matchesTypes(event.Type, item.Types) &&
 		containsAll(event.Identifiers, item.Identifiers) &&
@@ -19,11 +17,11 @@ func Matches(event EventData, item QueryItem) bool {
 
 // MatchesQuery reports whether an event matches a Query as a whole:
 // Query.all() matches everything; otherwise the event must match at
-// least one QueryItem (OR across items). Used both for read filtering
-// and for the gatekeeper's own-new-event-against-a-held-Query check.
-// Callers should Validate() a Query before relying on this: an
-// unvalidated, effectively-empty Query matches nothing rather than
-// panicking.
+// least one QueryItem (OR across items). internal/store/query.go's SQL
+// translation of a Query mirrors this exactly, for the read path and the
+// Append Condition check. Callers should Validate() a Query before
+// relying on this: an unvalidated, effectively-empty Query matches
+// nothing rather than panicking.
 func MatchesQuery(event EventData, q Query) bool {
 	if q.All() {
 		return true

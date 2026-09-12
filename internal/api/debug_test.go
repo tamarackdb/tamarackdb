@@ -5,21 +5,16 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
-
-	"github.com/tamarackdb/tamarackdb/internal/dcb"
 )
 
-func TestDebugReflectsGatekeeperState(t *testing.T) {
-	srv, gk, _ := newTestServer(t)
+func TestDebugReflectsActiveWriter(t *testing.T) {
+	srv, qm, _ := newTestServer(t)
 
-	q := dcb.NewQuery([]dcb.QueryItem{{Identifiers: []dcb.Identifier{{Name: "lockId", Value: "x"}}}})
-	condition := dcb.AppendCondition{FailIfEventsMatch: &q}
-	events := []dcb.EventData{{Type: "t", Identifiers: dcb.IdentifierSet{{Name: "lockId", Value: "x"}}}}
-	res, err := gk.Acquire(context.Background(), condition, events)
+	ticket, err := qm.Join(context.Background())
 	if err != nil {
-		t.Fatalf("Acquire() error = %v", err)
+		t.Fatalf("Join() error = %v", err)
 	}
-	defer res.Release()
+	defer ticket.Done()
 
 	rec := doRequest(t, srv, "GET", "/debug", "")
 	if rec.Code != 200 {
@@ -29,14 +24,11 @@ func TestDebugReflectsGatekeeperState(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if len(resp.Held) != 1 {
-		t.Fatalf("held = %+v, want 1 entry", resp.Held)
+	if resp.Active == nil {
+		t.Fatal("Active = nil, want a non-null active writer")
 	}
-	if resp.Held[0].AgeSeconds < 0 {
-		t.Errorf("AgeSeconds = %v, want >= 0", resp.Held[0].AgeSeconds)
-	}
-	if len(resp.Held[0].Events) != 1 || resp.Held[0].Events[0].Type != "t" {
-		t.Errorf("held events = %+v, want the acquired event", resp.Held[0].Events)
+	if resp.Active.AgeSeconds < 0 {
+		t.Errorf("AgeSeconds = %v, want >= 0", resp.Active.AgeSeconds)
 	}
 	if resp.Queued == nil {
 		t.Error("Queued = nil, want empty slice, never null")
@@ -52,7 +44,7 @@ func TestDebugEmptyArraysNeverNull(t *testing.T) {
 	if rec.Code != 200 {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), `"held":[]`) || !strings.Contains(rec.Body.String(), `"queued":[]`) {
-		t.Errorf("body = %s, want \"held\":[] and \"queued\":[] (never null)", rec.Body.String())
+	if !strings.Contains(rec.Body.String(), `"active":null`) || !strings.Contains(rec.Body.String(), `"queued":[]`) {
+		t.Errorf("body = %s, want \"active\":null and \"queued\":[] (never null)", rec.Body.String())
 	}
 }

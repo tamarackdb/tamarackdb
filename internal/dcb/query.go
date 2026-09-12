@@ -90,10 +90,11 @@ func (q Query) Validate() error {
 // AppendCondition mirrors condition in POST /append: FailIfEventsMatch
 // follows the same grammar as a read Query, and is itself optional
 // within a condition (an afterSequence-only condition is valid, used
-// for safe retries after a startup or crash). Defined
-// in dcb rather than internal/api because both internal/api (decoding
-// the request) and internal/gatekeeper (holding it per reservation)
-// need the same shape.
+// for safe retries after a startup or crash). Defined in dcb rather than
+// internal/api because both internal/api (decoding the request) and
+// internal/store (checking it against the database) need the same shape.
+// internal/queue, which admits writers before any condition is checked,
+// never needs to know this type at all.
 type AppendCondition struct {
 	FailIfEventsMatch *Query `json:"failIfEventsMatch,omitempty"`
 	AfterSequence     *int64 `json:"afterSequence,omitempty"`

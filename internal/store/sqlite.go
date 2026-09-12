@@ -1,6 +1,6 @@
 // Package store is TamarackDB's SQLite storage layer: schema management,
 // the DCB Query→SQL translation, and the read/append operations. It has no
-// knowledge of HTTP, JSON envelopes, configuration, or internal/gatekeeper.
+// knowledge of HTTP, JSON envelopes, configuration, or internal/queue.
 package store
 
 import (
@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sync"
 
 	_ "modernc.org/sqlite"
 )
@@ -28,6 +29,14 @@ type Store struct {
 	writeDB *sql.DB
 	readDB  *sql.DB
 	lock    *os.File
+
+	// seqMu guards nextSeq, the in-memory Sequence Position counter (see
+	// Append). A mutex is still needed even though internal/queue ensures
+	// at most one writer ever reaches Append in production: Append is also
+	// called directly, with no queue manager in front of it, by cmd/demo
+	// and by this package's own concurrency tests.
+	seqMu   sync.Mutex
+	nextSeq int64 // next sequence value to assign; nextSeq-1 is the highest assigned so far
 }
 
 func dsn(path string, extra string) string {
@@ -86,7 +95,21 @@ func Open(ctx context.Context, path string) (*Store, error) {
 		releaseLock(lock)
 		return nil, err // already wrapped, or *SchemaVersionError
 	}
-	return &Store{writeDB: writeDB, readDB: readDB, lock: lock}, nil
+
+	// Since events.sequence is now application-assigned rather than
+	// AUTOINCREMENT (see Append), the in-memory counter must resume from
+	// whatever is already on disk before any writer is accepted. An empty
+	// table starts the counter the same way AUTOINCREMENT would: the first
+	// event gets sequence 1.
+	var maxSeq int64
+	if err := writeDB.QueryRowContext(ctx, "SELECT COALESCE(MAX(sequence), 0) FROM events").Scan(&maxSeq); err != nil {
+		writeDB.Close()
+		readDB.Close()
+		releaseLock(lock)
+		return nil, wrapf("read max sequence", err)
+	}
+
+	return &Store{writeDB: writeDB, readDB: readDB, lock: lock, nextSeq: maxSeq + 1}, nil
 }
 
 // Close closes both connection pools and releases the database file lock.
@@ -104,9 +127,12 @@ func (s *Store) Ping(ctx context.Context) error {
 }
 
 // Truncate deletes every event, identifier, and metadata row, leaving the
-// schema itself untouched. It runs outside internal/gatekeeper's
-// reservation tracking, so callers must only reach it through the
-// devMode-gated DELETE / endpoint, never during ordinary operation.
+// schema itself untouched. Callers reach it only through the devMode-gated
+// DELETE / endpoint, which joins the same FIFO write-admission queue as
+// POST /append (see internal/queue) before calling Truncate, never during
+// ordinary operation. The in-memory sequence counter (nextSeq) is
+// deliberately left untouched by a wipe: the tables become empty, but the
+// counter keeps climbing from wherever it was.
 func (s *Store) Truncate(ctx context.Context) error {
 	tx, err := s.writeDB.BeginTx(ctx, nil)
 	if err != nil {

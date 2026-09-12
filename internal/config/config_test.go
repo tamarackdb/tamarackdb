@@ -28,7 +28,8 @@ func TestLoadFullConfig(t *testing.T) {
 		"databasePath": "/var/lib/tamarackdb/db.sqlite",
 		"defaultLimit": 500,
 		"maxLimit": 5000,
-		"maxEventSize": 32768
+		"maxEventSize": 32768,
+		"maxQueuedWriters": 250
 	}`)
 
 	cfg, err := Load(path)
@@ -39,7 +40,7 @@ func TestLoadFullConfig(t *testing.T) {
 		BindAddress: "0.0.0.0", Port: 8443,
 		EnableTLS: true, TLSCertFile: "/etc/tamarackdb/cert.pem", TLSKeyFile: "/etc/tamarackdb/key.pem",
 		EnableAuth: true, AuthToken: "secret", DatabasePath: "/var/lib/tamarackdb/db.sqlite",
-		DefaultLimit: 500, MaxLimit: 5000, MaxEventSize: 32768,
+		DefaultLimit: 500, MaxLimit: 5000, MaxEventSize: 32768, MaxQueuedWriters: 250,
 	}
 	if *cfg != want {
 		t.Errorf("Load() = %+v, want %+v", *cfg, want)
@@ -68,6 +69,9 @@ func TestLoadAppliesDefaults(t *testing.T) {
 	}
 	if cfg.MaxEventSize != defaultEventSize {
 		t.Errorf("MaxEventSize = %d, want %d", cfg.MaxEventSize, defaultEventSize)
+	}
+	if cfg.MaxQueuedWriters != defaultMaxQueuedWriters {
+		t.Errorf("MaxQueuedWriters = %d, want %d", cfg.MaxQueuedWriters, defaultMaxQueuedWriters)
 	}
 }
 
@@ -236,6 +240,7 @@ func TestLoadFromEnvWithoutFile(t *testing.T) {
 		TLSCertFile: "cert.pem", TLSKeyFile: "key.pem",
 		AuthToken: "secret", DatabasePath: "db.sqlite",
 		DefaultLimit: defaultLimit, MaxLimit: defaultMaxLimit, MaxEventSize: defaultEventSize,
+		MaxQueuedWriters: defaultMaxQueuedWriters,
 	}
 	if *cfg != want {
 		t.Errorf("Load() = %+v, want %+v", *cfg, want)
@@ -311,12 +316,61 @@ func TestLoadMalformedJSON(t *testing.T) {
 	}
 }
 
+func TestLoadMaxQueuedWritersFromFile(t *testing.T) {
+	path := writeConfigFile(t, `{
+		"bindAddress": "0.0.0.0", "port": 8443,
+		"tlsCertFile": "cert.pem", "tlsKeyFile": "key.pem",
+		"authToken": "secret", "databasePath": "db.sqlite",
+		"maxQueuedWriters": 50
+	}`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.MaxQueuedWriters != 50 {
+		t.Errorf("MaxQueuedWriters = %d, want 50", cfg.MaxQueuedWriters)
+	}
+}
+
+func TestLoadMaxQueuedWritersFromEnv(t *testing.T) {
+	setEnv(t, map[string]string{"TAMARACKDB_MAX_QUEUED_WRITERS": "25"})
+	path := writeConfigFile(t, `{
+		"bindAddress": "0.0.0.0", "port": 8443,
+		"tlsCertFile": "cert.pem", "tlsKeyFile": "key.pem",
+		"authToken": "secret", "databasePath": "db.sqlite"
+	}`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.MaxQueuedWriters != 25 {
+		t.Errorf("MaxQueuedWriters = %d, want 25 (from env)", cfg.MaxQueuedWriters)
+	}
+}
+
+func TestLoadMaxQueuedWritersFileTakesPrecedenceOverEnv(t *testing.T) {
+	setEnv(t, map[string]string{"TAMARACKDB_MAX_QUEUED_WRITERS": "25"})
+	path := writeConfigFile(t, `{
+		"bindAddress": "0.0.0.0", "port": 8443,
+		"tlsCertFile": "cert.pem", "tlsKeyFile": "key.pem",
+		"authToken": "secret", "databasePath": "db.sqlite",
+		"maxQueuedWriters": 50
+	}`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.MaxQueuedWriters != 50 {
+		t.Errorf("MaxQueuedWriters = %d, want 50 (file must win over env)", cfg.MaxQueuedWriters)
+	}
+}
+
 func TestValidateDirectly(t *testing.T) {
 	cfg := Config{
 		BindAddress: "0.0.0.0", Port: 8443,
 		EnableTLS: true, TLSCertFile: "cert.pem", TLSKeyFile: "key.pem",
 		EnableAuth: true, AuthToken: "secret", DatabasePath: "db.sqlite",
-		DefaultLimit: 1000, MaxLimit: 10000, MaxEventSize: 65536,
+		DefaultLimit: 1000, MaxLimit: 10000, MaxEventSize: 65536, MaxQueuedWriters: 100,
 	}
 	if err := cfg.Validate(); err != nil {
 		t.Errorf("Validate() error = %v, want nil", err)
@@ -325,5 +379,28 @@ func TestValidateDirectly(t *testing.T) {
 	cfg.AuthToken = ""
 	if err := cfg.Validate(); err == nil {
 		t.Error("Validate() error = nil, want error for empty AuthToken")
+	}
+}
+
+func TestValidateNonPositiveMaxQueuedWriters(t *testing.T) {
+	tests := []struct {
+		name             string
+		maxQueuedWriters int
+	}{
+		{"negative", -1},
+		{"zero", 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := Config{
+				BindAddress: "0.0.0.0", Port: 8443,
+				AuthToken: "secret", DatabasePath: "db.sqlite",
+				DefaultLimit: 1000, MaxLimit: 10000, MaxEventSize: 65536,
+				MaxQueuedWriters: tt.maxQueuedWriters,
+			}
+			if err := cfg.Validate(); err == nil {
+				t.Errorf("Validate() error = nil, want error for MaxQueuedWriters = %d", tt.maxQueuedWriters)
+			}
+		})
 	}
 }

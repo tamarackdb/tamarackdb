@@ -1,7 +1,7 @@
 // Package ndjson writes NDJSON responses in the header-line-first framing
 // TamarackDB's HTTP API needs: a caller-supplied header value as the first
 // line, followed by N already-marshaled body lines, one JSON value per
-// line. It has no knowledge of dcb.Event, HTTP, gatekeeper, or store —
+// line. It has no knowledge of dcb.Event, HTTP, the queue manager, or store —
 // callers supply arbitrary JSON-marshalable values, so this package is
 // reusable and testable entirely on its own.
 package ndjson

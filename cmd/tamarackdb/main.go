@@ -1,5 +1,5 @@
 // Command tamarackdb runs the TamarackDB HTTPS server: it loads the JSON
-// configuration file, opens the SQLite store, starts the gatekeeper, and
+// configuration file, opens the SQLite store, starts the queue manager, and
 // serves the HTTP API until an OS shutdown signal or a fatal storage error
 // is observed.
 package main
@@ -19,7 +19,7 @@ import (
 
 	"github.com/tamarackdb/tamarackdb/internal/api"
 	"github.com/tamarackdb/tamarackdb/internal/config"
-	"github.com/tamarackdb/tamarackdb/internal/gatekeeper"
+	"github.com/tamarackdb/tamarackdb/internal/queue"
 	"github.com/tamarackdb/tamarackdb/internal/store"
 )
 
@@ -62,7 +62,8 @@ func main() {
 	fmt.Printf("devMode: %t\n", cfg.DevMode)
 	fmt.Printf("defaultLimit: %d\n", cfg.DefaultLimit)
 	fmt.Printf("maxLimit: %d\n", cfg.MaxLimit)
-	fmt.Printf("maxEventSize: %d\n\n", cfg.MaxEventSize)
+	fmt.Printf("maxEventSize: %d\n", cfg.MaxEventSize)
+	fmt.Printf("maxQueuedWriters: %d\n\n", cfg.MaxQueuedWriters)
 
 	st, err := store.Open(context.Background(), cfg.DatabasePath)
 	if err != nil {
@@ -71,10 +72,10 @@ func main() {
 	// st.Close() is not deferred: shutdown is ordered explicitly below,
 	// not left to main's return.
 
-	gk := gatekeeper.New()
+	qm := queue.New(cfg.MaxQueuedWriters)
 
 	fatalCh := make(chan error, 1)
-	srv := api.New(gk, st, api.Options{
+	srv := api.New(qm, st, api.Options{
 		Version:      version,
 		EnableAuth:   cfg.EnableAuth,
 		AuthToken:    cfg.AuthToken,
@@ -127,7 +128,7 @@ func main() {
 	if err := httpServer.Shutdown(shutdownCtx); err != nil {
 		log.Printf("tamarackdb: graceful shutdown error: %v", err)
 	}
-	gk.Close()
+	qm.Close()
 	if err := st.Close(); err != nil {
 		log.Printf("tamarackdb: store close error: %v", err)
 	}

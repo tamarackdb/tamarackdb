@@ -52,21 +52,11 @@ func (s *Server) handleAppend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// No condition key in the request => the zero-value
-	// dcb.AppendCondition{} (both fields nil). This matches
-	// internal/gatekeeper's own "no invariant to protect" handling
-	// exactly.
-	condition := dcb.AppendCondition{}
-	if req.Condition != nil {
-		condition = *req.Condition
-	}
-
-	res, err := s.gk.Acquire(r.Context(), condition, req.Events)
-	if err != nil {
-		s.handleErr(w, r, err) // ctx cancelled/timed out while queued, or gatekeeper.ErrClosed
+	ticket, ok := s.joinWriteQueue(w, r)
+	if !ok {
 		return
 	}
-	defer res.Release()
+	defer ticket.Done()
 
 	events, err := s.st.Append(r.Context(), req.Events, req.Condition)
 	if err != nil {
@@ -93,8 +83,8 @@ func validateAppendRequest(req appendRequest, maxEventSize int) error {
 	if len(req.Events) == 0 {
 		// Not explicitly forbidden, but a zero-event append
 		// is meaningless and never legitimately needed by a real client;
-		// rejecting it early avoids running it through the
-		// gatekeeper/store pipeline at all.
+		// rejecting it early avoids running it through the queue/store
+		// pipeline at all.
 		return &dcb.ValidationError{Err: errEmptyAppend, Message: "events must be a non-empty array"}
 	}
 	if len(req.Events) > dcb.MaxEventsPerAppend {

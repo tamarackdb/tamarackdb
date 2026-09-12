@@ -16,9 +16,10 @@ import (
 )
 
 const (
-	defaultLimit     = 1000
-	defaultMaxLimit  = 10000
-	defaultEventSize = 65536 // 64 KiB
+	defaultLimit            = 1000
+	defaultMaxLimit         = 10000
+	defaultEventSize        = 65536 // 64 KiB
+	defaultMaxQueuedWriters = 100
 )
 
 // Config is TamarackDB's startup configuration, resolved once from a JSON
@@ -43,6 +44,16 @@ type Config struct {
 	DefaultLimit int `json:"defaultLimit,omitempty"` // default: 1000
 	MaxLimit     int `json:"maxLimit,omitempty"`     // default: 10000
 	MaxEventSize int `json:"maxEventSize,omitempty"` // default: 65536 (64 KiB)
+
+	// MaxQueuedWriters caps how many writers (POST /append or, in dev mode,
+	// DELETE /) may wait in the FIFO write-admission queue at once; a
+	// request arriving when the queue is already at this depth is rejected
+	// with 503 AppendQueueFull. Optional; defaulted by Load when omitted,
+	// like the three fields above — deliberately not "0 means uncapped":
+	// a queue with no cap at all would let a burst (or a misbehaving
+	// client) accumulate an unbounded number of blocked HTTP connections,
+	// so every deployment gets a bound whether it configures one or not.
+	MaxQueuedWriters int `json:"maxQueuedWriters,omitempty"` // default: 100
 }
 
 // Load reads and parses the JSON configuration file at path if it exists,
@@ -77,6 +88,9 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.MaxEventSize == 0 {
 		cfg.MaxEventSize = defaultEventSize
+	}
+	if cfg.MaxQueuedWriters == 0 {
+		cfg.MaxQueuedWriters = defaultMaxQueuedWriters
 	}
 
 	if err := cfg.Validate(); err != nil {
@@ -177,6 +191,15 @@ func applyEnv(cfg *Config) error {
 			cfg.MaxEventSize = n
 		}
 	}
+	if cfg.MaxQueuedWriters == 0 {
+		if v, ok := os.LookupEnv("TAMARACKDB_MAX_QUEUED_WRITERS"); ok {
+			n, err := strconv.Atoi(v)
+			if err != nil {
+				return fmt.Errorf("invalid TAMARACKDB_MAX_QUEUED_WRITERS %q: %w", v, err)
+			}
+			cfg.MaxQueuedWriters = n
+		}
+	}
 	return nil
 }
 
@@ -207,6 +230,8 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("defaultLimit (%d) must not exceed maxLimit (%d)", c.DefaultLimit, c.MaxLimit)
 	case c.MaxEventSize <= 0:
 		return fmt.Errorf("maxEventSize must be positive, got %d", c.MaxEventSize)
+	case c.MaxQueuedWriters <= 0:
+		return fmt.Errorf("maxQueuedWriters must be positive, got %d", c.MaxQueuedWriters)
 	}
 	return nil
 }

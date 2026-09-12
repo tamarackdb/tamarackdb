@@ -1,5 +1,5 @@
 // Package api is TamarackDB's HTTP layer: routing, authentication, request
-// validation, and the error envelope around internal/gatekeeper and
+// validation, and the error envelope around internal/queue and
 // internal/store. It has no knowledge of internal/config; callers pass an
 // already-resolved Options.
 package api
@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"sync/atomic"
 
-	"github.com/tamarackdb/tamarackdb/internal/gatekeeper"
+	"github.com/tamarackdb/tamarackdb/internal/queue"
 	"github.com/tamarackdb/tamarackdb/internal/store"
 )
 
@@ -56,32 +56,32 @@ type Options struct {
 // a future main.go can pass the result of New straight to
 // http.ListenAndServeTLS.
 type Server struct {
-	gk   *gatekeeper.Gatekeeper
+	qm   *queue.Manager
 	st   *store.Store
 	opts Options
 
 	// failedTotal counts appends that failed with
 	// store.ErrConcurrencyConflict, exposed by GET /metrics. It lives
-	// here, not in internal/gatekeeper, because that failure is only
-	// known once store.Append runs, after the gatekeeper already granted
-	// the reservation.
+	// here, not in internal/queue, because that failure is only known
+	// once store.Append runs, after the queue manager already admitted
+	// the writer.
 	failedTotal atomic.Uint64
 
 	handler http.Handler
 }
 
-// New builds a Server ready to serve traffic. gk and st must already be
+// New builds a Server ready to serve traffic. qm and st must already be
 // constructed and are not owned by the returned Server — the caller
 // remains responsible for closing both.
 //
 // New panics on invalid static configuration (empty token, non-positive
-// limits, DefaultLimit > MaxLimit, nil gk/st): these are startup wiring
+// limits, DefaultLimit > MaxLimit, nil qm/st): these are startup wiring
 // bugs, not request-time conditions, the same "fail loud and immediately"
 // treatment store.Open gives a bad database file.
-func New(gk *gatekeeper.Gatekeeper, st *store.Store, opts Options) *Server {
+func New(qm *queue.Manager, st *store.Store, opts Options) *Server {
 	switch {
-	case gk == nil:
-		panic("api: New: gk must not be nil")
+	case qm == nil:
+		panic("api: New: qm must not be nil")
 	case st == nil:
 		panic("api: New: st must not be nil")
 	case opts.DefaultLimit <= 0:
@@ -94,7 +94,7 @@ func New(gk *gatekeeper.Gatekeeper, st *store.Store, opts Options) *Server {
 		panic("api: New: Options.MaxEventSize must be positive")
 	}
 
-	s := &Server{gk: gk, st: st, opts: opts}
+	s := &Server{qm: qm, st: st, opts: opts}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("QUERY /read", s.handleRead)

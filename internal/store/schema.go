@@ -10,7 +10,7 @@ const schemaVersion = 1
 
 const schemaDDL = `
 CREATE TABLE events (
-    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+    sequence INTEGER PRIMARY KEY,
     time     TEXT NOT NULL,
     type     TEXT NOT NULL,
     payload  TEXT NOT NULL

@@ -4,6 +4,28 @@ TamarackDB is an event store in Go, compliant with the [DCB (Dynamic Consistency
 Boundaries) specification](https://dcb.events/specification/), accessible via HTTP,
 using SQLite as the storage engine.
 
+## How it works
+
+Every event lives in a single SQLite file, written through `POST /append` and read
+back through `QUERY /read`. Each event gets a strictly increasing **Sequence
+Position**, assigned by TamarackDB itself in memory rather than left to SQLite. That's
+what lets a whole batch of events land in one write instead of a round trip per event.
+
+Writes are serialized by a lightweight **queue manager**: at most one writer touches
+SQLite at a time, admitted strictly in arrival order, with no conflict detection
+between writers. SQLite's own single-writer connection would serialize them anyway, so
+there's nothing to gain from tracking who conflicts with whom. `append` still supports
+optimistic concurrency (a `condition` that fails the write if a matching event
+appeared since you last read); that check just runs at write time, against the
+database's actual state, protected by the same queue.
+
+Reads never go through the queue: SQLite's WAL mode gives each one a consistent
+snapshot without blocking, or being blocked by, a concurrent append.
+
+This design targets one process, one SQLite file, and modest write throughput: a good
+fit for an internal application's own event store, not a distributed or
+high-throughput system. See [docs/design.md](docs/design.md) for the full rationale.
+
 ## Build
 
 ```sh
@@ -62,7 +84,7 @@ environment variables cover a Docker deployment with no file at all.
 `tamarackdb -version` prints the running build's version (from `VERSION`) and exits
 without loading the configuration file or opening the store.
 
-Once running, the server logs one line per request to stdout — method, path, status
+Once running, the server logs one line per request to stdout: method, path, status
 code, and duration (e.g. `tamarackdb: POST /append 200 1.2ms`).
 
 ## Usage
@@ -98,7 +120,7 @@ make test
 
 ## Other Makefile targets
 
-- `make demo` — builds `tamarackdb-demo`
-- `make build-linux` — cross-compile for both architectures, see [Cross-compiling for amd64/arm64](#cross-compiling-for-amd64arm64)
-- `make fmt` / `make vet` / `make tidy` — standard Go housekeeping
-- `make clean` — removes `bin/`
+- `make demo`: builds `tamarackdb-demo`
+- `make build-linux`: cross-compile for both architectures, see [Cross-compiling for amd64/arm64](#cross-compiling-for-amd64arm64)
+- `make fmt` / `make vet` / `make tidy`: standard Go housekeeping
+- `make clean`: removes `bin/`

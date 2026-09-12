@@ -1,10 +1,12 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestAppendReadRoundTrip(t *testing.T) {
@@ -148,5 +150,43 @@ func TestAppendConcurrencyConflictEndToEnd(t *testing.T) {
 	}
 	if string(raw["error"]) != `"ConcurrencyException"` {
 		t.Errorf("error = %s, want \"ConcurrencyException\"", raw["error"])
+	}
+}
+
+func TestAppendReturns503WhenQueueFull(t *testing.T) {
+	srv, qm, _ := newTestServerWithMaxQueued(t, 1)
+
+	active, err := qm.Join(context.Background())
+	if err != nil {
+		t.Fatalf("Join() error = %v", err)
+	}
+
+	queuedDone := make(chan struct{})
+	go func() {
+		ticket, err := qm.Join(context.Background())
+		if err == nil {
+			ticket.Done()
+		}
+		close(queuedDone)
+	}()
+	time.Sleep(50 * time.Millisecond) // let the goroutine occupy the one queue slot
+	defer func() {
+		active.Done()
+		<-queuedDone
+	}()
+
+	rec := doRequest(t, srv, "POST", "/append", `{"events":[{"type":"t","identifiers":{},"metadata":{},"payload":""}]}`)
+	if rec.Code != 503 {
+		t.Fatalf("status = %d, want 503, body = %s", rec.Code, rec.Body.String())
+	}
+	if ra := rec.Header().Get("Retry-After"); ra != "1" {
+		t.Errorf("Retry-After = %q, want \"1\"", ra)
+	}
+	var env errorEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+		t.Fatalf("decode error envelope: %v", err)
+	}
+	if env.Error != "AppendQueueFull" {
+		t.Errorf("error = %q, want AppendQueueFull", env.Error)
 	}
 }

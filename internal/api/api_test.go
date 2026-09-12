@@ -10,13 +10,20 @@ import (
 	"testing"
 
 	"github.com/tamarackdb/tamarackdb/internal/dcb"
-	"github.com/tamarackdb/tamarackdb/internal/gatekeeper"
+	"github.com/tamarackdb/tamarackdb/internal/queue"
 	"github.com/tamarackdb/tamarackdb/internal/store"
 )
 
 const testToken = "test-token"
 
-func newTestServer(t *testing.T) (*Server, *gatekeeper.Gatekeeper, *store.Store) {
+func newTestServer(t *testing.T) (*Server, *queue.Manager, *store.Store) {
+	t.Helper()
+	return newTestServerWithMaxQueued(t, 0)
+}
+
+// newTestServerWithMaxQueued is newTestServer with an explicit cap on the
+// write-admission queue, for tests exercising 503 AppendQueueFull.
+func newTestServerWithMaxQueued(t *testing.T, maxQueued int) (*Server, *queue.Manager, *store.Store) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "test.db")
 	st, err := store.Open(context.Background(), path)
@@ -24,16 +31,16 @@ func newTestServer(t *testing.T) (*Server, *gatekeeper.Gatekeeper, *store.Store)
 		t.Fatalf("store.Open() error = %v", err)
 	}
 	t.Cleanup(func() { st.Close() })
-	gk := gatekeeper.New()
-	t.Cleanup(gk.Close)
-	srv := New(gk, st, Options{
+	qm := queue.New(maxQueued)
+	t.Cleanup(qm.Close)
+	srv := New(qm, st, Options{
 		EnableAuth:   true,
 		AuthToken:    testToken,
 		DefaultLimit: 1000,
 		MaxLimit:     10000,
 		MaxEventSize: 65536,
 	})
-	return srv, gk, st
+	return srv, qm, st
 }
 
 // doRequest issues an authenticated request against srv and returns the

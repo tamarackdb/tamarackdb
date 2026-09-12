@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/tamarackdb/tamarackdb/internal/dcb"
+	"github.com/tamarackdb/tamarackdb/internal/queue"
 	"github.com/tamarackdb/tamarackdb/internal/store"
 )
 
@@ -59,9 +60,12 @@ func (s *Server) handleErr(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.Is(err, store.ErrConcurrencyConflict):
 		s.failedTotal.Add(1)
 		writeError(w, http.StatusConflict, "ConcurrencyException", "")
+	case errors.Is(err, queue.ErrFull):
+		w.Header().Set("Retry-After", "1")
+		writeError(w, http.StatusServiceUnavailable, "AppendQueueFull", "")
 	default:
-		// Everything else: gatekeeper.ErrClosed, and any other
-		// unexpected error, including fatal storage errors.
+		// Everything else: queue.ErrClosed, and any other unexpected
+		// error, including fatal storage errors.
 		if store.IsFatal(err) && s.opts.OnFatalStorageError != nil {
 			s.opts.OnFatalStorageError(err)
 		}

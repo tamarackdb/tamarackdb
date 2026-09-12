@@ -11,8 +11,9 @@ import (
 )
 
 // TestConcurrentAppendsNoConditions exercises Store.Append directly (no
-// gatekeeper involved), confirming BEGIN IMMEDIATE alone serializes writers
-// correctly: unique, gapless sequences and no unexpected errors.
+// internal/queue manager in front of it), confirming BEGIN IMMEDIATE alone
+// serializes writers correctly: unique, gapless sequences and no unexpected
+// errors.
 func TestConcurrentAppendsNoConditions(t *testing.T) {
 	s := openTestStore(t)
 	const goroutines = 20
