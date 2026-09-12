@@ -14,7 +14,7 @@
 - [HTTP API](#http-api)
   - [Reading events](#reading-events)
   - [Pagination](#pagination)
-  - [Live projection rebuilds](#live-projection-rebuilds)
+  - [Projection rebuilds](#projection-rebuilds)
   - [Response format](#response-format)
   - [Appending events](#appending-events)
   - [Event size limit](#event-size-limit)
@@ -36,13 +36,12 @@
   - [Request logging](#request-logging)
   - [Nice to have: queue observability](#nice-to-have-queue-observability)
 - [Implementation](#implementation)
-- [Production reference data](#production-reference-data)
 
 ## Context
 
 TamarackDB is an event store in Go. It follows the [DCB (Dynamic Consistency Boundaries) specification](https://dcb.events/specification/), is reachable over HTTP, and uses SQLite as its storage engine. The service runs as a single instance ("single brain"), not a multi-instance cluster. All append logic runs on the Go side, not in SQL.
 
-Each application owns its own TamarackDB instance, backed by its own SQLite file. Two applications never share one TamarackDB instance.
+Applications can share a single TamarackDB instance when they share events. TamarackDB does not track which application produced an event.
 
 ### Name
 
@@ -50,7 +49,7 @@ TamarackDB takes its name from the tamarack (*Larix laricina*), a conifer native
 
 ### Scope
 
-TamarackDB targets internal systems run by a team that fully controls its own environment. It is not a general-purpose product competing with DCB implementations like [UmaDB](https://umadb.io/), [MartenDB](https://martendb.io/events/dcb.html), or [EventSourcingDB](https://docs.eventsourcingdb.io/best-practices/dynamic-consistency-boundaries/). Those serve a different scale and audience. TamarackDB serves internal systems with modest throughput and few concurrent writers (see Production reference data for real numbers). It is not built to sustain thousands of requests per second. Every design choice here, from one SQLite file to one queue manager with no clustering, follows from that scope.
+TamarackDB serves applications with modest throughput and few concurrent writers. Every design choice here, from one SQLite file to one queue manager with no clustering, follows from that scope.
 
 ## Data model
 
@@ -98,7 +97,7 @@ An event can't carry more than **20 identifiers**, or more than **20 metadata** 
 
 ### Volume context
 
-Volume stays well within SQLite's normal limits with btree indexing: several million rows across the identifiers and metadata tables, at 1 to 2 identifiers per event, based on real production numbers (see Production reference data).
+Volume stays well within SQLite's normal limits with btree indexing: several million rows across the identifiers and metadata tables, at 1 to 2 identifiers per event, based on real production numbers.
 
 ## Query grammar (per the DCB spec)
 
@@ -194,17 +193,17 @@ Pagination uses a cursor, not an offset. An offset would be unstable on a log th
 
 The response carries a `hasMore` boolean, so the client never has to guess whether it reached the end. The server fetches `limit + 1` rows. If it gets that many, it trims the result back to `limit` and returns `hasMore: true`. Otherwise it returns everything it got and `hasMore: false`.
 
-Both the default `limit` (used when a request leaves it out) and the server-enforced maximum (the highest `limit` a request may ask for) are configuration, not fixed constants (see Configuration). How fast an application's projections can process a batch of events (see Live projection rebuilds) varies enough between applications, and even between projections in the same application, that one fixed page size wouldn't fit all of them.
+Both the default `limit` (used when a request leaves it out) and the server-enforced maximum (the highest `limit` a request may ask for) are configuration, not fixed constants (see Configuration). How fast an application's projections can process a batch of events (see Projection rebuilds) varies enough between applications, and even between projections in the same application, that one fixed page size wouldn't fit all of them.
 
-Left unset, `limit` falls back to a default of **1,000**, with a server-enforced maximum of **10,000**. That's sized so a default page is easy to buffer client-side, and a page at the maximum still finishes in a matter of seconds even for a fast projection, keeping the underlying SQLite read transaction short (see Production reference data for the numbers behind this). Asking for more than the configured maximum gets `400 Bad Request` (see Error responses).
+Left unset, `limit` falls back to a default of **1,000**, with a server-enforced maximum of **10,000**. That's sized so a default page is easy to buffer client-side, and a page at the maximum still finishes in a matter of seconds even for a fast projection, keeping the underlying SQLite read transaction short. Asking for more than the configured maximum gets `400 Bad Request` (see Error responses).
 
-### Live projection rebuilds
+### Projection rebuilds
 
-`QUERY /read` is also how a projection rebuilds itself: read every event matching the projection's types (and maybe identifiers/metadata) from the start of the log, replay them through the projection's own logic, then keep polling forward to stay live. A rebuild can mean reading a large share of the store's events (see Production reference data).
+`QUERY /read` is also how a projection rebuilds itself: read every event matching the projection's types (and maybe identifiers/metadata) from the start of the log, replay them through the projection's own logic, then keep polling forward to stay caught up. A rebuild can mean reading a large share of the store's events.
 
-Rebuilds run live, with the store still accepting writes the whole time, not just during a maintenance window. This is why `/read` returns pages instead of one response streaming the whole result set over one long connection: holding one SQLite read transaction open for a whole large rebuild would pin one MVCC snapshot in place for as long as the rebuild runs, blocking WAL checkpointing that whole time while writes keep piling up in the WAL file. Paging through `limit`-sized requests keeps each read transaction short, so the WAL checkpoints normally between pages. How much this matters depends on write throughput (see Production reference data for a real estimate). Day to day, this protection mostly guards against bursts (a batch correction, a spike in normal traffic), not steady load, but the paged design holds up no matter how heavy that load gets.
+Rebuilds run while the store keeps accepting writes, not just during a maintenance window. This is why `/read` returns pages instead of one response streaming the whole result set over one long connection: holding one SQLite read transaction open for a whole large rebuild would pin one MVCC snapshot in place for as long as the rebuild runs, blocking WAL checkpointing that whole time while writes keep piling up in the WAL file. Paging through `limit`-sized requests keeps each read transaction short, so the WAL checkpoints normally between pages. How much this matters depends on write throughput. Day to day, this protection mostly guards against bursts (a batch correction, a spike in normal traffic), not steady load, but the paged design holds up no matter how heavy that load gets.
 
-Fetch time isn't always small next to processing time: some projections process events fast enough (see Production reference data) that the per-page round trip becomes a real, if still secondary, share of total rebuild time. This is exactly why the page size and its ceiling are configuration, not a fixed constant: a slow projection can use a small `limit` and pay almost nothing for it, while a fast one benefits from a larger `limit` that spreads the round-trip cost over more events per page. The same paging logic also covers both halves of a rebuild, with no mode switch: the client pages through history with `afterSequence` until `hasMore` is `false`, at which point it has caught up, then keeps polling with that same `afterSequence` to get new events as they're appended. Catching up and following live are the same loop.
+Fetch time isn't always small next to processing time: some projections process events fast enough that the per-page round trip becomes a real, if still secondary, share of total rebuild time. This is exactly why the page size and its ceiling are configuration, not a fixed constant: a slow projection can use a small `limit` and pay almost nothing for it, while a fast one benefits from a larger `limit` that spreads the round-trip cost over more events per page. The same paging logic also covers both halves of a rebuild, with no mode switch: the client pages through history with `afterSequence` until `hasMore` is `false`, at which point it has caught up, then keeps polling with that same `afterSequence` to get new events as they're appended. Catching up on history and continuing to poll forward are the same loop.
 
 ### Response format
 
@@ -285,7 +284,7 @@ A single event may not be bigger than **64 KiB**, measured as the combined UTF-8
 
 The limit is deliberate, not a technical ceiling to raise later: it keeps an event a short, meaningful statement about the world, rather than a data transport container, and keeps Decision Model replay fast (which can reload hundreds of thousands of events). Larger content (files, documents) belongs in external storage, referenced from the event instead of embedded in it.
 
-Real-world event sizes stay well under the limit, with room to spare over real usage, rather than the limit being a ceiling anything currently pushes against (see Production reference data for the numbers).
+Real-world event sizes stay well under the limit, with room to spare over real usage, rather than the limit being a ceiling anything currently pushes against.
 
 The default of 64 KiB is configurable (see Configuration).
 
@@ -379,7 +378,7 @@ None of this tells the client whether its append actually happened, though: the 
 ## Storage: SQLite
 
 SQLite is used as the storage engine, for these reasons:
-- Volume (roughly 2.5 to 5 million-plus rows across the identifiers and metadata tables) fits comfortably within SQLite's limits, with `name + value` indexes
+- Volume (several million rows across the identifiers and metadata tables) fits comfortably within SQLite's limits, with `name + value` indexes
 - No external network or process to depend on, in line with the goal of keeping state centralized in memory on the Go side
 - Single-writer behavior, in line with the single-process model ("single brain"): the process is the only writer for as long as it runs
 - WAL mode allows reads to happen at the same time as writes, without blocking
@@ -427,11 +426,11 @@ CREATE INDEX idx_metadata_name_value ON metadata(name, value, event_sequence);
 
 The `events(sequence)` foreign key on both tables is enforced by turning on `PRAGMA foreign_keys = ON` on every connection at startup: SQLite reads foreign key declarations, but doesn't enforce them by default. Turning this on catches implementation bugs (say, an identifier or metadata row written with an `event_sequence` that doesn't match a real event), rather than serving any real functional need, since the store is append-only with a single writer.
 
-Two more pragmas are set on every connection at startup, next to `foreign_keys`: `PRAGMA journal_mode = WAL` (the mode this design assumes throughout, for MVCC reads and checkpoint behavior) and `PRAGMA synchronous = FULL`. `FULL` costs one extra fsync per commit compared to the `NORMAL` mode WAL usually pairs with, but at this scope's write volume (see Production reference data) that cost doesn't matter, and it buys the strongest durability SQLite offers, for what is, for each application, its single source of truth with no backup copy running behind it.
+Two more pragmas are set on every connection at startup, next to `foreign_keys`: `PRAGMA journal_mode = WAL` (the mode this design assumes throughout, for MVCC reads and checkpoint behavior) and `PRAGMA synchronous = FULL`. `FULL` costs one extra fsync per commit compared to the `NORMAL` mode WAL usually pairs with, but at this scope's write volume that cost doesn't matter, and it buys the strongest durability SQLite offers, for what is, for each application, its single source of truth with no backup copy running behind it.
 
 The write connection also sets `_busy_timeout = 5000` (five seconds), and opens every transaction with `BEGIN IMMEDIATE` (`_txlock=immediate` in the DSN), taking SQLite's write lock at the start of the transaction, rather than waiting until the first write statement runs. The check SELECT and the INSERTs that follow it commit as one atomic unit, with no window where another connection could slip in between them. Since `writeDB.SetMaxOpenConns(1)` already forces every write onto one connection (see Enforcing single-writer at the OS level), the busy timeout only guards against something else briefly holding the file (a passive checkpoint, an external `sqlite3` shell), not against another instance of TamarackDB.
 
-Checkpointing relies on SQLite's own automatic passive checkpoint (triggered on its own once the WAL crosses its default size, without blocking any reader or writer), instead of a separate checkpoint goroutine or schedule. This is exactly what bounded pagination on `/read` protects (see Live projection rebuilds): a long-held read transaction can stall that automatic checkpoint for as long as it runs, but nothing about the checkpoint itself needs to be triggered by hand once reads stay short.
+Checkpointing relies on SQLite's own automatic passive checkpoint (triggered on its own once the WAL crosses its default size, without blocking any reader or writer), instead of a separate checkpoint goroutine or schedule. This is exactly what bounded pagination on `/read` protects (see Projection rebuilds): a long-held read transaction can stall that automatic checkpoint for as long as it runs, but nothing about the checkpoint itself needs to be triggered by hand once reads stay short.
 
 On startup, the process reads `PRAGMA user_version` and checks it against the schema version built into the binary. A database file that doesn't exist yet is created fresh, with the schema above setting it at the current version. An existing file whose version doesn't match (older, from a schema that's since changed, or newer, from a downgraded binary) is fatal: the process logs it and refuses to start, the same treatment as any other storage integrity failure (see Startup, shutdown, and crash behavior).
 
@@ -529,20 +528,3 @@ Since the queue manager already serializes access to its own state behind a mute
 ## Implementation
 
 The concrete Go code behind the queue manager, the Query-to-SQL translation, and the schema migration tool live in `internal/queue`, `internal/store`, and `cmd/migrate`.
-
-## Production reference data
-
-Figures used throughout this document as justification come from two real production systems, both measured as of September 2026.
-
-**System A**, a DCB application:
-- Around 2.5 million events, built up over 8 years
-- 58 projections; the heaviest one reads roughly 945,000 of those events on a rebuild
-- Roughly 2.5 to 5 million rows across the identifiers and metadata tables combined, at 1 to 2 identifiers per event on average
-- Write throughput averages roughly 850 events a day over its lifetime
-- Tracing (total events processed, divided by the rebuild script's running time) shows its fastest projection handling upward of 999 events per second during a rebuild
-
-**System B**, built on aggregates rather than DCB. Its numbers still support the read/rebuild figures above, since replaying events works the same way no matter which consistency model produced them:
-- Around 959,000 events
-- Average combined size of `type` + `payload` + `metadata`: roughly 1,700 characters
-- Largest event ever recorded: 14,576 characters (`BenefitUpdatedEvent`), roughly 22% of the 64 KiB event size limit
-- Only two event types ever go over 10,000 characters
