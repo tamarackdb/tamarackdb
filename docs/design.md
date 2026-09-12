@@ -39,7 +39,7 @@
 
 ## Context
 
-TamarackDB is an event store in Go. It follows the [DCB (Dynamic Consistency Boundaries) specification](https://dcb.events/specification/), is reachable over HTTP, and uses SQLite as its storage engine. The service runs as a single instance ("single brain"), not a multi-instance cluster. All append logic runs on the Go side, not in SQL.
+TamarackDB is an event store in Go. It follows the [DCB (Dynamic Consistency Boundaries) specification](https://dcb.events/specification/), is reachable over HTTP, and uses SQLite as its storage engine. The service runs as a single instance ("single brain"), not a multi-instance cluster. Go serializes writes and assigns each event's Sequence Position; the actual DCB matching for the Append Condition runs as a SQL query against SQLite.
 
 Applications can share a single TamarackDB instance when they share events. TamarackDB does not track which application produced an event.
 
