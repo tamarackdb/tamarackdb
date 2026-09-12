@@ -12,16 +12,16 @@ Generate a starter `config.json` and adjust it as needed:
 ./bin/tamarackdb-init -config config.json
 ```
 
-| Key | Environment variable | Description |
-|---|---|---|
-| `bindAddress` / `port` | `TAMARACKDB_BIND_ADDRESS` / `TAMARACKDB_PORT` | Address and port the server listens on |
-| `enableTls` / `tlsCertFile` / `tlsKeyFile` | `TAMARACKDB_ENABLE_TLS` / `TAMARACKDB_TLS_CERT_FILE` / `TAMARACKDB_TLS_KEY_FILE` | TLS termination (Go's own `ListenAndServeTLS`, no reverse proxy) |
-| `enableAuth` / `authToken` | `TAMARACKDB_ENABLE_AUTH` / `TAMARACKDB_AUTH_TOKEN` | Bearer token check on every endpoint |
-| `databasePath` | `TAMARACKDB_DATABASE_PATH` | Path to the SQLite database file |
-| `defaultLimit` / `maxLimit` | `TAMARACKDB_DEFAULT_LIMIT` / `TAMARACKDB_MAX_LIMIT` | Default and maximum page size for `QUERY /read` |
-| `maxEventSize` | `TAMARACKDB_MAX_EVENT_SIZE` | Maximum size in bytes of a single event |
-| `maxQueuedWriters` | `TAMARACKDB_MAX_QUEUED_WRITERS` | Maximum writers waiting to append at once |
-| `devMode` | `TAMARACKDB_DEV_MODE` | Turns on `DELETE /`, which wipes the whole database. Never enable this in production. |
+| Key | Environment variable | Default | Description |
+|---|---|---|---|
+| `bindAddress` / `port` | `TAMARACKDB_BIND_ADDRESS` / `TAMARACKDB_PORT` | none, required | Address and port the server listens on |
+| `enableTls` / `tlsCertFile` / `tlsKeyFile` | `TAMARACKDB_ENABLE_TLS` / `TAMARACKDB_TLS_CERT_FILE` / `TAMARACKDB_TLS_KEY_FILE` | `false` / none / none | TLS termination (Go's own `ListenAndServeTLS`, no reverse proxy) |
+| `enableAuth` / `authToken` | `TAMARACKDB_ENABLE_AUTH` / `TAMARACKDB_AUTH_TOKEN` | `false` / none | Bearer token check on every endpoint |
+| `databasePath` | `TAMARACKDB_DATABASE_PATH` | none, required | Path to the SQLite database file |
+| `defaultLimit` / `maxLimit` | `TAMARACKDB_DEFAULT_LIMIT` / `TAMARACKDB_MAX_LIMIT` | `1000` / `10000` | Default and maximum page size for `QUERY /read` |
+| `maxEventSize` | `TAMARACKDB_MAX_EVENT_SIZE` | `65536` (64 KiB) | Maximum size in bytes of a single event |
+| `maxQueuedWriters` | `TAMARACKDB_MAX_QUEUED_WRITERS` | `100` | Maximum writers waiting to append at once |
+| `devMode` | `TAMARACKDB_DEV_MODE` | `false` | Turns on `DELETE /`, which wipes the whole database. Never enable this in production. |
 
 `config.json` is optional. Any field it leaves out, or the whole file if it's
 missing, falls back to the matching `TAMARACKDB_*` environment variable, then to a
