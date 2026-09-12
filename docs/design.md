@@ -40,7 +40,7 @@
 
 ## Context
 
-TamarackDB is an event store in Go. It follows the [DCB (Dynamic Consistency Boundaries) specification](https://dcb.events/specification/), is reachable over HTTP, and uses SQLite as its storage engine. The service runs as a single instance ("single brain"), not a multi-instance cluster. All append logic runs on the Go side (goroutines and channels), not in SQL.
+TamarackDB is an event store in Go. It follows the [DCB (Dynamic Consistency Boundaries) specification](https://dcb.events/specification/), is reachable over HTTP, and uses SQLite as its storage engine. The service runs as a single instance ("single brain"), not a multi-instance cluster. All append logic runs on the Go side, not in SQL.
 
 Each application owns its own TamarackDB instance, backed by its own SQLite file. Two applications never share one TamarackDB instance.
 
@@ -443,7 +443,7 @@ TamarackDB's startup configuration (bind address, port, TLS settings, auth token
 
 1. A JSON configuration file, passed via `-config` (defaults to `config.json` in the working directory).
 2. `TAMARACKDB_*` environment variables, one per configuration key.
-3. Built-in defaults, for the handful of keys that have one (`defaultLimit`, `maxLimit`, `maxEventSize`).
+3. Built-in defaults, for the handful of keys that have one (`defaultLimit`, `maxLimit`, `maxEventSize`, `maxQueuedWriters`).
 
 A value set in the configuration file always wins over the matching environment variable. The configuration file itself is optional: an application deployed as one instance per environment, each with its own file, uses it as the single source of truth. A container deployment with no file at all is set up entirely through the environment instead. Both paths produce the same `Config`, and every field is checked the same way regardless of where it came from (see below).
 
@@ -471,7 +471,7 @@ TLS and Bearer-token checks are each controlled by their own flag, `enableTls` a
 
 When `enableTls` is on, the bind address, port, and TLS certificate/key paths are all set the same way (see Configuration). The Go process handles TLS itself, via `ListenAndServeTLS`, with no reverse proxy in front. When `enableTls` is off, the process serves plain HTTP on the configured bind address and port.
 
-When `enableAuth` is on, every endpoint needs a Bearer token in the `Authorization` header (`Authorization: Bearer <token>`): `read`, `append`, `/health`, and any nice-to-have observability endpoint (`/metrics`, `/debug`). The token is a single fixed value, set as `authToken`. A request with no valid token gets `401 Unauthorized` before it reaches any handler logic. Rotating the token means changing the configuration file or environment variable and restarting the process: there's no in-memory rotation, or window where two tokens both work, in line with the queue manager's own transient, in-memory state. When `enableAuth` is off, the API serves every request with no auth check at all.
+When `enableAuth` is on, every registered route needs a Bearer token in the `Authorization` header (`Authorization: Bearer <token>`): `read`, `append`, `/health`, the observability endpoints (`/metrics`, `/debug`), and, in dev mode, `DELETE /` too. The token is a single fixed value, set as `authToken`. A request with no valid token gets `401 Unauthorized` before it reaches any handler logic. Rotating the token means changing the configuration file or environment variable and restarting the process: there's no in-memory rotation, or window where two tokens both work, in line with the queue manager's own transient, in-memory state. When `enableAuth` is off, the API serves every request with no auth check at all.
 
 One token, with no per-client scope, is enough because a TamarackDB instance has exactly one trusted caller: the owning application. If that application itself serves many tenants, keeping them apart is its own job, done with the `tenantId` metadata already carried on events. It's not something TamarackDB's auth layer needs to handle.
 
@@ -491,7 +491,7 @@ The running build's version is a single value, read from the `VERSION` file at t
 
 ### Request logging
 
-Every request logs one line to stdout once its handler finishes: HTTP method, path, resulting status code, and how long it took, e.g. `tamarackdb: POST /append 200 1.2ms`. This wraps the whole routed handler, including authentication, so a request turned away with `401 Unauthorized` gets logged just like any other.
+Every request logs one line to stdout once its handler finishes: HTTP method, path, resulting status code, and how long it took, e.g. `tamarackdb: POST /append 200 1.23ms`. This wraps the whole routed handler, including authentication, so a request turned away with `401 Unauthorized` gets logged just like any other.
 
 ### Nice to have: queue observability
 
