@@ -32,7 +32,7 @@ value, writing every event it gets straight into local storage: not through
 `POST /append`, but through the same code path `store.Open` always uses to
 build a database file, so the schema comes out identical. See
 [design.md](design.md#storage-sqlite) for why that matters: the backup file
-can be pointed at directly with `tamarackdb -config ...` if the source ever
+can be pointed at directly with `tamarackdb-server -config ...` if the source ever
 needs replacing.
 
 There's no retry inside a run: if one fails partway, nothing is retried in

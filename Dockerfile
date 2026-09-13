@@ -9,16 +9,16 @@ RUN go mod download
 
 COPY . .
 
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags "-X main.version=$(cat VERSION)" -o /out/tamarackdb ./cmd/tamarackdb && \
-    CGO_ENABLED=0 GOOS=linux go build -o /out/tamarackdb-migrate ./cmd/migrate && \
-    CGO_ENABLED=0 GOOS=linux go build -o /out/tamarackdb-init ./cmd/init
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags "-X main.version=$(cat VERSION)" -o /out/tamarackdb-server ./cmd/tamarackdb-server && \
+    CGO_ENABLED=0 GOOS=linux go build -o /out/tamarackdb-migrate ./cmd/tamarackdb-migrate && \
+    CGO_ENABLED=0 GOOS=linux go build -o /out/tamarackdb-init ./cmd/tamarackdb-init
 
 FROM alpine:3.20
 
 RUN addgroup -S tamarackdb && adduser -S tamarackdb -G tamarackdb
 WORKDIR /app
 
-COPY --from=builder /out/tamarackdb /out/tamarackdb-migrate /out/tamarackdb-init ./
+COPY --from=builder /out/tamarackdb-server /out/tamarackdb-migrate /out/tamarackdb-init ./
 
 RUN mkdir -p /data && chown -R tamarackdb:tamarackdb /data
 
@@ -31,4 +31,4 @@ EXPOSE 8085
 
 USER tamarackdb
 
-ENTRYPOINT ["./tamarackdb"]
+ENTRYPOINT ["./tamarackdb-server"]

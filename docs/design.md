@@ -392,7 +392,7 @@ already assigned by the source. The result is a plain SQLite file built through
 the same `store.Open` schema path used everywhere else, so unlike a raw file
 copy, it can be opened and served as a live instance in its own right.
 
-**Enforcing single-writer at the OS level:** `writeDB.SetMaxOpenConns(1)`, WAL, and `_busy_timeout` only keep writes in order *inside* one process: nothing stops a second `tamarackdb` process from opening the same database file and racing the first. `store.Open` closes that gap directly: before touching the SQLite file, it takes an exclusive, non-blocking `flock(2)` on a sibling `<path>.lock` file, and holds it for the life of the process. It's held open, not just briefly grabbed, so the OS releases it automatically on exit or crash: no leftover lock file can ever block a later start. A second process finds the lock already held, and fails fast at startup with `ErrDatabaseLocked`, instead of silently corrupting state or fighting the first process over `SQLITE_BUSY`. This relies on `flock(2)`; TamarackDB only targets Linux (see the Makefile's `build-linux` target); Docker covers every other platform.
+**Enforcing single-writer at the OS level:** `writeDB.SetMaxOpenConns(1)`, WAL, and `_busy_timeout` only keep writes in order *inside* one process: nothing stops a second `tamarackdb-server` process from opening the same database file and racing the first. `store.Open` closes that gap directly: before touching the SQLite file, it takes an exclusive, non-blocking `flock(2)` on a sibling `<path>.lock` file, and holds it for the life of the process. It's held open, not just briefly grabbed, so the OS releases it automatically on exit or crash: no leftover lock file can ever block a later start. A second process finds the lock already held, and fails fast at startup with `ErrDatabaseLocked`, instead of silently corrupting state or fighting the first process over `SQLITE_BUSY`. This relies on `flock(2)`; TamarackDB only targets Linux. Docker covers every other platform.
 
 ### Schema
 
@@ -494,7 +494,7 @@ A lightweight `GET /health` endpoint confirms the process is responding and SQLi
 
 ### Versioning
 
-The running build's version is a single value, read from the `VERSION` file at the root of the repository and baked into the binary at build time, via `-ldflags "-X main.version=..."`. It's not something the process reads or reloads while running. `./tamarackdb -version` prints that value and exits right away, without loading the configuration file or opening the store, for a quick check of what's actually running, without having to reach it over the network. That same value is what `GET /health` reports in its `version` field above.
+The running build's version is a single value, read from the `VERSION` file at the root of the repository and baked into the binary at build time, via `-ldflags "-X main.version=..."`. It's not something the process reads or reloads while running. `./tamarackdb-server -version` prints that value and exits right away, without loading the configuration file or opening the store, for a quick check of what's actually running, without having to reach it over the network. That same value is what `GET /health` reports in its `version` field above.
 
 ### Request logging
 
@@ -535,4 +535,4 @@ Since the queue manager already serializes access to its own state behind a mute
 
 ## Implementation
 
-The concrete Go code behind the queue manager, the Query-to-SQL translation, the schema migration tool, and the backup tool live in `internal/queue`, `internal/store`, `cmd/migrate`, and `cmd/tamarackdb-backup`.
+The concrete Go code behind the queue manager, the Query-to-SQL translation, the schema migration tool, and the backup tool live in `internal/queue`, `internal/store`, `cmd/tamarackdb-migrate`, and `cmd/tamarackdb-backup`.

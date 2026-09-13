@@ -10,7 +10,7 @@ import (
 
 // SchemaVersion is the schema version this binary expects — the same
 // constant ensureSchema checks a database file against, exported so
-// cmd/migrate can report progress without duplicating it.
+// cmd/tamarackdb-migrate can report progress without duplicating it.
 const SchemaVersion = schemaVersion
 
 // migration describes one schema step, from FromVersion to FromVersion+1.

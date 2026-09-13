@@ -22,7 +22,7 @@ import (
 // for, internal/queue's FIFO guarantee that only one writer is ever
 // mid-transaction at a time; BEGIN IMMEDIATE remains as defense in depth
 // and keeps this package correct even when Append is called directly, with
-// no queue manager in front of it at all, as cmd/demo and this package's
+// no queue manager in front of it at all, as cmd/tamarackdb-demo and this package's
 // own tests do.
 func (s *Store) Append(ctx context.Context, events []dcb.EventData, condition *dcb.AppendCondition) ([]dcb.Event, error) {
 	if len(events) == 0 {

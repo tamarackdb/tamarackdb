@@ -1,15 +1,10 @@
 /.idea
 /bin/
 /data/
-/tamarackdb
-/tamarackdb-migrate
-/tamarackdb-init
-/tamarackdb-demo
-*.db
-*.db-wal
-*.db-shm
-*.db.lock
 *.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.sqlite.lock
 config.json
 
 # Go
@@ -25,5 +20,6 @@ coverage.out
 .env
 
 # Editors / OS
+.claude/
 .vscode/
 .DS_Store

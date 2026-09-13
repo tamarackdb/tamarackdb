@@ -33,8 +33,8 @@ type Store struct {
 	// seqMu guards nextSeq, the in-memory Sequence Position counter (see
 	// Append). A mutex is still needed even though internal/queue ensures
 	// at most one writer ever reaches Append in production: Append is also
-	// called directly, with no queue manager in front of it, by cmd/demo
-	// and by this package's own concurrency tests.
+	// called directly, with no queue manager in front of it, by
+	// cmd/tamarackdb-demo and by this package's own concurrency tests.
 	seqMu   sync.Mutex
 	nextSeq int64 // next sequence value to assign; nextSeq-1 is the highest assigned so far
 }

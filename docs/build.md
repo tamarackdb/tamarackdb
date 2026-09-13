@@ -14,23 +14,17 @@ This builds four binaries under `bin/`:
 
 | Binary | Purpose |
 |---|---|
-| `tamarackdb` | The HTTP server |
+| `tamarackdb-server` | The HTTP server |
 | `tamarackdb-migrate` | Standalone schema migration tool |
 | `tamarackdb-init` | Creates a new database file, a default config file, or both |
 | `tamarackdb-backup` | Copies new events from a remote instance into a local backup file |
 
+Each binary also has its own target with the same name, so `make tamarackdb-migrate`
+builds only that one.
+
 The running build's version comes from the `VERSION` file at the root of the repo. It
 is baked into the binary at build time, not read at runtime. See
 [design.md](design.md#versioning) for how that works.
-
-### Cross-compiling for amd64/arm64
-
-TamarackDB only targets Linux (Docker covers every other platform). One Makefile
-target builds both architectures, one binary set per folder:
-
-```sh
-make build-linux    # bin/linux-amd64/, bin/linux-arm64/
-```
 
 ## Test
 
@@ -40,13 +34,13 @@ make test
 
 ## Demo dataset
 
-`cmd/demo` fills a SQLite file with a large set of made-up events: random types,
+`cmd/tamarackdb-demo` fills a SQLite file with a large set of made-up events: random types,
 one or two identifiers, one metadata tag, and filler text as payload. It writes
 straight to the store, not through the HTTP server, so it can seed a large
 database fast. Use it to try `QUERY /read` at scale.
 
 ```sh
-make demo
+make tamarackdb-demo
 ./bin/tamarackdb-demo -db /path/to/tamarack.db -n 1000000 -seed 1
 ```
 

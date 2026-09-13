@@ -202,7 +202,7 @@ hand-written events:
 ```
 
 It writes straight to the database file, not through the running server, so run
-it before starting `tamarackdb`, or against a separate file. See
+it before starting `tamarackdb-server`, or against a separate file. See
 [build.md](build.md#demo-dataset) for how to build it and what its flags do.
 
 ## Error responses

@@ -34,10 +34,10 @@ variables cover a deployment with no file at all.
 
 ```sh
 ./bin/tamarackdb-init -db /path/to/tamarack.db -config /path/to/config.json
-./bin/tamarackdb -config /path/to/config.json
+./bin/tamarackdb-server -config /path/to/config.json
 ```
 
-`tamarackdb -version` prints the running build's version and exits. It does not
+`tamarackdb-server -version` prints the running build's version and exits. It does not
 load the config file or open the database.
 
 Once running, the server logs one line per request to stdout: method, path, status
