@@ -2,7 +2,8 @@
 
 This is for whoever runs a TamarackDB instance: configuring it, starting it, and
 watching it run. For how to build it, see [build.md](build.md). For how to call its
-HTTP API, see [integration.md](integration.md).
+HTTP API, see [integration.md](integration.md). For backing up an instance, see
+[backup.md](backup.md).
 
 ## Configure
 

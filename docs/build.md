@@ -10,13 +10,14 @@ For how to run it, see [deploy.md](deploy.md). For how it works inside, see
 make build
 ```
 
-This builds three binaries under `bin/`:
+This builds four binaries under `bin/`:
 
 | Binary | Purpose |
 |---|---|
 | `tamarackdb` | The HTTP server |
 | `tamarackdb-migrate` | Standalone schema migration tool |
 | `tamarackdb-init` | Creates a new database file, a default config file, or both |
+| `tamarackdb-backup` | Copies new events from a remote instance into a local backup file |
 
 The running build's version comes from the `VERSION` file at the root of the repo. It
 is baked into the binary at build time, not read at runtime. See

@@ -384,6 +384,14 @@ SQLite is used as the storage engine, for these reasons:
 - WAL mode allows reads to happen at the same time as writes, without blocking
 - A plain, inspectable file format: the database can be opened and queried with ordinary SQLite tools, not some closed format, and backed up the same way, through SQLite's own backup tools (for example `.backup`, `VACUUM INTO`) instead of a raw copy of the file, which can miss commits still sitting in the WAL
 
+A file-level copy is not the only way to back up an instance. `tamarackdb-backup`
+reads events over `QUERY /read` from a live source and writes them into a local
+file through `Store.Import`, a variant of `Append` that skips sequence
+reservation and the append-condition check, since the sequences it receives are
+already assigned by the source. The result is a plain SQLite file built through
+the same `store.Open` schema path used everywhere else, so unlike a raw file
+copy, it can be opened and served as a live instance in its own right.
+
 **Enforcing single-writer at the OS level:** `writeDB.SetMaxOpenConns(1)`, WAL, and `_busy_timeout` only keep writes in order *inside* one process: nothing stops a second `tamarackdb` process from opening the same database file and racing the first. `store.Open` closes that gap directly: before touching the SQLite file, it takes an exclusive, non-blocking `flock(2)` on a sibling `<path>.lock` file, and holds it for the life of the process. It's held open, not just briefly grabbed, so the OS releases it automatically on exit or crash: no leftover lock file can ever block a later start. A second process finds the lock already held, and fails fast at startup with `ErrDatabaseLocked`, instead of silently corrupting state or fighting the first process over `SQLITE_BUSY`. This relies on `flock(2)`; TamarackDB only targets Linux (see the Makefile's `build-linux` target); Docker covers every other platform.
 
 ### Schema
@@ -527,4 +535,4 @@ Since the queue manager already serializes access to its own state behind a mute
 
 ## Implementation
 
-The concrete Go code behind the queue manager, the Query-to-SQL translation, and the schema migration tool live in `internal/queue`, `internal/store`, and `cmd/migrate`.
+The concrete Go code behind the queue manager, the Query-to-SQL translation, the schema migration tool, and the backup tool live in `internal/queue`, `internal/store`, `cmd/migrate`, and `cmd/tamarackdb-backup`.

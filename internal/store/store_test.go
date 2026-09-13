@@ -4,6 +4,7 @@ import (
 	"context"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/tamarackdb/tamarackdb/internal/dcb"
 )
@@ -47,4 +48,15 @@ func mustReadAll(t *testing.T, s *Store, f ReadFilter) ([]dcb.Event, bool) {
 
 func eventWithIdentifier(typ, name, value string) dcb.EventData {
 	return dcb.EventData{Type: typ, Identifiers: dcb.IdentifierSet{{Name: name, Value: value}}}
+}
+
+func mustImport(t *testing.T, s *Store, events []dcb.Event) {
+	t.Helper()
+	if err := s.Import(context.Background(), events); err != nil {
+		t.Fatalf("Import() error = %v", err)
+	}
+}
+
+func eventAt(seq int64, ed dcb.EventData) dcb.Event {
+	return dcb.Event{Sequence: seq, Time: time.Unix(0, seq*int64(time.Microsecond)).UTC(), EventData: ed}
 }

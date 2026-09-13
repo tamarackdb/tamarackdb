@@ -8,6 +8,7 @@ build:
 	go build -ldflags "$(LDFLAGS)" -o $(BINDIR)/tamarackdb ./cmd/tamarackdb
 	go build -o $(BINDIR)/tamarackdb-migrate ./cmd/migrate
 	go build -o $(BINDIR)/tamarackdb-init ./cmd/init
+	go build -o $(BINDIR)/tamarackdb-backup ./cmd/tamarackdb-backup
 
 demo:
 	go build -o $(BINDIR)/tamarackdb-demo ./cmd/demo
@@ -21,6 +22,7 @@ define build_target
 	GOOS=$(1) GOARCH=$(2) CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o $(BINDIR)/$(1)-$(2)/tamarackdb$(3) ./cmd/tamarackdb
 	GOOS=$(1) GOARCH=$(2) CGO_ENABLED=0 go build -o $(BINDIR)/$(1)-$(2)/tamarackdb-migrate$(3) ./cmd/migrate
 	GOOS=$(1) GOARCH=$(2) CGO_ENABLED=0 go build -o $(BINDIR)/$(1)-$(2)/tamarackdb-init$(3) ./cmd/init
+	GOOS=$(1) GOARCH=$(2) CGO_ENABLED=0 go build -o $(BINDIR)/$(1)-$(2)/tamarackdb-backup$(3) ./cmd/tamarackdb-backup
 endef
 
 build-linux:

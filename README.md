@@ -10,4 +10,5 @@ using SQLite as the storage engine.
 - [Deploy](docs/deploy.md): how to configure, run, and deploy an instance.
 - [Integration guide](docs/integration.md): how to read and append events over
   HTTP, for apps and client libraries.
+- [Backup](docs/backup.md): how to keep a local copy of an instance's events.
 - [Design](docs/design.md): how TamarackDB is built inside.

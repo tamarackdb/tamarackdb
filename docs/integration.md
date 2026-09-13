@@ -97,7 +97,10 @@ the last full line you received, with no events skipped or repeated.
 The same loop that pages through history can also follow new events live: keep
 polling with `afterSequence` set to the last Sequence Position you saw. Once
 `hasMore` reads `false`, you have caught up, and further polling picks up new
-events as they arrive.
+events as they arrive. `tamarackdb-backup` (see [backup.md](backup.md)) is a
+real example of this loop: it pages through `/read` with `afterSequence` set
+to the last sequence it saved locally, and stops once `hasMore` reads
+`false`.
 
 `limit` defaults to whatever the server operator set (`defaultLimit`, 1000 out of
 the box) and is capped at `maxLimit` (10000 out of the box). Asking for more than
