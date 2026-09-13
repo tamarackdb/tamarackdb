@@ -15,11 +15,13 @@ import (
 	"strconv"
 )
 
+// Default values for Config's optional fields, exported so callers (such as
+// a -default-config flag) can print them without duplicating the numbers.
 const (
-	defaultLimit            = 1000
-	defaultMaxLimit         = 10000
-	defaultEventSize        = 65536 // 64 KiB
-	defaultMaxQueuedWriters = 100
+	DefaultLimit            = 1000
+	DefaultMaxLimit         = 10000
+	DefaultEventSize        = 65536 // 64 KiB
+	DefaultMaxQueuedWriters = 100
 )
 
 // Config is TamarackDB's startup configuration, resolved once from a JSON
@@ -81,16 +83,16 @@ func Load(path string) (*Config, error) {
 	}
 
 	if cfg.DefaultLimit == 0 {
-		cfg.DefaultLimit = defaultLimit
+		cfg.DefaultLimit = DefaultLimit
 	}
 	if cfg.MaxLimit == 0 {
-		cfg.MaxLimit = defaultMaxLimit
+		cfg.MaxLimit = DefaultMaxLimit
 	}
 	if cfg.MaxEventSize == 0 {
-		cfg.MaxEventSize = defaultEventSize
+		cfg.MaxEventSize = DefaultEventSize
 	}
 	if cfg.MaxQueuedWriters == 0 {
-		cfg.MaxQueuedWriters = defaultMaxQueuedWriters
+		cfg.MaxQueuedWriters = DefaultMaxQueuedWriters
 	}
 
 	if err := cfg.Validate(); err != nil {

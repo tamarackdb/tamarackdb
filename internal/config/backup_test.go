@@ -9,7 +9,7 @@ func TestLoadBackupFullConfig(t *testing.T) {
 	path := writeConfigFile(t, `{
 		"sourceUrl": "https://source.internal:8085",
 		"sourceToken": "secret",
-		"databasePath": "/var/lib/tamarackdb/backup.sqlite",
+		"databasePath": "/var/lib/tamarackdb/tamarackdb-backup.sqlite",
 		"pageLimit": 500
 	}`)
 
@@ -20,7 +20,7 @@ func TestLoadBackupFullConfig(t *testing.T) {
 	want := BackupConfig{
 		SourceURL:    "https://source.internal:8085",
 		SourceToken:  "secret",
-		DatabasePath: "/var/lib/tamarackdb/backup.sqlite",
+		DatabasePath: "/var/lib/tamarackdb/tamarackdb-backup.sqlite",
 		PageLimit:    500,
 	}
 	if *cfg != want {
@@ -31,15 +31,15 @@ func TestLoadBackupFullConfig(t *testing.T) {
 func TestLoadBackupAppliesPageLimitDefault(t *testing.T) {
 	path := writeConfigFile(t, `{
 		"sourceUrl": "https://source.internal:8085",
-		"databasePath": "backup.sqlite"
+		"databasePath": "tamarackdb-backup.sqlite"
 	}`)
 
 	cfg, err := LoadBackup(path)
 	if err != nil {
 		t.Fatalf("LoadBackup() error = %v", err)
 	}
-	if cfg.PageLimit != defaultBackupPageLimit {
-		t.Errorf("PageLimit = %d, want %d", cfg.PageLimit, defaultBackupPageLimit)
+	if cfg.PageLimit != DefaultBackupPageLimit {
+		t.Errorf("PageLimit = %d, want %d", cfg.PageLimit, DefaultBackupPageLimit)
 	}
 }
 
@@ -50,7 +50,7 @@ func TestLoadBackupEnvFillsOmittedFields(t *testing.T) {
 	})
 	path := writeConfigFile(t, `{
 		"sourceUrl": "https://source.internal:8085",
-		"databasePath": "backup.sqlite"
+		"databasePath": "tamarackdb-backup.sqlite"
 	}`)
 
 	cfg, err := LoadBackup(path)
@@ -69,7 +69,7 @@ func TestLoadBackupFileTakesPrecedenceOverEnv(t *testing.T) {
 	setEnv(t, map[string]string{"TAMARACKDB_BACKUP_PAGE_LIMIT": "9999"})
 	path := writeConfigFile(t, `{
 		"sourceUrl": "https://source.internal:8085",
-		"databasePath": "backup.sqlite",
+		"databasePath": "tamarackdb-backup.sqlite",
 		"pageLimit": 250
 	}`)
 
@@ -85,7 +85,7 @@ func TestLoadBackupFileTakesPrecedenceOverEnv(t *testing.T) {
 func TestLoadBackupFromEnvWithoutFile(t *testing.T) {
 	setEnv(t, map[string]string{
 		"TAMARACKDB_BACKUP_SOURCE_URL":    "https://source.internal:8085",
-		"TAMARACKDB_BACKUP_DATABASE_PATH": "backup.sqlite",
+		"TAMARACKDB_BACKUP_DATABASE_PATH": "tamarackdb-backup.sqlite",
 	})
 
 	cfg, err := LoadBackup(filepath.Join(t.TempDir(), "does-not-exist.json"))
@@ -94,8 +94,8 @@ func TestLoadBackupFromEnvWithoutFile(t *testing.T) {
 	}
 	want := BackupConfig{
 		SourceURL:    "https://source.internal:8085",
-		DatabasePath: "backup.sqlite",
-		PageLimit:    defaultBackupPageLimit,
+		DatabasePath: "tamarackdb-backup.sqlite",
+		PageLimit:    DefaultBackupPageLimit,
 	}
 	if *cfg != want {
 		t.Errorf("LoadBackup() = %+v, want %+v", *cfg, want)
@@ -103,7 +103,7 @@ func TestLoadBackupFromEnvWithoutFile(t *testing.T) {
 }
 
 func TestLoadBackupRequiresSourceURL(t *testing.T) {
-	path := writeConfigFile(t, `{"databasePath": "backup.sqlite"}`)
+	path := writeConfigFile(t, `{"databasePath": "tamarackdb-backup.sqlite"}`)
 	if _, err := LoadBackup(path); err == nil {
 		t.Fatal("LoadBackup() error = nil, want error for missing sourceUrl")
 	}
@@ -119,7 +119,7 @@ func TestLoadBackupRequiresDatabasePath(t *testing.T) {
 func TestLoadBackupPageLimitMustBePositive(t *testing.T) {
 	path := writeConfigFile(t, `{
 		"sourceUrl": "https://source.internal:8085",
-		"databasePath": "backup.sqlite",
+		"databasePath": "tamarackdb-backup.sqlite",
 		"pageLimit": -1
 	}`)
 	if _, err := LoadBackup(path); err == nil {
@@ -131,7 +131,7 @@ func TestLoadBackupInvalidPageLimitEnvValue(t *testing.T) {
 	setEnv(t, map[string]string{"TAMARACKDB_BACKUP_PAGE_LIMIT": "not-a-number"})
 	path := writeConfigFile(t, `{
 		"sourceUrl": "https://source.internal:8085",
-		"databasePath": "backup.sqlite"
+		"databasePath": "tamarackdb-backup.sqlite"
 	}`)
 	if _, err := LoadBackup(path); err == nil {
 		t.Fatal("LoadBackup() error = nil, want error for invalid TAMARACKDB_BACKUP_PAGE_LIMIT")

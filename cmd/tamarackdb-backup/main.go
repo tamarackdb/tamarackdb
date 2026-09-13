@@ -34,13 +34,14 @@ func main() {
 }
 
 // printDefaultConfig writes a starter JSON configuration to stdout, meant to
-// be piped into a file and adjusted. pageLimit is left unset so the
-// built-in default in config.LoadBackup applies, rather than duplicating it
-// here.
+// be piped into a file and adjusted. It spells out every key, including the
+// ones config.LoadBackup would otherwise default on its own, so this is a
+// complete reference of what's configurable rather than a partial file.
 func printDefaultConfig() error {
 	cfg := config.BackupConfig{
-		SourceURL:    "https://source.example.com",
-		DatabasePath: "backup.sqlite",
+		SourceURL:    "https://hostname:8085",
+		DatabasePath: "tamarackdb-backup.sqlite",
+		PageLimit:    config.DefaultBackupPageLimit,
 	}
 
 	data, err := json.MarshalIndent(cfg, "", "  ")

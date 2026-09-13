@@ -61,17 +61,17 @@ func TestLoadAppliesDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	if cfg.DefaultLimit != defaultLimit {
-		t.Errorf("DefaultLimit = %d, want %d", cfg.DefaultLimit, defaultLimit)
+	if cfg.DefaultLimit != DefaultLimit {
+		t.Errorf("DefaultLimit = %d, want %d", cfg.DefaultLimit, DefaultLimit)
 	}
-	if cfg.MaxLimit != defaultMaxLimit {
-		t.Errorf("MaxLimit = %d, want %d", cfg.MaxLimit, defaultMaxLimit)
+	if cfg.MaxLimit != DefaultMaxLimit {
+		t.Errorf("MaxLimit = %d, want %d", cfg.MaxLimit, DefaultMaxLimit)
 	}
-	if cfg.MaxEventSize != defaultEventSize {
-		t.Errorf("MaxEventSize = %d, want %d", cfg.MaxEventSize, defaultEventSize)
+	if cfg.MaxEventSize != DefaultEventSize {
+		t.Errorf("MaxEventSize = %d, want %d", cfg.MaxEventSize, DefaultEventSize)
 	}
-	if cfg.MaxQueuedWriters != defaultMaxQueuedWriters {
-		t.Errorf("MaxQueuedWriters = %d, want %d", cfg.MaxQueuedWriters, defaultMaxQueuedWriters)
+	if cfg.MaxQueuedWriters != DefaultMaxQueuedWriters {
+		t.Errorf("MaxQueuedWriters = %d, want %d", cfg.MaxQueuedWriters, DefaultMaxQueuedWriters)
 	}
 }
 
@@ -144,7 +144,7 @@ func TestLoadDefaultLimitExceedsMaxLimit(t *testing.T) {
 		"defaultLimit": 5000, "maxLimit": 1000
 	}`)
 	if _, err := Load(path); err == nil {
-		t.Fatal("Load() error = nil, want error when defaultLimit > maxLimit")
+		t.Fatal("Load() error = nil, want error when DefaultLimit > maxLimit")
 	}
 }
 
@@ -239,8 +239,8 @@ func TestLoadFromEnvWithoutFile(t *testing.T) {
 		BindAddress: "0.0.0.0", Port: 8443,
 		TLSCertFile: "cert.pem", TLSKeyFile: "key.pem",
 		AuthToken: "secret", DatabasePath: "db.sqlite",
-		DefaultLimit: defaultLimit, MaxLimit: defaultMaxLimit, MaxEventSize: defaultEventSize,
-		MaxQueuedWriters: defaultMaxQueuedWriters,
+		DefaultLimit: DefaultLimit, MaxLimit: DefaultMaxLimit, MaxEventSize: DefaultEventSize,
+		MaxQueuedWriters: DefaultMaxQueuedWriters,
 	}
 	if *cfg != want {
 		t.Errorf("Load() = %+v, want %+v", *cfg, want)

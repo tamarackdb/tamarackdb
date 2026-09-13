@@ -84,7 +84,7 @@ func TestRunCopiesAllEventsAcrossMultiplePages(t *testing.T) {
 	}
 
 	ts := newSourceServer(t, sourceStore)
-	backupPath := filepath.Join(t.TempDir(), "backup.sqlite")
+	backupPath := filepath.Join(t.TempDir(), "tamarackdb-backup.sqlite")
 	configPath := writeBackupConfig(t, ts.URL, backupPath, 2) // small page size forces multiple pages
 
 	if err := run(context.Background(), configPath); err != nil {
@@ -123,7 +123,7 @@ func TestRunResumesFromLastImportedSequence(t *testing.T) {
 	mustSourceAppend(3)
 
 	ts := newSourceServer(t, sourceStore)
-	backupPath := filepath.Join(t.TempDir(), "backup.sqlite")
+	backupPath := filepath.Join(t.TempDir(), "tamarackdb-backup.sqlite")
 	configPath := writeBackupConfig(t, ts.URL, backupPath, 100)
 
 	if err := run(context.Background(), configPath); err != nil {
@@ -154,7 +154,7 @@ func TestRunFailsWithoutTouchingAlreadyImportedPages(t *testing.T) {
 	}
 
 	ts := newSourceServer(t, sourceStore)
-	backupPath := filepath.Join(t.TempDir(), "backup.sqlite")
+	backupPath := filepath.Join(t.TempDir(), "tamarackdb-backup.sqlite")
 	configPath := writeBackupConfig(t, ts.URL, backupPath, 100)
 
 	if err := run(context.Background(), configPath); err != nil {

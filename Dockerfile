@@ -24,7 +24,7 @@ RUN mkdir -p /data && chown -R tamarackdb:tamarackdb /data
 
 ENV TAMARACKDB_BIND_ADDRESS=0.0.0.0 \
     TAMARACKDB_PORT=8085 \
-    TAMARACKDB_DATABASE_PATH=/data/tamarack.sqlite
+    TAMARACKDB_DATABASE_PATH=/data/tamarackdb.sqlite
 
 VOLUME ["/data"]
 EXPOSE 8085

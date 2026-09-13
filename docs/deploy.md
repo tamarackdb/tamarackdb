@@ -33,7 +33,7 @@ variables cover a deployment with no file at all.
 ## Run
 
 ```sh
-./bin/tamarackdb-init --db /path/to/tamarack.sqlite
+./bin/tamarackdb-init --db /path/to/tamarackdb.sqlite
 ./bin/tamarackdb-server --config /path/to/config.json
 ```
 
@@ -66,14 +66,14 @@ docker run -d -p 8085:8085 -v tamarackdb-data:/data tamarackdb
 
 The image is set up entirely through `TAMARACKDB_*` environment variables (see
 Configure above); no `config.json` is needed inside the container. The database
-file defaults to `/data/tamarack.sqlite`, so mount a volume on `/data` to keep it
+file defaults to `/data/tamarackdb.sqlite`, so mount a volume on `/data` to keep it
 across restarts.
 
 `tamarackdb-migrate` and `tamarackdb-init` are also in the image, for running
 against the mounted volume:
 
 ```sh
-docker exec <container> ./tamarackdb-init --db /data/tamarack.sqlite
+docker exec <container> ./tamarackdb-init --db /data/tamarackdb.sqlite
 ```
 
 ## Health check

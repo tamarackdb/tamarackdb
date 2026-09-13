@@ -7,7 +7,10 @@ import (
 	"strconv"
 )
 
-const defaultBackupPageLimit = 1000
+// DefaultBackupPageLimit is BackupConfig.PageLimit's default value, exported
+// so callers (such as a -default-config flag) can print it without
+// duplicating the number.
+const DefaultBackupPageLimit = 1000
 
 // BackupConfig is tamarackdb-backup's startup configuration: which source
 // instance to copy events from, and where to write the local backup file.
@@ -45,7 +48,7 @@ func LoadBackup(path string) (*BackupConfig, error) {
 	}
 
 	if cfg.PageLimit == 0 {
-		cfg.PageLimit = defaultBackupPageLimit
+		cfg.PageLimit = DefaultBackupPageLimit
 	}
 
 	if err := cfg.Validate(); err != nil {

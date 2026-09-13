@@ -145,19 +145,23 @@ func main() {
 }
 
 // printDefaultConfig writes a starter JSON configuration to stdout, meant to
-// be piped into a file and adjusted. Pagination and event-size limits are
-// left unset so the built-in defaults in config.Load apply, rather than
-// duplicating them here.
+// be piped into a file and adjusted. It spells out every key, including the
+// ones config.Load would otherwise default on its own, so this is a
+// complete reference of what's configurable rather than a partial file.
 func printDefaultConfig() error {
 	cfg := config.Config{
-		BindAddress:  "127.0.0.1",
-		Port:         8085,
-		EnableTLS:    false,
-		TLSCertFile:  "/path/to/cert.pem",
-		TLSKeyFile:   "/path/to/key.pem",
-		EnableAuth:   false,
-		AuthToken:    "changeme",
-		DatabasePath: "tamarack.sqlite",
+		BindAddress:      "127.0.0.1",
+		Port:             8085,
+		EnableTLS:        false,
+		TLSCertFile:      "/path/to/cert.pem",
+		TLSKeyFile:       "/path/to/key.pem",
+		EnableAuth:       false,
+		AuthToken:        "changeme",
+		DatabasePath:     "tamarackdb.sqlite",
+		DefaultLimit:     config.DefaultLimit,
+		MaxLimit:         config.DefaultMaxLimit,
+		MaxEventSize:     config.DefaultEventSize,
+		MaxQueuedWriters: config.DefaultMaxQueuedWriters,
 	}
 
 	data, err := json.MarshalIndent(cfg, "", "  ")
