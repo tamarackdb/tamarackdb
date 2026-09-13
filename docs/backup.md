@@ -13,11 +13,11 @@ stopped.
 Generate a starter config and adjust it as needed:
 
 ```sh
-./bin/tamarackdb-backup -default-config > backup-config.json
+./bin/tamarackdb-backup --default-config > backup-config.json
 ```
 
 ```sh
-./bin/tamarackdb-backup -config /path/to/backup-config.json
+./bin/tamarackdb-backup --config /path/to/backup-config.json
 ```
 
 | Key | Environment variable | Default | Description |
@@ -38,7 +38,7 @@ value, writing every event it gets straight into local storage: not through
 `POST /append`, but through the same code path `store.Open` always uses to
 build a database file, so the schema comes out identical. See
 [design.md](design.md#storage-sqlite) for why that matters: the backup file
-can be pointed at directly with `tamarackdb-server -config ...` if the source ever
+can be pointed at directly with `tamarackdb-server --config ...` if the source ever
 needs replacing.
 
 There's no retry inside a run: if one fails partway, nothing is retried in
@@ -51,7 +51,7 @@ scheduled run resumes from the last successfully imported page.
 A typical cron entry:
 
 ```
-*/5 * * * * /usr/local/bin/tamarackdb-backup -config /etc/tamarackdb/backup-config.json >> /var/log/tamarackdb-backup.log 2>&1
+*/5 * * * * /usr/local/bin/tamarackdb-backup --config /etc/tamarackdb/backup-config.json >> /var/log/tamarackdb-backup.log 2>&1
 ```
 
 Or a systemd timer:
@@ -60,7 +60,7 @@ Or a systemd timer:
 # /etc/systemd/system/tamarackdb-backup.service
 [Service]
 Type=oneshot
-ExecStart=/usr/local/bin/tamarackdb-backup -config /etc/tamarackdb/backup-config.json
+ExecStart=/usr/local/bin/tamarackdb-backup --config /etc/tamarackdb/backup-config.json
 ```
 
 ```ini

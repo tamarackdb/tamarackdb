@@ -10,7 +10,7 @@ HTTP API, see [integration.md](integration.md). For backing up an instance, see
 Generate a starter `config.json` and adjust it as needed:
 
 ```sh
-./bin/tamarackdb-server -default-config > config.json
+./bin/tamarackdb-server --default-config > config.json
 ```
 
 | Key | Environment variable | Default | Description |
@@ -33,11 +33,11 @@ variables cover a deployment with no file at all.
 ## Run
 
 ```sh
-./bin/tamarackdb-init -db /path/to/tamarack.sqlite
-./bin/tamarackdb-server -config /path/to/config.json
+./bin/tamarackdb-init --db /path/to/tamarack.sqlite
+./bin/tamarackdb-server --config /path/to/config.json
 ```
 
-`tamarackdb-server -version` prints the running build's version and exits. It does not
+`tamarackdb-server --version` prints the running build's version and exits. It does not
 load the config file or open the database.
 
 Once running, the server logs one line per request to stdout: method, path, status
@@ -51,7 +51,7 @@ expects, run once between a schema change and rolling out the new server.
 Point it at a config file so it can find the database:
 
 ```sh
-./bin/tamarackdb-migrate -config /path/to/config.json
+./bin/tamarackdb-migrate --config /path/to/config.json
 ```
 
 The server itself never changes the schema on its own. See
@@ -73,7 +73,7 @@ across restarts.
 against the mounted volume:
 
 ```sh
-docker exec <container> ./tamarackdb-init -db /data/tamarack.sqlite
+docker exec <container> ./tamarackdb-init --db /data/tamarack.sqlite
 ```
 
 ## Health check

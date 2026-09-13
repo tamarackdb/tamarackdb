@@ -41,10 +41,10 @@ database fast. Use it to try `QUERY /read` at scale.
 
 ```sh
 make tamarackdb-demo
-./bin/tamarackdb-demo -db /path/to/tamarack.sqlite -n 1000000 -seed 1
+./bin/tamarackdb-demo --db /path/to/tamarack.sqlite --n 1000000 --seed 1
 ```
 
-`-n` sets how many events to write, `-seed` makes the run repeatable.
+`--n` sets how many events to write, `--seed` makes the run repeatable.
 
 ## Other Makefile targets
 

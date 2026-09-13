@@ -448,7 +448,7 @@ Moving an existing database from one schema version to the next is the job of a 
 
 TamarackDB's startup configuration (bind address, port, TLS settings, auth token, database path, pagination/event-size limits, and the write queue depth) comes from three sources, in this order:
 
-1. A JSON configuration file, passed via `-config` (defaults to `config.json` in the working directory).
+1. A JSON configuration file, passed via `--config` (defaults to `config.json` in the working directory).
 2. `TAMARACKDB_*` environment variables, one per configuration key.
 3. Built-in defaults, for the handful of keys that have one (`defaultLimit`, `maxLimit`, `maxEventSize`, `maxQueuedWriters`).
 
@@ -494,7 +494,7 @@ A lightweight `GET /health` endpoint confirms the process is responding and SQLi
 
 ### Versioning
 
-The running build's version is a single value, read from the `VERSION` file at the root of the repository and baked into the binary at build time, via `-ldflags "-X main.version=..."`. It's not something the process reads or reloads while running. `./tamarackdb-server -version` prints that value and exits right away, without loading the configuration file or opening the store, for a quick check of what's actually running, without having to reach it over the network. That same value is what `GET /health` reports in its `version` field above.
+The running build's version is a single value, read from the `VERSION` file at the root of the repository and baked into the binary at build time, via `-ldflags "-X main.version=..."`. It's not something the process reads or reloads while running. `./tamarackdb-server --version` prints that value and exits right away, without loading the configuration file or opening the store, for a quick check of what's actually running, without having to reach it over the network. That same value is what `GET /health` reports in its `version` field above.
 
 ### Request logging
 
