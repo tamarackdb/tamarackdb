@@ -10,7 +10,7 @@ HTTP API, see [integration.md](integration.md). For backing up an instance, see
 Generate a starter `config.json` and adjust it as needed:
 
 ```sh
-./bin/tamarackdb-init -config config.json
+./bin/tamarackdb-server -default-config > config.json
 ```
 
 | Key | Environment variable | Default | Description |
@@ -33,7 +33,7 @@ variables cover a deployment with no file at all.
 ## Run
 
 ```sh
-./bin/tamarackdb-init -db /path/to/tamarack.db -config /path/to/config.json
+./bin/tamarackdb-init -db /path/to/tamarack.sqlite
 ./bin/tamarackdb-server -config /path/to/config.json
 ```
 
@@ -45,10 +45,10 @@ code, and time taken, e.g. `tamarackdb: POST /append 200 1.23ms`.
 
 ## Provisioning and migration
 
-`tamarackdb-init` creates a new database file, a default config file, or both, as
-shown above. `tamarackdb-migrate` brings an existing database up to the schema
-this binary expects, run once between a schema change and rolling out the new
-server. Point it at a config file so it can find the database:
+`tamarackdb-init` creates a new, empty database file, as shown above.
+`tamarackdb-migrate` brings an existing database up to the schema this binary
+expects, run once between a schema change and rolling out the new server.
+Point it at a config file so it can find the database:
 
 ```sh
 ./bin/tamarackdb-migrate -config /path/to/config.json
@@ -66,14 +66,14 @@ docker run -d -p 8085:8085 -v tamarackdb-data:/data tamarackdb
 
 The image is set up entirely through `TAMARACKDB_*` environment variables (see
 Configure above); no `config.json` is needed inside the container. The database
-file defaults to `/data/tamarack.db`, so mount a volume on `/data` to keep it
+file defaults to `/data/tamarack.sqlite`, so mount a volume on `/data` to keep it
 across restarts.
 
 `tamarackdb-migrate` and `tamarackdb-init` are also in the image, for running
 against the mounted volume:
 
 ```sh
-docker exec <container> ./tamarackdb-init -db /data/tamarack.db
+docker exec <container> ./tamarackdb-init -db /data/tamarack.sqlite
 ```
 
 ## Health check

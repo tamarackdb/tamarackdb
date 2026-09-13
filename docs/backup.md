@@ -10,6 +10,12 @@ or a systemd timer, don't run it as a long-running process. A run that's
 missed or late isn't a problem: the next one picks up from where the last one
 stopped.
 
+Generate a starter config and adjust it as needed:
+
+```sh
+./bin/tamarackdb-backup -default-config > backup-config.json
+```
+
 ```sh
 ./bin/tamarackdb-backup -config /path/to/backup-config.json
 ```

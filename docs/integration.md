@@ -198,7 +198,7 @@ testing a client library against realistic volume instead of one or two
 hand-written events:
 
 ```sh
-./bin/tamarackdb-demo -db /path/to/tamarack.db -n 100000 -seed 1
+./bin/tamarackdb-demo -db /path/to/tamarack.sqlite -n 100000 -seed 1
 ```
 
 It writes straight to the database file, not through the running server, so run

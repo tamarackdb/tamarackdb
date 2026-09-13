@@ -6,6 +6,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -37,10 +38,18 @@ const banner = " _____                                    _    ____  ____\n" +
 func main() {
 	configPath := flag.String("config", "config.json", "path to the JSON configuration file (optional; falls back to TAMARACKDB_* environment variables)")
 	showVersion := flag.Bool("version", false, "print the version and exit")
+	defaultConfig := flag.Bool("default-config", false, "print a starter JSON configuration to stdout and exit")
 	flag.Parse()
 
 	if *showVersion {
 		fmt.Println(version)
+		return
+	}
+
+	if *defaultConfig {
+		if err := printDefaultConfig(); err != nil {
+			log.Fatalf("tamarackdb: %v", err)
+		}
 		return
 	}
 
@@ -133,4 +142,28 @@ func main() {
 		log.Printf("tamarackdb: store close error: %v", err)
 	}
 	os.Exit(exitCode)
+}
+
+// printDefaultConfig writes a starter JSON configuration to stdout, meant to
+// be piped into a file and adjusted. Pagination and event-size limits are
+// left unset so the built-in defaults in config.Load apply, rather than
+// duplicating them here.
+func printDefaultConfig() error {
+	cfg := config.Config{
+		BindAddress:  "127.0.0.1",
+		Port:         8085,
+		EnableTLS:    false,
+		TLSCertFile:  "/path/to/cert.pem",
+		TLSKeyFile:   "/path/to/key.pem",
+		EnableAuth:   false,
+		AuthToken:    "changeme",
+		DatabasePath: "tamarack.sqlite",
+	}
+
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+	fmt.Println(string(data))
+	return nil
 }
