@@ -1,0 +1,9 @@
+*
+
+!go.mod
+!go.sum
+!VERSION
+!cmd
+!cmd/**
+!internal
+!internal/**
