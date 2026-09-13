@@ -12,3 +12,9 @@ using SQLite as the storage engine.
   HTTP, for apps and client libraries.
 - [Backup](docs/backup.md): how to keep a local copy of an instance's events.
 - [Design](docs/design.md): how TamarackDB is built inside.
+
+## Project status
+
+TamarackDB's source is public, but the project doesn't accept issues or
+pull requests at this time; development is managed privately. No support
+is offered, and the code is available as-is, at your own risk.
