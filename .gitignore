@@ -1,11 +1,11 @@
 /.idea
 /bin/
 /data/
+*.json
 *.sqlite
 *.sqlite-shm
 *.sqlite-wal
 *.sqlite.lock
-config.json
 
 # Go
 *.test
