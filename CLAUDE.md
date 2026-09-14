@@ -52,7 +52,6 @@ to do their job," not by topic proximity.
 
 ## Versioning context
 
-TamarackDB is pre-1.0 (current target: v0.1.0, not yet released). Don't
-write migration guides or deprecation notices for internal changes;
-breaking changes to schema, config shape, or internal APIs are expected
-before v1.0.
+TamarackDB is pre-1.0. Don't write migration guides or deprecation notices
+for internal changes; breaking changes to schema, config shape, or
+internal APIs are expected before v1.0.
