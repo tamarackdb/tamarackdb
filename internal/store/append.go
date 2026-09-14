@@ -144,61 +144,82 @@ func checkFailIfEventsMatchSQL(ctx context.Context, tx *sql.Tx, q dcb.Query, aft
 	return !matches, nil
 }
 
-// insertEventsBatch writes every row's events table entry in one multi-row
-// INSERT.
-func insertEventsBatch(ctx context.Context, tx *sql.Tx, rows []dcb.Event) error {
-	var b strings.Builder
-	b.WriteString("INSERT INTO events (sequence, time, type, payload) VALUES ")
-	args := make([]any, 0, len(rows)*4)
-	for i, ev := range rows {
-		if i > 0 {
-			b.WriteString(", ")
-		}
-		b.WriteString("(?, ?, ?, ?)")
-		args = append(args, ev.Sequence, ev.Time.Format(timeLayout), ev.Type, ev.Payload)
+// maxBatchVariables caps how many bound parameters a single multi-row
+// INSERT uses. It stays comfortably under SQLite's SQLITE_MAX_VARIABLE_NUMBER
+// (32766 by default for modernc.org/sqlite) so a large caller-supplied batch,
+// such as tamarackdb-backup importing a page of thousands of events, is
+// split into several statements instead of failing with "too many SQL
+// variables".
+const maxBatchVariables = 32000
+
+// execBatchInsert runs insertPrefix (an "INSERT INTO ... VALUES " clause)
+// against rows, each holding colsPerRow values, splitting rows across
+// multiple statements so no single one exceeds maxBatchVariables bound
+// parameters.
+func execBatchInsert(ctx context.Context, tx *sql.Tx, insertPrefix string, colsPerRow int, rows [][]any) error {
+	if len(rows) == 0 {
+		return nil
 	}
-	_, err := tx.ExecContext(ctx, b.String(), args...)
+
+	rowsPerChunk := maxBatchVariables / colsPerRow
+	placeholder := "(" + strings.Repeat("?, ", colsPerRow-1) + "?)"
+
+	for start := 0; start < len(rows); start += rowsPerChunk {
+		end := min(start+rowsPerChunk, len(rows))
+		chunk := rows[start:end]
+
+		var b strings.Builder
+		b.WriteString(insertPrefix)
+		args := make([]any, 0, len(chunk)*colsPerRow)
+		for i, row := range chunk {
+			if i > 0 {
+				b.WriteString(", ")
+			}
+			b.WriteString(placeholder)
+			args = append(args, row...)
+		}
+		if _, err := tx.ExecContext(ctx, b.String(), args...); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// insertEventsBatch writes every row's events table entry, across as many
+// multi-row INSERTs as maxBatchVariables requires.
+func insertEventsBatch(ctx context.Context, tx *sql.Tx, rows []dcb.Event) error {
+	args := make([][]any, len(rows))
+	for i, ev := range rows {
+		args[i] = []any{ev.Sequence, ev.Time.Format(timeLayout), ev.Type, ev.Payload}
+	}
+	err := execBatchInsert(ctx, tx, "INSERT INTO events (sequence, time, type, payload) VALUES ", 4, args)
 	return wrapf("insert events", err)
 }
 
-// insertIdentifiersBatch writes every event's identifiers in one multi-row
-// INSERT, skipping the statement entirely when the batch carries none.
+// insertIdentifiersBatch writes every event's identifiers, across as many
+// multi-row INSERTs as maxBatchVariables requires, skipping entirely when
+// the batch carries none.
 func insertIdentifiersBatch(ctx context.Context, tx *sql.Tx, rows []dcb.Event) error {
-	var b strings.Builder
-	var args []any
+	var args [][]any
 	for _, ev := range rows {
 		for _, id := range ev.Identifiers {
-			if len(args) > 0 {
-				b.WriteString(", ")
-			}
-			b.WriteString("(?, ?, ?)")
-			args = append(args, ev.Sequence, id.Name, id.Value)
+			args = append(args, []any{ev.Sequence, id.Name, id.Value})
 		}
 	}
-	if len(args) == 0 {
-		return nil
-	}
-	_, err := tx.ExecContext(ctx, "INSERT INTO identifiers (event_sequence, name, value) VALUES "+b.String(), args...)
+	err := execBatchInsert(ctx, tx, "INSERT INTO identifiers (event_sequence, name, value) VALUES ", 3, args)
 	return wrapf("insert identifiers", err)
 }
 
-// insertMetadataBatch writes every event's metadata in one multi-row
-// INSERT, skipping the statement entirely when the batch carries none.
+// insertMetadataBatch writes every event's metadata, across as many
+// multi-row INSERTs as maxBatchVariables requires, skipping entirely when
+// the batch carries none.
 func insertMetadataBatch(ctx context.Context, tx *sql.Tx, rows []dcb.Event) error {
-	var b strings.Builder
-	var args []any
+	var args [][]any
 	for _, ev := range rows {
 		for _, md := range ev.Metadata {
-			if len(args) > 0 {
-				b.WriteString(", ")
-			}
-			b.WriteString("(?, ?, ?)")
-			args = append(args, ev.Sequence, md.Name, md.Value)
+			args = append(args, []any{ev.Sequence, md.Name, md.Value})
 		}
 	}
-	if len(args) == 0 {
-		return nil
-	}
-	_, err := tx.ExecContext(ctx, "INSERT INTO metadata (event_sequence, name, value) VALUES "+b.String(), args...)
+	err := execBatchInsert(ctx, tx, "INSERT INTO metadata (event_sequence, name, value) VALUES ", 3, args)
 	return wrapf("insert metadata", err)
 }

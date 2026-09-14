@@ -41,6 +41,30 @@ func TestImportRoundTrip(t *testing.T) {
 	}
 }
 
+func TestImportLargeBatchSplitsAcrossStatements(t *testing.T) {
+	s := openTestStore(t)
+
+	const n = 10000 // 4 vars/event exceeds maxBatchVariables in one INSERT
+	events := make([]dcb.Event, n)
+	for i := range events {
+		events[i] = eventAt(int64(i+1), dcb.EventData{
+			Type:        "Imported",
+			Identifiers: dcb.IdentifierSet{{Name: "batch", Value: "big"}},
+			Metadata:    dcb.MetadataSet{{Name: "source", Value: "backup"}},
+			Payload:     "{}",
+		})
+	}
+	mustImport(t, s, events)
+
+	got, hasMore := mustReadAll(t, s, ReadFilter{Query: dcb.QueryAll(), Limit: n})
+	if hasMore {
+		t.Fatal("HasMore() = true, want false")
+	}
+	if len(got) != n {
+		t.Fatalf("len(got) = %d, want %d", len(got), n)
+	}
+}
+
 func TestImportEmptySliceIsNoOp(t *testing.T) {
 	s := openTestStore(t)
 
