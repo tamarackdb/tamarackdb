@@ -46,7 +46,7 @@ func main() {
 
 	if *defaultConfig {
 		if err := printDefaultConfig(); err != nil {
-			log.Fatalf("tamarackdb: %v", err)
+			log.Fatalf("tamarackdb-server: %v", err)
 		}
 		return
 	}
@@ -56,7 +56,7 @@ func main() {
 
 	cfg, err := config.Load(*configPath)
 	if err != nil {
-		log.Fatalf("tamarackdb: %v", err)
+		log.Fatalf("tamarackdb-server: %v", err)
 	}
 
 	fmt.Printf("bindAddress: %s\n", cfg.BindAddress)
@@ -74,7 +74,7 @@ func main() {
 
 	st, err := store.Open(context.Background(), cfg.DatabasePath)
 	if err != nil {
-		log.Fatalf("tamarackdb: %v", err)
+		log.Fatalf("tamarackdb-server: %v", err)
 	}
 	// st.Close() is not deferred: shutdown is ordered explicitly below,
 	// not left to main's return.
@@ -107,7 +107,7 @@ func main() {
 	signalCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	log.Printf("tamarackdb: listening on %s (tls=%t, auth=%t)", httpServer.Addr, cfg.EnableTLS, cfg.EnableAuth)
+	log.Printf("tamarackdb-server: listening on %s (tls=%t, auth=%t)", httpServer.Addr, cfg.EnableTLS, cfg.EnableAuth)
 
 	serveErrCh := make(chan error, 1)
 	if cfg.EnableTLS {
@@ -119,13 +119,13 @@ func main() {
 	exitCode := 0
 	select {
 	case <-signalCtx.Done():
-		log.Print("tamarackdb: received shutdown signal")
+		log.Print("tamarackdb-server: received shutdown signal")
 	case err := <-fatalCh:
-		log.Printf("tamarackdb: fatal storage error: %v", err)
+		log.Printf("tamarackdb-server: fatal storage error: %v", err)
 		exitCode = 1
 	case err := <-serveErrCh:
 		if err != nil && err != http.ErrServerClosed {
-			log.Printf("tamarackdb: HTTP server error: %v", err)
+			log.Printf("tamarackdb-server: HTTP server error: %v", err)
 			exitCode = 1
 		}
 	}
@@ -133,11 +133,11 @@ func main() {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := httpServer.Shutdown(shutdownCtx); err != nil {
-		log.Printf("tamarackdb: graceful shutdown error: %v", err)
+		log.Printf("tamarackdb-server: graceful shutdown error: %v", err)
 	}
 	qm.Close()
 	if err := st.Close(); err != nil {
-		log.Printf("tamarackdb: store close error: %v", err)
+		log.Printf("tamarackdb-server: store close error: %v", err)
 	}
 	os.Exit(exitCode)
 }
