@@ -1,6 +1,6 @@
 ![](docs/tamarackdb-logo.png)
 
-TamarackDB is an event store in Go, compliant with the [DCB (Dynamic Consistency
+TamarackDB is an event store in pure Go, compliant with the [DCB (Dynamic Consistency
 Boundaries) specification](https://dcb.events/specification/), accessible via HTTP,
 using SQLite as the storage engine.
 
