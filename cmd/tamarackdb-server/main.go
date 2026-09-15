@@ -52,7 +52,7 @@ func main() {
 	}
 
 	fmt.Print(banner)
-	fmt.Printf("\ntamarackdb %s\nhttps://github.com/tamarackdb\n\n", buildinfo.Version)
+	fmt.Printf("\nTamarackDB v%s\nhttps://github.com/tamarackdb\n\n", buildinfo.Version)
 
 	cfg, err := config.Load(*configPath)
 	if err != nil {
