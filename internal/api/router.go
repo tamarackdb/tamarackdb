@@ -6,6 +6,7 @@ package api
 
 import (
 	"net/http"
+	"net/http/pprof"
 	"sync/atomic"
 
 	"github.com/tamarackdb/tamarackdb/internal/queue"
@@ -120,6 +121,20 @@ func New(qm *queue.Manager, st *store.Store, opts Options) *Server {
 		// matches DELETE requests, so it doesn't reintroduce the
 		// 405-swallowing problem described above for the other methods.
 		mux.HandleFunc("DELETE /", s.handleReset)
+
+		// Standard net/http/pprof registration, mounted on our own mux
+		// instead of relying on the package's http.DefaultServeMux
+		// side effect. Left method-agnostic, matching upstream
+		// net/http/pprof and because go tool pprof's own client uses
+		// POST against /debug/pprof/symbol for large symbol lookups.
+		// DevMode-gated like DELETE / above: CPU/heap profiles and
+		// goroutine dumps can leak information about running queries
+		// and are never meant for a production deployment.
+		mux.HandleFunc("/debug/pprof/", pprof.Index)
+		mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+		mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+		mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+		mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
 	}
 
 	var h http.Handler = mux

@@ -23,7 +23,7 @@ Generate a starter `config.json` and adjust it as needed:
 | `maxEventSize` | `TAMARACKDB_MAX_EVENT_SIZE` | `65536` (64 KiB) | Maximum size in bytes of a single event |
 | `maxQueuedWriters` | `TAMARACKDB_MAX_QUEUED_WRITERS` | `100` | Maximum writers waiting to append at once |
 | `readPoolSize` | `TAMARACKDB_READ_POOL_SIZE` | `8` | SQLite connections available for `/read`, and so how many can run at once |
-| `devMode` | `TAMARACKDB_DEV_MODE` | `false` | Turns on `DELETE /`, which wipes the whole database. Never enable this in production. |
+| `devMode` | `TAMARACKDB_DEV_MODE` | `false` | Turns on `DELETE /` (wipes the whole database) and `/debug/pprof/*` (profiling endpoints). Never enable this in production. |
 
 Turn `enableTls` on whenever TamarackDB runs on a different host than the
 application calling it: without it, request and response bodies, and the
@@ -111,6 +111,33 @@ not during normal `read`/`append` use.
 
 See [design.md](design.md#queue-and-connection-pool-observability) for the exact
 metric names and JSON shape.
+
+## Developer mode
+
+`devMode` (see Configure above) turns on two things at once, both meant for a
+local instance or a controlled troubleshooting session, never a production
+deployment:
+
+- `DELETE /`, which wipes the whole database.
+- `/debug/pprof/*`, Go's standard profiling endpoints (CPU, heap, goroutine,
+  and so on).
+
+Turn it on only for as long as you need it, then turn it back off.
+
+### Profiling a request
+
+With `devMode` on, start a CPU profile, then trigger the request you want to
+look at from another terminal while it collects samples:
+
+```sh
+go tool pprof -http=:0 "http://127.0.0.1:8085/debug/pprof/profile?seconds=30"
+```
+
+This opens the result as a flame graph once the 30 seconds are up (or once the
+request finishes, if that takes longer, in which case raise `seconds`
+accordingly). For a request that allocates heavily, such as a `/read` page
+with many rows, also check `/debug/pprof/allocs`. For a timeline instead of
+an aggregate, use `/debug/pprof/trace?seconds=30` with `go tool trace`.
 
 ## Logs
 
