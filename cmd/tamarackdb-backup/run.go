@@ -33,7 +33,7 @@ func run(ctx context.Context, configPath string) error {
 		return err
 	}
 
-	st, err := store.Open(ctx, cfg.DatabasePath)
+	st, err := store.Open(ctx, cfg.DatabasePath, 0)
 	if err != nil {
 		return err
 	}

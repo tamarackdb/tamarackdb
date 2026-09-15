@@ -127,7 +127,7 @@ func TestImportOutOfOrderSequencesAdvancesToMax(t *testing.T) {
 func TestImportThenReopenResumesCounterFromDisk(t *testing.T) {
 	path := t.TempDir() + "/reuse.db"
 
-	s, err := Open(context.Background(), path)
+	s, err := Open(context.Background(), path, 0)
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}
@@ -136,7 +136,7 @@ func TestImportThenReopenResumesCounterFromDisk(t *testing.T) {
 		t.Fatalf("Close() error = %v", err)
 	}
 
-	s, err = Open(context.Background(), path)
+	s, err = Open(context.Background(), path, 0)
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}

@@ -42,7 +42,7 @@ func writeBackupConfig(t *testing.T, sourceURL, databasePath string, pageLimit i
 
 func mustReadAllFrom(t *testing.T, path string) []dcb.Event {
 	t.Helper()
-	st, err := store.Open(context.Background(), path)
+	st, err := store.Open(context.Background(), path, 0)
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}
@@ -66,7 +66,7 @@ func mustReadAllFrom(t *testing.T, path string) []dcb.Event {
 
 func TestRunCopiesAllEventsAcrossMultiplePages(t *testing.T) {
 	sourcePath := filepath.Join(t.TempDir(), "source.db")
-	sourceStore, err := store.Open(context.Background(), sourcePath)
+	sourceStore, err := store.Open(context.Background(), sourcePath, 0)
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}
@@ -107,7 +107,7 @@ func TestRunCopiesAllEventsAcrossMultiplePages(t *testing.T) {
 
 func TestRunResumesFromLastImportedSequence(t *testing.T) {
 	sourcePath := filepath.Join(t.TempDir(), "source.db")
-	sourceStore, err := store.Open(context.Background(), sourcePath)
+	sourceStore, err := store.Open(context.Background(), sourcePath, 0)
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}
@@ -144,7 +144,7 @@ func TestRunResumesFromLastImportedSequence(t *testing.T) {
 
 func TestRunFailsWithoutTouchingAlreadyImportedPages(t *testing.T) {
 	sourcePath := filepath.Join(t.TempDir(), "source.db")
-	sourceStore, err := store.Open(context.Background(), sourcePath)
+	sourceStore, err := store.Open(context.Background(), sourcePath, 0)
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}

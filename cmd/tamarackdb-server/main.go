@@ -70,9 +70,10 @@ func main() {
 	fmt.Printf("defaultLimit: %d\n", cfg.DefaultLimit)
 	fmt.Printf("maxLimit: %d\n", cfg.MaxLimit)
 	fmt.Printf("maxEventSize: %d\n", cfg.MaxEventSize)
-	fmt.Printf("maxQueuedWriters: %d\n\n", cfg.MaxQueuedWriters)
+	fmt.Printf("maxQueuedWriters: %d\n", cfg.MaxQueuedWriters)
+	fmt.Printf("readPoolSize: %d\n\n", cfg.ReadPoolSize)
 
-	st, err := store.Open(context.Background(), cfg.DatabasePath)
+	st, err := store.Open(context.Background(), cfg.DatabasePath, cfg.ReadPoolSize)
 	if err != nil {
 		log.Fatalf("tamarackdb-server: %v", err)
 	}
@@ -160,6 +161,7 @@ func printDefaultConfig() error {
 		MaxLimit:         config.DefaultMaxLimit,
 		MaxEventSize:     config.DefaultEventSize,
 		MaxQueuedWriters: config.DefaultMaxQueuedWriters,
+		ReadPoolSize:     config.DefaultReadPoolSize,
 	}
 
 	data, err := json.MarshalIndent(cfg, "", "  ")

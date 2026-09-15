@@ -20,8 +20,13 @@ import (
 const timeLayout = "2006-01-02T15:04:05.000000Z07:00"
 
 const (
-	defaultReadPoolSize = 8 // small, bounded: targets modest throughput, few concurrent writers
-	busyTimeoutMillis   = 5000
+	// fallbackReadPoolSize is used when Open's readPoolSize argument is
+	// <= 0 ("not specified"), for callers with no opinion on it (tests,
+	// cmd/tamarackdb-init, cmd/tamarackdb-demo, cmd/tamarackdb-backup).
+	// Production deployments configure this via internal/config's
+	// ReadPoolSize field instead, which defaults to the same value.
+	fallbackReadPoolSize = 8
+	busyTimeoutMillis    = 5000
 )
 
 // Store is TamarackDB's SQLite-backed storage engine.
@@ -51,10 +56,19 @@ func dsn(path string, extra string) string {
 // and at the version this binary expects. Any non-nil error is fatal at
 // startup: main.go should log it and exit rather than retry.
 //
+// readPoolSize sets the size of the read connection pool, and so how many
+// /read requests can run concurrently before further ones wait for a
+// connection to free up. A value <= 0 falls back to a small built-in
+// default, for callers with no opinion on it.
+//
 // Open first takes an exclusive lock on path+".lock" (see lock.go) and
 // fails with ErrDatabaseLocked if another tamarackdb process already holds
 // it: two processes are never meant to share one database file.
-func Open(ctx context.Context, path string) (*Store, error) {
+func Open(ctx context.Context, path string, readPoolSize int) (*Store, error) {
+	if readPoolSize <= 0 {
+		readPoolSize = fallbackReadPoolSize
+	}
+
 	lock, err := acquireLock(path)
 	if err != nil {
 		return nil, err // ErrDatabaseLocked, or already wrapped
@@ -74,8 +88,8 @@ func Open(ctx context.Context, path string) (*Store, error) {
 		releaseLock(lock)
 		return nil, wrapf("open read pool", err)
 	}
-	readDB.SetMaxOpenConns(defaultReadPoolSize)
-	readDB.SetMaxIdleConns(defaultReadPoolSize)
+	readDB.SetMaxOpenConns(readPoolSize)
+	readDB.SetMaxIdleConns(readPoolSize)
 
 	if err := writeDB.PingContext(ctx); err != nil {
 		writeDB.Close()

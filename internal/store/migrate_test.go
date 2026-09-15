@@ -18,7 +18,7 @@ func TestMigrateNoSuchFile(t *testing.T) {
 
 func TestMigrateAlreadyAtSchemaVersion(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "test.db")
-	s, err := Open(context.Background(), path)
+	s, err := Open(context.Background(), path, 0)
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}
@@ -46,7 +46,7 @@ func TestMigrateUninitializedFile(t *testing.T) {
 
 func TestMigrateNewerThanSchemaVersion(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "test.db")
-	s, err := Open(context.Background(), path)
+	s, err := Open(context.Background(), path, 0)
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}
@@ -71,7 +71,7 @@ func TestMigrateNewerThanSchemaVersion(t *testing.T) {
 // SchemaVersion against directly.
 func TestMigrateToAppliesRegisteredMigration(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "test.db")
-	s, err := Open(context.Background(), path)
+	s, err := Open(context.Background(), path, 0)
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}
@@ -125,7 +125,7 @@ func TestMigrateToAppliesRegisteredMigration(t *testing.T) {
 
 func TestMigrateToNoMigrationRegistered(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "test.db")
-	s, err := Open(context.Background(), path)
+	s, err := Open(context.Background(), path, 0)
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}

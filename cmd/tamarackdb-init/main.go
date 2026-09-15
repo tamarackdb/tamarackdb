@@ -33,7 +33,7 @@ func main() {
 	if err := checkNotExists(*dbPath); err != nil {
 		log.Fatalf("tamarackdb-init: %v", err)
 	}
-	st, err := store.Open(context.Background(), *dbPath)
+	st, err := store.Open(context.Background(), *dbPath, 0)
 	if err != nil {
 		log.Fatalf("tamarackdb-init: %v", err)
 	}

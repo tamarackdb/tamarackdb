@@ -29,7 +29,8 @@ func TestLoadFullConfig(t *testing.T) {
 		"defaultLimit": 500,
 		"maxLimit": 5000,
 		"maxEventSize": 32768,
-		"maxQueuedWriters": 250
+		"maxQueuedWriters": 250,
+		"readPoolSize": 16
 	}`)
 
 	cfg, err := Load(path)
@@ -40,7 +41,7 @@ func TestLoadFullConfig(t *testing.T) {
 		BindAddress: "0.0.0.0", Port: 8443,
 		EnableTLS: true, TLSCertFile: "/etc/tamarackdb/cert.pem", TLSKeyFile: "/etc/tamarackdb/key.pem",
 		EnableAuth: true, AuthToken: "secret", DatabasePath: "/var/lib/tamarackdb/db.sqlite",
-		DefaultLimit: 500, MaxLimit: 5000, MaxEventSize: 32768, MaxQueuedWriters: 250,
+		DefaultLimit: 500, MaxLimit: 5000, MaxEventSize: 32768, MaxQueuedWriters: 250, ReadPoolSize: 16,
 	}
 	if *cfg != want {
 		t.Errorf("Load() = %+v, want %+v", *cfg, want)
@@ -72,6 +73,9 @@ func TestLoadAppliesDefaults(t *testing.T) {
 	}
 	if cfg.MaxQueuedWriters != DefaultMaxQueuedWriters {
 		t.Errorf("MaxQueuedWriters = %d, want %d", cfg.MaxQueuedWriters, DefaultMaxQueuedWriters)
+	}
+	if cfg.ReadPoolSize != DefaultReadPoolSize {
+		t.Errorf("ReadPoolSize = %d, want %d", cfg.ReadPoolSize, DefaultReadPoolSize)
 	}
 }
 
@@ -240,7 +244,7 @@ func TestLoadFromEnvWithoutFile(t *testing.T) {
 		TLSCertFile: "cert.pem", TLSKeyFile: "key.pem",
 		AuthToken: "secret", DatabasePath: "db.sqlite",
 		DefaultLimit: DefaultLimit, MaxLimit: DefaultMaxLimit, MaxEventSize: DefaultEventSize,
-		MaxQueuedWriters: DefaultMaxQueuedWriters,
+		MaxQueuedWriters: DefaultMaxQueuedWriters, ReadPoolSize: DefaultReadPoolSize,
 	}
 	if *cfg != want {
 		t.Errorf("Load() = %+v, want %+v", *cfg, want)
@@ -365,12 +369,62 @@ func TestLoadMaxQueuedWritersFileTakesPrecedenceOverEnv(t *testing.T) {
 	}
 }
 
+func TestLoadReadPoolSizeFromFile(t *testing.T) {
+	path := writeConfigFile(t, `{
+		"bindAddress": "0.0.0.0", "port": 8443,
+		"tlsCertFile": "cert.pem", "tlsKeyFile": "key.pem",
+		"authToken": "secret", "databasePath": "db.sqlite",
+		"readPoolSize": 32
+	}`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.ReadPoolSize != 32 {
+		t.Errorf("ReadPoolSize = %d, want 32", cfg.ReadPoolSize)
+	}
+}
+
+func TestLoadReadPoolSizeFromEnv(t *testing.T) {
+	setEnv(t, map[string]string{"TAMARACKDB_READ_POOL_SIZE": "25"})
+	path := writeConfigFile(t, `{
+		"bindAddress": "0.0.0.0", "port": 8443,
+		"tlsCertFile": "cert.pem", "tlsKeyFile": "key.pem",
+		"authToken": "secret", "databasePath": "db.sqlite"
+	}`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.ReadPoolSize != 25 {
+		t.Errorf("ReadPoolSize = %d, want 25 (from env)", cfg.ReadPoolSize)
+	}
+}
+
+func TestLoadReadPoolSizeFileTakesPrecedenceOverEnv(t *testing.T) {
+	setEnv(t, map[string]string{"TAMARACKDB_READ_POOL_SIZE": "25"})
+	path := writeConfigFile(t, `{
+		"bindAddress": "0.0.0.0", "port": 8443,
+		"tlsCertFile": "cert.pem", "tlsKeyFile": "key.pem",
+		"authToken": "secret", "databasePath": "db.sqlite",
+		"readPoolSize": 32
+	}`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.ReadPoolSize != 32 {
+		t.Errorf("ReadPoolSize = %d, want 32 (file must win over env)", cfg.ReadPoolSize)
+	}
+}
+
 func TestValidateDirectly(t *testing.T) {
 	cfg := Config{
 		BindAddress: "0.0.0.0", Port: 8443,
 		EnableTLS: true, TLSCertFile: "cert.pem", TLSKeyFile: "key.pem",
 		EnableAuth: true, AuthToken: "secret", DatabasePath: "db.sqlite",
 		DefaultLimit: 1000, MaxLimit: 10000, MaxEventSize: 65536, MaxQueuedWriters: 100,
+		ReadPoolSize: 8,
 	}
 	if err := cfg.Validate(); err != nil {
 		t.Errorf("Validate() error = %v, want nil", err)
@@ -396,10 +450,33 @@ func TestValidateNonPositiveMaxQueuedWriters(t *testing.T) {
 				BindAddress: "0.0.0.0", Port: 8443,
 				AuthToken: "secret", DatabasePath: "db.sqlite",
 				DefaultLimit: 1000, MaxLimit: 10000, MaxEventSize: 65536,
-				MaxQueuedWriters: tt.maxQueuedWriters,
+				MaxQueuedWriters: tt.maxQueuedWriters, ReadPoolSize: 8,
 			}
 			if err := cfg.Validate(); err == nil {
 				t.Errorf("Validate() error = nil, want error for MaxQueuedWriters = %d", tt.maxQueuedWriters)
+			}
+		})
+	}
+}
+
+func TestValidateNonPositiveReadPoolSize(t *testing.T) {
+	tests := []struct {
+		name         string
+		readPoolSize int
+	}{
+		{"negative", -1},
+		{"zero", 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := Config{
+				BindAddress: "0.0.0.0", Port: 8443,
+				AuthToken: "secret", DatabasePath: "db.sqlite",
+				DefaultLimit: 1000, MaxLimit: 10000, MaxEventSize: 65536,
+				MaxQueuedWriters: 100, ReadPoolSize: tt.readPoolSize,
+			}
+			if err := cfg.Validate(); err == nil {
+				t.Errorf("Validate() error = nil, want error for ReadPoolSize = %d", tt.readPoolSize)
 			}
 		})
 	}

@@ -9,7 +9,7 @@ import (
 
 func TestOpenCreatesSchemaOnFreshFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "fresh.db")
-	s, err := Open(context.Background(), path)
+	s, err := Open(context.Background(), path, 0)
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}
@@ -70,7 +70,7 @@ func TestOpenCreatesSchemaOnFreshFile(t *testing.T) {
 
 func TestOpenRejectsVersionMismatch(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "mismatch.db")
-	s, err := Open(context.Background(), path)
+	s, err := Open(context.Background(), path, 0)
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}
@@ -79,7 +79,7 @@ func TestOpenRejectsVersionMismatch(t *testing.T) {
 	}
 	s.Close()
 
-	_, err = Open(context.Background(), path)
+	_, err = Open(context.Background(), path, 0)
 	var verErr *SchemaVersionError
 	if !errors.As(err, &verErr) {
 		t.Fatalf("Open() error = %v, want *SchemaVersionError", err)

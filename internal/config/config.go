@@ -22,6 +22,7 @@ const (
 	DefaultMaxLimit         = 10000
 	DefaultEventSize        = 65536 // 64 KiB
 	DefaultMaxQueuedWriters = 100
+	DefaultReadPoolSize     = 8
 )
 
 // Config is TamarackDB's startup configuration, resolved once from a JSON
@@ -56,6 +57,12 @@ type Config struct {
 	// client) accumulate an unbounded number of blocked HTTP connections,
 	// so every deployment gets a bound whether it configures one or not.
 	MaxQueuedWriters int `json:"maxQueuedWriters,omitempty"` // default: 100
+
+	// ReadPoolSize is the number of SQLite connections available for /read
+	// requests, and so the number that can execute concurrently: further
+	// requests wait for one to free up. Optional; defaulted by Load when
+	// omitted, like the fields above.
+	ReadPoolSize int `json:"readPoolSize,omitempty"` // default: 8
 }
 
 // Load reads and parses the JSON configuration file at path if it exists,
@@ -93,6 +100,9 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.MaxQueuedWriters == 0 {
 		cfg.MaxQueuedWriters = DefaultMaxQueuedWriters
+	}
+	if cfg.ReadPoolSize == 0 {
+		cfg.ReadPoolSize = DefaultReadPoolSize
 	}
 
 	if err := cfg.Validate(); err != nil {
@@ -202,6 +212,15 @@ func applyEnv(cfg *Config) error {
 			cfg.MaxQueuedWriters = n
 		}
 	}
+	if cfg.ReadPoolSize == 0 {
+		if v, ok := os.LookupEnv("TAMARACKDB_READ_POOL_SIZE"); ok {
+			n, err := strconv.Atoi(v)
+			if err != nil {
+				return fmt.Errorf("invalid TAMARACKDB_READ_POOL_SIZE %q: %w", v, err)
+			}
+			cfg.ReadPoolSize = n
+		}
+	}
 	return nil
 }
 
@@ -234,6 +253,8 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("maxEventSize must be positive, got %d", c.MaxEventSize)
 	case c.MaxQueuedWriters <= 0:
 		return fmt.Errorf("maxQueuedWriters must be positive, got %d", c.MaxQueuedWriters)
+	case c.ReadPoolSize <= 0:
+		return fmt.Errorf("readPoolSize must be positive, got %d", c.ReadPoolSize)
 	}
 	return nil
 }

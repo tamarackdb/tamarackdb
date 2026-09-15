@@ -26,7 +26,7 @@ func newTestServer(t *testing.T) (*Server, *queue.Manager, *store.Store) {
 func newTestServerWithMaxQueued(t *testing.T, maxQueued int) (*Server, *queue.Manager, *store.Store) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "test.db")
-	st, err := store.Open(context.Background(), path)
+	st, err := store.Open(context.Background(), path, 0)
 	if err != nil {
 		t.Fatalf("store.Open() error = %v", err)
 	}

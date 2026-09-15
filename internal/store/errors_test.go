@@ -25,7 +25,7 @@ func TestIsFatalClassification(t *testing.T) {
 	if err := os.Mkdir(dir, 0o755); err != nil {
 		t.Fatalf("Mkdir: %v", err)
 	}
-	_, err := Open(context.Background(), dir)
+	_, err := Open(context.Background(), dir, 0)
 	if err == nil {
 		t.Fatal("Open() error = nil, want an error opening a directory as a database file")
 	}

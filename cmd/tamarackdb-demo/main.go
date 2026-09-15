@@ -64,7 +64,7 @@ func main() {
 
 	rng := rand.New(rand.NewSource(*seed))
 
-	st, err := store.Open(context.Background(), *path)
+	st, err := store.Open(context.Background(), *path, 0)
 	if err != nil {
 		log.Fatalf("tamarackdb-demo: %v", err)
 	}

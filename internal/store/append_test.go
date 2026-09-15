@@ -208,7 +208,7 @@ func TestAppendConditionFullCheckWhenEventsExistSinceReadButNoMatch(t *testing.T
 
 func TestOpenExistingDatabaseResumesSequenceCounter(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "test.db")
-	s1, err := Open(context.Background(), path)
+	s1, err := Open(context.Background(), path, 0)
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}
@@ -218,7 +218,7 @@ func TestOpenExistingDatabaseResumesSequenceCounter(t *testing.T) {
 		t.Fatalf("Close() error = %v", err)
 	}
 
-	s2, err := Open(context.Background(), path)
+	s2, err := Open(context.Background(), path, 0)
 	if err != nil {
 		t.Fatalf("re-Open() error = %v", err)
 	}

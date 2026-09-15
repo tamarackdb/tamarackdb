@@ -22,6 +22,7 @@ Generate a starter `config.json` and adjust it as needed:
 | `defaultLimit` / `maxLimit` | `TAMARACKDB_DEFAULT_LIMIT` / `TAMARACKDB_MAX_LIMIT` | `1000` / `10000` | Default and maximum page size for `QUERY /read` |
 | `maxEventSize` | `TAMARACKDB_MAX_EVENT_SIZE` | `65536` (64 KiB) | Maximum size in bytes of a single event |
 | `maxQueuedWriters` | `TAMARACKDB_MAX_QUEUED_WRITERS` | `100` | Maximum writers waiting to append at once |
+| `readPoolSize` | `TAMARACKDB_READ_POOL_SIZE` | `8` | SQLite connections available for `/read`, and so how many can run at once |
 | `devMode` | `TAMARACKDB_DEV_MODE` | `false` | Turns on `DELETE /`, which wipes the whole database. Never enable this in production. |
 
 Turn `enableTls` on whenever TamarackDB runs on a different host than the
