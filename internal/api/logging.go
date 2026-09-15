@@ -16,19 +16,26 @@ func (s *Server) withLogging(next http.Handler) http.Handler {
 		sw := &statusWriter{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(sw, r)
 		elapsedMs := float64(time.Since(start)) / float64(time.Millisecond)
-		log.Printf("tamarackdb-server: %s %s %d %.2fms", r.Method, r.URL.Path, sw.status, elapsedMs)
+		log.Printf("tamarackdb-server: %s %s %d %dB %.2fms", r.Method, r.URL.Path, sw.status, sw.bytes, elapsedMs)
 	})
 }
 
-// statusWriter captures the status code passed to WriteHeader so withLogging
-// can report it; handlers that never call WriteHeader (200 OK) keep the
-// default set above.
+// statusWriter captures the status code passed to WriteHeader and the total
+// bytes written so withLogging can report them; handlers that never call
+// WriteHeader (200 OK) keep the default set above.
 type statusWriter struct {
 	http.ResponseWriter
 	status int
+	bytes  int
 }
 
 func (sw *statusWriter) WriteHeader(status int) {
 	sw.status = status
 	sw.ResponseWriter.WriteHeader(status)
+}
+
+func (sw *statusWriter) Write(b []byte) (int, error) {
+	n, err := sw.ResponseWriter.Write(b)
+	sw.bytes += n
+	return n, err
 }

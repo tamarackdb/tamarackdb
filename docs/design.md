@@ -498,7 +498,7 @@ The running build's version is a single value, read from the `VERSION` file at t
 
 ### Request logging
 
-Every request logs one line to stdout once its handler finishes: HTTP method, path, resulting status code, and how long it took, e.g. `tamarackdb: POST /append 200 1.23ms`. This wraps the whole routed handler, including authentication, so a request turned away with `401 Unauthorized` gets logged just like any other.
+Every request logs one line to stdout once its handler finishes: HTTP method, path, resulting status code, response size in bytes, and how long it took, e.g. `tamarackdb-server: POST /append 200 42B 1.23ms`. This wraps the whole routed handler, including authentication, so a request turned away with `401 Unauthorized` gets logged just like any other.
 
 ### Nice to have: queue observability
 

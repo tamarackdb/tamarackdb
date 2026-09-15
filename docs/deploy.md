@@ -45,7 +45,8 @@ variables cover a deployment with no file at all.
 ```
 
 Once running, the server logs one line per request to stdout: method, path, status
-code, and time taken, e.g. `tamarackdb: POST /append 200 1.23ms`.
+code, response size, and time taken, e.g. `tamarackdb-server: POST /append 200 42B
+1.23ms`.
 
 ## Provisioning and migration
 
@@ -110,7 +111,7 @@ names and JSON shape.
 ## Logs
 
 While testing an integration, watch the server's stdout: one line per request, with
-method, path, status code, and time taken, e.g. `tamarackdb: POST /append 200
-1.23ms`. At startup, it also prints a banner and its resolved configuration (bind
-address, port, database path, limits, and so on), so you can confirm what a given
-instance is actually running with.
+method, path, status code, response size, and time taken, e.g. `tamarackdb-server:
+POST /append 200 42B 1.23ms`. At startup, it also prints a banner and its resolved
+configuration (bind address, port, database path, limits, and so on), so you can
+confirm what a given instance is actually running with.
