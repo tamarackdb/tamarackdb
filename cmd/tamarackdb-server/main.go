@@ -33,6 +33,10 @@ const banner = " _____                                    _    ____  ____\n" +
 	"  | | (_| | | | | | | (_| | | | (_| | (__|   <| |_| | |_) |\n" +
 	"  |_|\\__,_|_| |_| |_|\\__,_|_|  \\__,_|\\___|_|\\_\\____/|____/\n"
 
+// optimizeInterval is how often the server runs PRAGMA optimize against the
+// write connection (see store.Store.Optimize).
+const optimizeInterval = time.Hour
+
 func main() {
 	configPath := flag.String("config", "config.json", "path to the JSON configuration file (optional; falls back to TAMARACKDB_* environment variables)")
 	showVersion := flag.Bool("version", false, "print the version and exit")
@@ -116,6 +120,21 @@ func main() {
 	} else {
 		go func() { serveErrCh <- httpServer.ListenAndServe() }()
 	}
+
+	optimizeTicker := time.NewTicker(optimizeInterval)
+	defer optimizeTicker.Stop()
+	go func() {
+		for {
+			select {
+			case <-signalCtx.Done():
+				return
+			case <-optimizeTicker.C:
+				if err := st.Optimize(signalCtx); err != nil {
+					log.Printf("tamarackdb-server: PRAGMA optimize: %v", err)
+				}
+			}
+		}
+	}()
 
 	exitCode := 0
 	select {
