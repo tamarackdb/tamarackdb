@@ -16,7 +16,7 @@ func (s *Server) withLogging(next http.Handler) http.Handler {
 		sw := &statusWriter{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(sw, r)
 		elapsedMs := float64(time.Since(start)) / float64(time.Millisecond)
-		log.Printf("tamarackdb: %s %s %d %.2fms", r.Method, r.URL.Path, sw.status, elapsedMs)
+		log.Printf("tamarackdb-server: %s %s %d %.2fms", r.Method, r.URL.Path, sw.status, elapsedMs)
 	})
 }
 
