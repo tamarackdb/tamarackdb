@@ -140,6 +140,27 @@ func (s *Store) Ping(ctx context.Context) error {
 	return wrapf("ping", err)
 }
 
+// PoolStats reports how many connections of a pool are currently checked
+// out (InUse) against its configured ceiling (Max), for GET /debug.
+type PoolStats struct {
+	InUse int
+	Max   int
+}
+
+// ReadPoolStats reports the read connection pool's current usage.
+func (s *Store) ReadPoolStats() PoolStats {
+	stats := s.readDB.Stats()
+	return PoolStats{InUse: stats.InUse, Max: stats.MaxOpenConnections}
+}
+
+// WritePoolStats reports the write connection pool's current usage. Max is
+// always 1: Open sets SetMaxOpenConns(1) on writeDB so that internal/queue's
+// exclusive-writer guarantee holds at the SQLite driver level too.
+func (s *Store) WritePoolStats() PoolStats {
+	stats := s.writeDB.Stats()
+	return PoolStats{InUse: stats.InUse, Max: stats.MaxOpenConnections}
+}
+
 // Truncate deletes every event, identifier, and metadata row, leaving the
 // schema itself untouched. Callers reach it only through the devMode-gated
 // DELETE / endpoint, which joins the same FIFO write-admission queue as

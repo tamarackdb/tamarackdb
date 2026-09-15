@@ -34,6 +34,9 @@ type readHeader struct {
 }
 
 func (s *Server) handleRead(w http.ResponseWriter, r *http.Request) {
+	s.readHTTPOpen.Add(1)
+	defer s.readHTTPOpen.Add(-1)
+
 	var req readRequest
 	if err := decodeJSON(r, &req); err != nil {
 		s.handleErr(w, r, err)

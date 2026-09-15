@@ -67,6 +67,13 @@ type Server struct {
 	// the writer.
 	failedTotal atomic.Uint64
 
+	// readHTTPOpen counts QUERY /read requests currently in flight,
+	// exposed by GET /debug. Unlike writes, reads have no FIFO queue to
+	// derive this from (internal/queue only tracks write admission), so
+	// handleRead increments/decrements it directly around its whole
+	// lifetime, including NDJSON streaming.
+	readHTTPOpen atomic.Int64
+
 	handler http.Handler
 }
 

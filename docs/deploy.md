@@ -98,16 +98,19 @@ supervisor or load balancer at it.
 ## Observability
 
 Two more endpoints show the server's own in-memory state. They matter when you are
-chasing a slow or stuck `append`, not during normal `read`/`append` use.
+chasing a slow or stuck `append`, or a `read` connection pool that looks saturated,
+not during normal `read`/`append` use.
 
 - `GET /metrics`: Prometheus text format. Shows whether a writer is active right
   now, how many writes are queued, the longest current wait, and write/failure
   counts.
-- `GET /debug`: a JSON snapshot of the current active writer, if any, and every
-  queued writer with its wait time.
+- `GET /debug`: a JSON snapshot with a `write` object (the current active writer,
+  if any, every queued writer with its wait time, and the write SQLite pool's
+  usage) and a `read` object (in-flight `/read` requests and the read SQLite
+  pool's usage, sized by `readPoolSize` below).
 
-See [design.md](design.md#nice-to-have-queue-observability) for the exact metric
-names and JSON shape.
+See [design.md](design.md#queue-and-connection-pool-observability) for the exact
+metric names and JSON shape.
 
 ## Logs
 

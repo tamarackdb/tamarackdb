@@ -34,7 +34,7 @@
   - [Health check](#health-check)
   - [Versioning](#versioning)
   - [Request logging](#request-logging)
-  - [Nice to have: queue observability](#nice-to-have-queue-observability)
+  - [Queue and connection pool observability](#queue-and-connection-pool-observability)
 - [Implementation](#implementation)
 
 ## Context
@@ -504,9 +504,9 @@ The running build's version is a single value, read from the `VERSION` file at t
 
 Every request logs one line to stdout once its handler finishes: HTTP method, path, resulting status code, response size in bytes, and how long it took, e.g. `tamarackdb-server: POST /append 200 42B 1.23ms`. This wraps the whole routed handler, including authentication, so a request turned away with `401 Unauthorized` gets logged just like any other.
 
-### Nice to have: queue observability
+### Queue and connection pool observability
 
-Event and row counts, per-type breakdowns, and database file size (anything you can work out from the store's own content) are a query away, straight against the SQLite file, so the store doesn't need to expose them itself. What the file can't answer is the queue manager's own live, in-memory state, which only exists for the life of the process. Two endpoints cover that, kept separate since they serve different needs:
+Event and row counts, per-type breakdowns, and database file size (anything you can work out from the store's own content) are a query away, straight against the SQLite file, so the store doesn't need to expose them itself. What the file can't answer is live, in-memory state that only exists for the life of the process: the queue manager's write admission state, and how busy the read and write SQLite connection pools are. Two endpoints cover that, kept separate since they serve different needs:
 
 **`GET /metrics`**: Prometheus exposition format, for scraping into existing monitoring:
 - `tamarackdb_writer_active` (gauge): whether a writer currently holds exclusive SQLite write access (`1`) or not (`0`)
@@ -515,27 +515,39 @@ Event and row counts, per-type breakdowns, and database file size (anything you 
 - `tamarackdb_writes_admitted_total` (counter): total writers let through to exclusive SQLite write access since startup
 - `tamarackdb_appends_failed_total` (counter): total appends that failed on a concurrency conflict (`409 ConcurrencyException`) since startup
 
-**`GET /debug`**: a JSON snapshot for digging into one specific stuck or slow write, too detailed to fit a metric:
+**`GET /debug`**: a JSON snapshot for digging into one specific stuck or slow write, or a `read` pool that looks saturated, too detailed to fit a metric:
 
 ```json
 {
   "time": "2026-09-01T14:23:05.123456Z",
-  "active": {
-    "since": "2026-09-01T14:23:04.900000Z",
-    "ageSeconds": 0.223
+  "write": {
+    "active": {
+      "since": "2026-09-01T14:23:04.900000Z",
+      "ageSeconds": 0.223
+    },
+    "queued": [
+      {
+        "queuedAt": "2026-09-01T14:23:05.000000Z",
+        "waitSeconds": 0.1
+      }
+    ],
+    "httpOpen": 2,
+    "sqliteInUse": 1,
+    "sqliteMax": 1
   },
-  "queued": [
-    {
-      "queuedAt": "2026-09-01T14:23:05.000000Z",
-      "waitSeconds": 0.1
-    }
-  ]
+  "read": {
+    "httpOpen": 3,
+    "sqliteInUse": 3,
+    "sqliteMax": 8
+  }
 }
 ```
 
-`active` describes the current active writer, if any (`null` when the queue manager is idle). `queued` lists every writer still waiting, oldest first, with `waitSeconds` instead of `ageSeconds`. Neither one carries the writer's Append Condition or events: the queue manager never knows either (see Principle: the queue manager). `queued` is always present, never `null`, even when empty.
+`write.active` describes the current active writer, if any (`null` when the queue manager is idle). `write.queued` lists every writer still waiting, oldest first, with `waitSeconds` instead of `ageSeconds`. Neither one carries the writer's Append Condition or events: the queue manager never knows either (see Principle: the queue manager). `write.queued` is always present, never `null`, even when empty.
 
-Since the queue manager already serializes access to its own state behind a mutex, answering either request is just a quick, always-available read of its current counters, never blocked behind a queued or in-flight write. Both are read-only: no endpoint lets you force-finish a writer's turn, or otherwise change the queue manager's state, since that would bring back the exact race conditions it exists to prevent.
+`httpOpen` is how many `POST /append`/`QUERY /read` requests (and, in dev mode, `DELETE /`) are currently in flight; `sqliteInUse` and `sqliteMax` are the underlying SQLite connection pool's usage against its configured ceiling (`database/sql`'s own `DBStats.InUse`/`MaxOpenConnections`, read straight off the read and write `*sql.DB` pools). `write.sqliteMax` is always `1`: the write pool is deliberately capped at one connection so SQLite's own driver enforces the same exclusive-writer guarantee the queue manager already provides at the HTTP layer. On the write side, `httpOpen` is always exactly `write.queued`'s length plus one if `write.active` is non-null, since every in-flight write request is either the active writer or waiting in that same queue. On the read side there is no FIFO to derive it from, so `read.httpOpen` is tracked directly; it can run higher than `read.sqliteMax` when the read pool is saturated and the extra requests are waiting inside `database/sql` for a free connection. A sustained gap between the two there is a sign that `readPoolSize` (see [deploy.md](deploy.md)) is too small for the traffic.
+
+Since the queue manager already serializes access to its own state behind a mutex, and the SQLite pool stats come straight from `database/sql`'s own counters, answering a `GET /debug` request is always a quick, non-blocking read: never stuck behind a queued or in-flight write or read. The endpoint is read-only: nothing about it lets you force-finish a writer's turn, cancel a read, or otherwise change either pool's state.
 
 ## Implementation
 
