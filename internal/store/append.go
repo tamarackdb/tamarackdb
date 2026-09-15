@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"strings"
 	"time"
 
@@ -186,13 +187,25 @@ func execBatchInsert(ctx context.Context, tx *sql.Tx, insertPrefix string, colsP
 }
 
 // insertEventsBatch writes every row's events table entry, across as many
-// multi-row INSERTs as maxBatchVariables requires.
+// multi-row INSERTs as maxBatchVariables requires. identifiers/metadata are
+// stored alongside each row in the same compact wire shape the HTTP API
+// uses ({"name":"value"} / {"name":["v1","v2"]}), via IdentifierSet/
+// MetadataSet's own MarshalJSON.
 func insertEventsBatch(ctx context.Context, tx *sql.Tx, rows []dcb.Event) error {
 	args := make([][]any, len(rows))
 	for i, ev := range rows {
-		args[i] = []any{ev.Sequence, ev.Time.Format(timeLayout), ev.Type, ev.Payload}
+		idsJSON, err := json.Marshal(ev.Identifiers)
+		if err != nil {
+			return wrapf("marshal identifiers", err)
+		}
+		mdJSON, err := json.Marshal(ev.Metadata)
+		if err != nil {
+			return wrapf("marshal metadata", err)
+		}
+		args[i] = []any{ev.Sequence, ev.Time.Format(timeLayout), ev.Type, ev.Payload, string(idsJSON), string(mdJSON)}
 	}
-	err := execBatchInsert(ctx, tx, "INSERT INTO events (sequence, time, type, payload) VALUES ", 4, args)
+	err := execBatchInsert(ctx, tx,
+		"INSERT INTO events (sequence, time, type, payload, identifiers, metadata) VALUES ", 6, args)
 	return wrapf("insert events", err)
 }
 

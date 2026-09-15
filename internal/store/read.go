@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -41,10 +40,7 @@ func buildReadSQL(f ReadFilter) (string, []any) {
 	var b strings.Builder
 	args := make([]any, 0, 6)
 	b.WriteString(`SELECT events.sequence, events.time, events.type, events.payload,
-  COALESCE((SELECT json_group_array(json_object('name', identifiers.name, 'value', identifiers.value))
-            FROM identifiers WHERE identifiers.event_sequence = events.sequence), '[]'),
-  COALESCE((SELECT json_group_array(json_object('name', metadata.name, 'value', metadata.value))
-            FROM metadata WHERE metadata.event_sequence = events.sequence), '[]')
+  events.identifiers, events.metadata
 FROM events
 WHERE events.sequence > ?`)
 
@@ -72,11 +68,6 @@ WHERE events.sequence > ?`)
 	return b.String(), args
 }
 
-type jsonPair struct {
-	Name  string `json:"name"`
-	Value string `json:"value"`
-}
-
 func scanEvent(rows *sql.Rows) (dcb.Event, error) {
 	var seq int64
 	var timeText, typ, payload, idsJSON, mdJSON string
@@ -87,20 +78,13 @@ func scanEvent(rows *sql.Rows) (dcb.Event, error) {
 	if err != nil {
 		return dcb.Event{}, fmt.Errorf("store: corrupt time %q for event %d: %w", timeText, seq, err)
 	}
-	var ids, mds []jsonPair
-	if err := json.Unmarshal([]byte(idsJSON), &ids); err != nil {
+	var identifiers dcb.IdentifierSet
+	if err := identifiers.UnmarshalJSON([]byte(idsJSON)); err != nil {
 		return dcb.Event{}, fmt.Errorf("store: corrupt identifiers for event %d: %w", seq, err)
 	}
-	if err := json.Unmarshal([]byte(mdJSON), &mds); err != nil {
+	var metadata dcb.MetadataSet
+	if err := metadata.UnmarshalJSON([]byte(mdJSON)); err != nil {
 		return dcb.Event{}, fmt.Errorf("store: corrupt metadata for event %d: %w", seq, err)
-	}
-	identifiers := make(dcb.IdentifierSet, len(ids))
-	for i, p := range ids {
-		identifiers[i] = dcb.Identifier{Name: p.Name, Value: p.Value}
-	}
-	metadata := make(dcb.MetadataSet, len(mds))
-	for i, p := range mds {
-		metadata[i] = dcb.Metadata{Name: p.Name, Value: p.Value}
 	}
 	return dcb.Event{
 		Sequence:  seq,

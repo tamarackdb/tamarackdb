@@ -400,10 +400,12 @@ copy, it can be opened and served as a live instance in its own right.
 PRAGMA user_version = 1;
 
 CREATE TABLE events (
-    sequence INTEGER PRIMARY KEY,
-    time     TEXT NOT NULL,
-    type     TEXT NOT NULL,
-    payload  TEXT NOT NULL
+    sequence    INTEGER PRIMARY KEY,
+    time        TEXT NOT NULL,
+    type        TEXT NOT NULL,
+    payload     TEXT NOT NULL,
+    identifiers TEXT NOT NULL,
+    metadata    TEXT NOT NULL
 );
 
 CREATE INDEX idx_events_time ON events(time);
@@ -431,6 +433,8 @@ CREATE INDEX idx_metadata_name_value ON metadata(name, value, event_sequence);
 `time` is stored as `TEXT`, not as an integer timestamp: its fixed-width ATOM format sorts the same way alphabetically as it does chronologically, so nothing needs to be converted between what's stored and what's returned.
 
 `identifiers` and `metadata` are `WITHOUT ROWID` tables, keyed by their natural combined primary key `(event_sequence, name, value)`: these are pure link rows, so a separate rowid would just be an extra, unneeded btree. The secondary index `(name, value, event_sequence)` on each table is what serves the DCB matching check directly, with `event_sequence` included so the index alone can answer the scan.
+
+`events.identifiers` and `events.metadata` hold the same data again, in the compact object shape the HTTP API returns (see Response format): a ready-made copy a read can hand back directly, without joining out to the `identifiers`/`metadata` tables. Those tables stay what the DCB matching check and `read`'s own filtering use, keyed for lookup by `name`/`value`; the columns on `events` are keyed by nothing but the event itself, meant for handing the whole set back at once. A column and a table can share a name in SQLite without conflict: `events.identifiers` names the column, a bare `identifiers` in a `FROM` clause names the table.
 
 The `events(sequence)` foreign key on both tables is enforced by turning on `PRAGMA foreign_keys = ON` on every connection at startup: SQLite reads foreign key declarations, but doesn't enforce them by default. Turning this on catches implementation bugs (say, an identifier or metadata row written with an `event_sequence` that doesn't match a real event), rather than serving any real functional need, since the store is append-only with a single writer.
 

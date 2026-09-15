@@ -39,6 +39,33 @@ func TestOpenCreatesSchemaOnFreshFile(t *testing.T) {
 			t.Errorf("index %q not found: %v", idx, err)
 		}
 	}
+
+	wantColumns := map[string]bool{
+		"sequence": false, "time": false, "type": false, "payload": false,
+		"identifiers": false, "metadata": false,
+	}
+	rows, err := s.writeDB.QueryContext(context.Background(), "PRAGMA table_info(events)")
+	if err != nil {
+		t.Fatalf("read events table_info: %v", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid int
+		var name, colType string
+		var notNull, pk int
+		var dfltValue any
+		if err := rows.Scan(&cid, &name, &colType, &notNull, &dfltValue, &pk); err != nil {
+			t.Fatalf("scan events table_info: %v", err)
+		}
+		if _, ok := wantColumns[name]; ok {
+			wantColumns[name] = true
+		}
+	}
+	for name, found := range wantColumns {
+		if !found {
+			t.Errorf("events column %q not found", name)
+		}
+	}
 }
 
 func TestOpenRejectsVersionMismatch(t *testing.T) {
