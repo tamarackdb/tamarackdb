@@ -32,17 +32,21 @@ curl -X QUERY http://127.0.0.1:8085/read \
 ```
 
 The response is [NDJSON](https://github.com/ndjson/ndjson-spec)
-(`Content-Type: application/x-ndjson`): one JSON value per line. The first line is
-always a header with `hasMore`. Every line after that is one matching event, oldest
-first:
+(`Content-Type: application/x-ndjson`): one JSON value per line, streamed as each
+matching event is found. Every line but the last is one event, oldest first; the
+last line is always a trailer with `hasMore`:
 
 ```
-{"hasMore":false}
 {"sequence":12346,"time":"2026-09-01T14:23:05.123456Z","type":"user-created","identifiers":{"userId":"123"},"metadata":{"tenantId":"acme"},"payload":"..."}
+{"hasMore":false}
 ```
 
 Parse it line by line, not as one JSON document. That way, a response can safely
-resume if the connection drops mid-transfer (see Pagination below).
+resume if the connection drops mid-transfer (see Pagination below). Tell the
+trailer apart from an event line by shape, not position: it's the one with a
+`hasMore` key. If the response ends without one, the page was cut short; treat
+that exactly like a dropped connection and resume with `afterSequence` set to
+the last event line you got.
 
 ### Query grammar
 
@@ -88,7 +92,7 @@ Events always come back oldest first. Cap a response with `limit`:
 { "query": "*", "afterSequence": 12345, "limit": 500 }
 ```
 
-`hasMore: true` in the header means more events matched than were returned. To
+`hasMore: true` in the trailer means more events matched than were returned. To
 fetch the next page, repeat the same `query` with `afterSequence` set to the
 Sequence Position of the last event you got. Do this on every call, not just the
 first one: it also lets you resume a response that was cut off mid-transfer, from

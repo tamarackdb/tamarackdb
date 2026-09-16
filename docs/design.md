@@ -207,15 +207,17 @@ Fetch time isn't always small next to processing time: some projections process 
 
 ### Response format
 
-The response body is [NDJSON](https://github.com/ndjson/ndjson-spec) (`Content-Type: application/x-ndjson`): one JSON value per line, separated by `\n`, instead of a single JSON array wrapping the whole page. Each line is a self-contained JSON object carrying its own Sequence Position, so a response cut off mid-transfer (a dropped connection, a timeout) still leaves every fully-received line usable: the client resumes with `afterSequence` set to the last `sequence` it fully read, without losing events it already has. A single JSON array offers no such recovery: a response cut short mid-array is invalid JSON, and the whole page is lost. NDJSON also lets the server write each row as it comes out of SQLite, without holding the whole page in memory first.
+The response body is [NDJSON](https://github.com/ndjson/ndjson-spec) (`Content-Type: application/x-ndjson`): one JSON value per line, separated by `\n`, instead of a single JSON array wrapping the whole page. Each line is a self-contained JSON object carrying its own Sequence Position, so a response cut off mid-transfer (a dropped connection, a timeout, or a failure on the server's side) still leaves every fully-received line usable: the client resumes with `afterSequence` set to the last `sequence` it fully read, without losing events it already has. A single JSON array offers no such recovery: a response cut short mid-array is invalid JSON, and the whole page is lost. NDJSON also lets the server write each row straight to the connection as it comes out of SQLite, without holding the whole page in memory first.
 
-The first line is always a header carrying `hasMore`. Every line after that is one matching event, in ascending Sequence Position order:
+Every line but the last is one matching event, in ascending Sequence Position order. The last line is always a trailer carrying `hasMore`:
 
 ```
-{"hasMore":true}
 {"sequence":12346,"time":"2026-09-01T14:23:05.123456Z","type":"user-created","identifiers":{"userId":"123"},"metadata":{"tenantId":"acme"},"payload":"..."}
 {"sequence":12347,"time":"2026-09-01T14:23:07.981234Z","type":"user-updated","identifiers":{"userId":"123"},"metadata":{"tenantId":"acme"},"payload":"..."}
+{"hasMore":true}
 ```
+
+The trailer comes last, not first, because writing it means fetching every row of the page first: putting it last is what lets the server stream each event as it's scanned instead of buffering the whole page to learn `hasMore` before sending anything. The cost is that a failure partway through a page can no longer turn into a clean error response: the status code and the first event lines are already on the wire before the failure happens. A client tells the trailer apart from an event line by shape (a `hasMore` key, not a `sequence` key), not by position, since it's only known to be last once the stream ends. A response that ends without one was cut short partway through: a client treats that exactly like a dropped connection, resuming with `afterSequence` set to the last event line it fully read.
 
 `identifiers` and `metadata` come back in the same compact object shape used when writing (`{"courseId": ["foo", "bar"]}`), grouping multiple values for the same name under one key.
 

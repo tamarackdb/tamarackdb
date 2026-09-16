@@ -26,11 +26,15 @@ type readTimeRange struct {
 	Before *string `json:"before,omitempty"`
 }
 
-// readHeader is the first NDJSON line of every /read response:
+// readTrailer is the last NDJSON line of every /read response:
 // {"hasMore":true|false}. Defined here, not in internal/ndjson, since
 // hasMore is a TamarackDB wire concept, not something a generic NDJSON
-// writer should know about.
-type readHeader struct {
+// writer should know about. Its absence is meaningful: the response is
+// streamed as each event is scanned (see handleRead), so a failure partway
+// through a page simply ends the response with no trailer line, the same
+// signal a client already has to handle for a plain dropped connection
+// (see docs/integration.md's Pagination section).
+type readTrailer struct {
 	HasMore bool `json:"hasMore"`
 }
 
@@ -109,7 +113,16 @@ func (s *Server) handleRead(w http.ResponseWriter, r *http.Request) {
 	}
 	defer it.Close()
 
-	nw := ndjson.NewWriter()
+	// From here on, the response is streamed: the first WriteValue call
+	// below commits to 200 and starts sending bytes, before the page is
+	// known to succeed. A failure past this point can no longer produce a
+	// clean error response (see readTrailer's doc comment); it can only
+	// end the response early, with the read-side effects of a failure
+	// (below) preserved even though nothing more is written to w.
+	w.Header().Set("Content-Type", "application/x-ndjson")
+	w.WriteHeader(http.StatusOK)
+
+	nw := ndjson.NewWriter(w)
 	for it.Next() {
 		ev := it.Event()
 		wire := readEventWire{
@@ -121,21 +134,20 @@ func (s *Server) handleRead(w http.ResponseWriter, r *http.Request) {
 			Payload:     ev.Payload,
 		}
 		if err := nw.WriteValue(wire); err != nil {
-			s.handleErr(w, r, err) // effectively unreachable: readEventWire has no custom MarshalJSON to fail
+			// The client is almost certainly gone (a broken pipe from a
+			// dropped connection): nothing left to write to, and nothing
+			// useful to report back.
 			return
 		}
 	}
 	if err := it.Err(); err != nil {
-		// Still pre-flush: nothing has touched w yet, so a mid-page
-		// store error still gets a clean error response instead of a
-		// broken, half-written NDJSON stream.
-		s.handleErr(w, r, err)
-		return
+		if store.IsFatal(err) && s.opts.OnFatalStorageError != nil {
+			s.opts.OnFatalStorageError(err)
+		}
+		return // no trailer: signals a cut-short page, see readTrailer
 	}
 
-	w.Header().Set("Content-Type", "application/x-ndjson")
-	w.WriteHeader(http.StatusOK)
-	_ = nw.Flush(w, readHeader{HasMore: it.HasMore()}) // best-effort past this point
+	_ = nw.WriteValue(readTrailer{HasMore: it.HasMore()}) // best-effort: the client may already be gone
 }
 
 // parseTimeRange parses time.from/time.before (RFC3339Nano, matching

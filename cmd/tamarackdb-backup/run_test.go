@@ -4,12 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/tamarackdb/tamarackdb/internal/api"
+	"github.com/tamarackdb/tamarackdb/internal/config"
 	"github.com/tamarackdb/tamarackdb/internal/dcb"
 	"github.com/tamarackdb/tamarackdb/internal/queue"
 	"github.com/tamarackdb/tamarackdb/internal/store"
@@ -163,6 +166,28 @@ func TestRunResumesFromLastImportedSequence(t *testing.T) {
 	}
 	if got := mustReadAllFrom(t, backupPath); len(got) != 5 {
 		t.Fatalf("len(got) after second run = %d, want 5", len(got))
+	}
+}
+
+func TestFetchPageFailsOnMissingTrailer(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Two event lines, then the connection just ends: no trailing
+		// {"hasMore":...} line, simulating a source that cut the page
+		// short partway through (see readTrailer's doc comment).
+		w.Header().Set("Content-Type", "application/x-ndjson")
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprintln(w, `{"sequence":1,"time":"2026-01-01T00:00:00.000000Z","type":"Seeded","identifiers":{},"metadata":{},"payload":""}`)
+		fmt.Fprintln(w, `{"sequence":2,"time":"2026-01-01T00:00:00.000001Z","type":"Seeded","identifiers":{},"metadata":{},"payload":""}`)
+	}))
+	defer ts.Close()
+
+	cfg := &config.BackupConfig{SourceURL: ts.URL, PageLimit: 100}
+	_, _, err := fetchPage(context.Background(), cfg, 0)
+	if err == nil {
+		t.Fatal("fetchPage() error = nil, want error for a response with no trailing hasMore line")
+	}
+	if !strings.Contains(err.Error(), "response ended before the page finished") {
+		t.Errorf("fetchPage() error = %q, want it to mention the page was cut short", err)
 	}
 }
 

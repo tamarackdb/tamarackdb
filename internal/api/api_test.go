@@ -57,23 +57,30 @@ func doRequest(t *testing.T, srv *Server, method, path, body string) *httptest.R
 	return rec
 }
 
-// parseNDJSON parses a /read response body: the first line as readHeader,
-// every following line as a dcb.Event.
-func parseNDJSON(t *testing.T, body string) (readHeader, []dcb.Event) {
+// parseNDJSON parses a /read response body: the trailer line (identified by
+// shape, a "hasMore" key, not by position, since it's now the last line)
+// as readTrailer, every other line as a dcb.Event.
+func parseNDJSON(t *testing.T, body string) (readTrailer, []dcb.Event) {
 	t.Helper()
 	scanner := bufio.NewScanner(strings.NewReader(body))
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-	if !scanner.Scan() {
-		t.Fatalf("NDJSON body has no header line: %q", body)
-	}
-	var header readHeader
-	if err := json.Unmarshal(scanner.Bytes(), &header); err != nil {
-		t.Fatalf("decode NDJSON header: %v", err)
-	}
 	var events []dcb.Event
+	var trailer *readTrailer
 	for scanner.Scan() {
+		line := scanner.Bytes()
+		var probe struct {
+			HasMore *bool `json:"hasMore"`
+		}
+		if err := json.Unmarshal(line, &probe); err == nil && probe.HasMore != nil {
+			var tr readTrailer
+			if err := json.Unmarshal(line, &tr); err != nil {
+				t.Fatalf("decode NDJSON trailer: %v", err)
+			}
+			trailer = &tr
+			continue
+		}
 		var ev dcb.Event
-		if err := json.Unmarshal(scanner.Bytes(), &ev); err != nil {
+		if err := json.Unmarshal(line, &ev); err != nil {
 			t.Fatalf("decode NDJSON event line %q: %v", scanner.Text(), err)
 		}
 		events = append(events, ev)
@@ -81,5 +88,8 @@ func parseNDJSON(t *testing.T, body string) (readHeader, []dcb.Event) {
 	if err := scanner.Err(); err != nil {
 		t.Fatalf("scan NDJSON body: %v", err)
 	}
-	return header, events
+	if trailer == nil {
+		t.Fatalf("NDJSON body has no trailer line: %q", body)
+	}
+	return *trailer, events
 }

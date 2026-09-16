@@ -16,14 +16,17 @@ import (
 	"github.com/tamarackdb/tamarackdb/internal/store"
 )
 
-// maxNDJSONLine is the largest single NDJSON line (the hasMore header, or
+// maxNDJSONLine is the largest single NDJSON line (the hasMore trailer, or
 // one event) this tool accepts from the source. It has no visibility into
 // the source's own maxEventSize setting, so this is generous rather than
 // tied to any particular configuration.
 const maxNDJSONLine = 16 * 1024 * 1024
 
-// readHeader is the first NDJSON line of every QUERY /read response.
-type readHeader struct {
+// readTrailer is the last NDJSON line of every QUERY /read response. Its
+// absence (the stream ends without one) means the source cut the page
+// short partway through; fetchPage treats that as an error rather than
+// silently returning a partial page as if it were complete.
+type readTrailer struct {
 	HasMore bool `json:"hasMore"`
 }
 
@@ -99,21 +102,23 @@ func fetchPage(ctx context.Context, cfg *config.BackupConfig, afterSeq int64) ([
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(make([]byte, 0, 64*1024), maxNDJSONLine)
 
-	if !scanner.Scan() {
-		if err := scanner.Err(); err != nil {
-			return nil, false, fmt.Errorf("tamarackdb-backup: read response header: %w", err)
-		}
-		return nil, false, fmt.Errorf("tamarackdb-backup: read response header: empty response body")
-	}
-	var header readHeader
-	if err := json.Unmarshal(scanner.Bytes(), &header); err != nil {
-		return nil, false, fmt.Errorf("tamarackdb-backup: parse response header: %w", err)
-	}
-
+	// The trailer can only be told apart from an event line by shape, not
+	// position: it's the last line, but that's only known once the stream
+	// ends. Every line is probed for a "hasMore" key rather than assumed
+	// to be at a fixed offset.
 	var events []dcb.Event
+	var trailer *readTrailer
 	for scanner.Scan() {
+		line := scanner.Bytes()
+		var probe struct {
+			HasMore *bool `json:"hasMore"`
+		}
+		if err := json.Unmarshal(line, &probe); err == nil && probe.HasMore != nil {
+			trailer = &readTrailer{HasMore: *probe.HasMore}
+			continue
+		}
 		var ev dcb.Event
-		if err := json.Unmarshal(scanner.Bytes(), &ev); err != nil {
+		if err := json.Unmarshal(line, &ev); err != nil {
 			return nil, false, fmt.Errorf("tamarackdb-backup: parse event: %w", err)
 		}
 		events = append(events, ev)
@@ -121,6 +126,9 @@ func fetchPage(ctx context.Context, cfg *config.BackupConfig, afterSeq int64) ([
 	if err := scanner.Err(); err != nil {
 		return nil, false, fmt.Errorf("tamarackdb-backup: read response body: %w", err)
 	}
+	if trailer == nil {
+		return nil, false, fmt.Errorf("tamarackdb-backup: read %s: response ended before the page finished (no trailing hasMore line); retry", cfg.SourceURL)
+	}
 
-	return events, header.HasMore, nil
+	return events, trailer.HasMore, nil
 }
