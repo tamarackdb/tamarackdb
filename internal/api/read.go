@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
@@ -31,6 +32,21 @@ type readTimeRange struct {
 // writer should know about.
 type readHeader struct {
 	HasMore bool `json:"hasMore"`
+}
+
+// readEventWire is the exact wire shape of one NDJSON body line, mirroring
+// dcb.Event.MarshalJSON's field names/order. Identifiers and Metadata are
+// json.RawMessage, not dcb.IdentifierSet/MetadataSet: store.ReadEvent already
+// carries them as the raw bytes stored in the events table, in the same
+// compact shape this struct emits, so this passes them straight through
+// instead of decoding and re-encoding data that never needs to change shape.
+type readEventWire struct {
+	Sequence    int64           `json:"sequence"`
+	Time        string          `json:"time"`
+	Type        string          `json:"type"`
+	Identifiers json.RawMessage `json:"identifiers"`
+	Metadata    json.RawMessage `json:"metadata"`
+	Payload     string          `json:"payload"`
 }
 
 func (s *Server) handleRead(w http.ResponseWriter, r *http.Request) {
@@ -95,8 +111,17 @@ func (s *Server) handleRead(w http.ResponseWriter, r *http.Request) {
 
 	nw := ndjson.NewWriter()
 	for it.Next() {
-		if err := nw.WriteValue(it.Event()); err != nil {
-			s.handleErr(w, r, err) // effectively unreachable: dcb.Event.MarshalJSON never errors
+		ev := it.Event()
+		wire := readEventWire{
+			Sequence:    ev.Sequence,
+			Time:        ev.Time,
+			Type:        ev.Type,
+			Identifiers: ev.Identifiers,
+			Metadata:    ev.Metadata,
+			Payload:     ev.Payload,
+		}
+		if err := nw.WriteValue(wire); err != nil {
+			s.handleErr(w, r, err) // effectively unreachable: readEventWire has no custom MarshalJSON to fail
 			return
 		}
 	}

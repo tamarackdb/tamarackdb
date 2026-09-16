@@ -38,12 +38,36 @@ func mustReadAll(t *testing.T, s *Store, f ReadFilter) ([]dcb.Event, bool) {
 	defer it.Close()
 	var events []dcb.Event
 	for it.Next() {
-		events = append(events, it.Event())
+		events = append(events, toDCBEvent(t, it.Event()))
 	}
 	if err := it.Err(); err != nil {
 		t.Fatalf("iteration error = %v", err)
 	}
 	return events, it.HasMore()
+}
+
+// toDCBEvent decodes a ReadEvent's raw time/identifiers/metadata back into a
+// dcb.Event, so tests can keep asserting against the structured shape even
+// though production code (see internal/api/read.go) never does this decode.
+func toDCBEvent(t *testing.T, re ReadEvent) dcb.Event {
+	t.Helper()
+	tm, err := time.Parse(timeLayout, re.Time)
+	if err != nil {
+		t.Fatalf("decode time: %v", err)
+	}
+	var ids dcb.IdentifierSet
+	if err := ids.UnmarshalJSON(re.Identifiers); err != nil {
+		t.Fatalf("decode identifiers: %v", err)
+	}
+	var md dcb.MetadataSet
+	if err := md.UnmarshalJSON(re.Metadata); err != nil {
+		t.Fatalf("decode metadata: %v", err)
+	}
+	return dcb.Event{
+		Sequence:  re.Sequence,
+		Time:      tm,
+		EventData: dcb.EventData{Type: re.Type, Identifiers: ids, Metadata: md, Payload: re.Payload},
+	}
 }
 
 func eventWithIdentifier(typ, name, value string) dcb.EventData {

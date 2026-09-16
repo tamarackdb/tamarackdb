@@ -56,12 +56,36 @@ func mustReadAllFrom(t *testing.T, path string) []dcb.Event {
 
 	var events []dcb.Event
 	for it.Next() {
-		events = append(events, it.Event())
+		events = append(events, toDCBEvent(t, it.Event()))
 	}
 	if err := it.Err(); err != nil {
 		t.Fatalf("iteration error = %v", err)
 	}
 	return events
+}
+
+// toDCBEvent decodes a store.ReadEvent (which carries time/identifiers/
+// metadata as raw wire bytes, see store.ReadEvent's own doc comment) back
+// into a dcb.Event, by round-tripping it through dcb.Event's own
+// UnmarshalJSON rather than duplicating its time/JSON parsing here.
+func toDCBEvent(t *testing.T, re store.ReadEvent) dcb.Event {
+	t.Helper()
+	wire, err := json.Marshal(struct {
+		Sequence    int64           `json:"sequence"`
+		Time        string          `json:"time"`
+		Type        string          `json:"type"`
+		Identifiers json.RawMessage `json:"identifiers"`
+		Metadata    json.RawMessage `json:"metadata"`
+		Payload     string          `json:"payload"`
+	}{re.Sequence, re.Time, re.Type, re.Identifiers, re.Metadata, re.Payload})
+	if err != nil {
+		t.Fatalf("marshal ReadEvent: %v", err)
+	}
+	var ev dcb.Event
+	if err := json.Unmarshal(wire, &ev); err != nil {
+		t.Fatalf("decode ReadEvent: %v", err)
+	}
+	return ev
 }
 
 func TestRunCopiesAllEventsAcrossMultiplePages(t *testing.T) {

@@ -124,17 +124,24 @@ func New(qm *queue.Manager, st *store.Store, opts Options) *Server {
 
 		// Standard net/http/pprof registration, mounted on our own mux
 		// instead of relying on the package's http.DefaultServeMux
-		// side effect. Left method-agnostic, matching upstream
-		// net/http/pprof and because go tool pprof's own client uses
-		// POST against /debug/pprof/symbol for large symbol lookups.
+		// side effect. Method-scoped, unlike upstream net/http/pprof's
+		// own method-agnostic registration: a method-agnostic pattern
+		// here would conflict with "DELETE /" above (neither pattern
+		// is strictly more specific than the other, since one wins on
+		// method and the other on path), which ServeMux rejects at
+		// registration time. go tool pprof's client also POSTs to
+		// /debug/pprof/symbol for large symbol lookups, hence the
+		// second registration for that one path.
+		//
 		// DevMode-gated like DELETE / above: CPU/heap profiles and
 		// goroutine dumps can leak information about running queries
 		// and are never meant for a production deployment.
-		mux.HandleFunc("/debug/pprof/", pprof.Index)
-		mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
-		mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
-		mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
-		mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+		mux.HandleFunc("GET /debug/pprof/", pprof.Index)
+		mux.HandleFunc("GET /debug/pprof/cmdline", pprof.Cmdline)
+		mux.HandleFunc("GET /debug/pprof/profile", pprof.Profile)
+		mux.HandleFunc("GET /debug/pprof/symbol", pprof.Symbol)
+		mux.HandleFunc("POST /debug/pprof/symbol", pprof.Symbol)
+		mux.HandleFunc("GET /debug/pprof/trace", pprof.Trace)
 	}
 
 	var h http.Handler = mux

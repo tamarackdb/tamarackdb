@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -68,28 +69,39 @@ WHERE events.sequence > ?`)
 	return b.String(), args
 }
 
-func scanEvent(rows *sql.Rows) (dcb.Event, error) {
+// ReadEvent is one row of a Read result. Time, Identifiers, and Metadata are
+// left exactly as stored (see insertEventsBatch): time is always written
+// from a UTC time.Time in timeLayout, and identifiers/metadata are always
+// written via IdentifierSet/MetadataSet's own MarshalJSON, so all three are
+// already byte-identical to what the HTTP API returns. Nothing in the read
+// path needs the structured form (query filtering already happened in SQL),
+// so scanEvent skips decoding them at all, trading away read-time corruption
+// detection on these three columns for that: a garbled column is now
+// forwarded to the client as-is instead of failing with a clear "corrupt
+// data" error, the same trade-off already made for the type/payload columns.
+type ReadEvent struct {
+	Sequence    int64
+	Time        string // raw events.time text, already UTC and timeLayout-formatted
+	Type        string
+	Identifiers json.RawMessage
+	Metadata    json.RawMessage
+	Payload     string
+}
+
+func scanEvent(rows *sql.Rows) (ReadEvent, error) {
 	var seq int64
-	var timeText, typ, payload, idsJSON, mdJSON string
+	var timeText, typ, payload string
+	var idsJSON, mdJSON []byte
 	if err := rows.Scan(&seq, &timeText, &typ, &payload, &idsJSON, &mdJSON); err != nil {
-		return dcb.Event{}, err
+		return ReadEvent{}, err
 	}
-	t, err := time.Parse(timeLayout, timeText)
-	if err != nil {
-		return dcb.Event{}, fmt.Errorf("store: corrupt time %q for event %d: %w", timeText, seq, err)
-	}
-	var identifiers dcb.IdentifierSet
-	if err := identifiers.UnmarshalJSON([]byte(idsJSON)); err != nil {
-		return dcb.Event{}, fmt.Errorf("store: corrupt identifiers for event %d: %w", seq, err)
-	}
-	var metadata dcb.MetadataSet
-	if err := metadata.UnmarshalJSON([]byte(mdJSON)); err != nil {
-		return dcb.Event{}, fmt.Errorf("store: corrupt metadata for event %d: %w", seq, err)
-	}
-	return dcb.Event{
-		Sequence:  seq,
-		Time:      t,
-		EventData: dcb.EventData{Type: typ, Identifiers: identifiers, Metadata: metadata, Payload: payload},
+	return ReadEvent{
+		Sequence:    seq,
+		Time:        timeText,
+		Type:        typ,
+		Identifiers: json.RawMessage(idsJSON),
+		Metadata:    json.RawMessage(mdJSON),
+		Payload:     payload,
 	}, nil
 }
 
@@ -99,16 +111,16 @@ func scanEvent(rows *sql.Rows) (dcb.Event, error) {
 // once Next has returned false) — before then it is always false.
 //
 // internal/api's /read handler drives this with Next()/Event()/Err(),
-// marshaling and writing each event as it comes out of SQLite; the
-// single underlying query keeps the read transaction short-lived, to
-// support live projection rebuilds, never held open across pages.
+// writing each event as it comes out of SQLite; the single underlying
+// query keeps the read transaction short-lived, to support live projection
+// rebuilds, never held open across pages.
 type EventIterator struct {
 	rows    *sql.Rows
 	limit   int
 	n       int
 	hasMore bool
 	err     error
-	cur     dcb.Event
+	cur     ReadEvent
 	closed  bool
 }
 
@@ -146,7 +158,7 @@ func (it *EventIterator) Next() bool {
 	return true
 }
 
-func (it *EventIterator) Event() dcb.Event { return it.cur }
+func (it *EventIterator) Event() ReadEvent { return it.cur }
 func (it *EventIterator) Err() error       { return it.err }
 func (it *EventIterator) HasMore() bool    { return it.hasMore }
 
