@@ -1,0 +1,86 @@
+package store
+
+import (
+	"context"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/tamarackdb/tamarackdb/internal/dcb"
+)
+
+func openTestStore(t *testing.T) *Store {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "test.db")
+	s, err := Open(context.Background(), path, 0)
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	t.Cleanup(func() { s.Close() })
+	return s
+}
+
+func mustAppend(t *testing.T, s *Store, events []dcb.EventData, condition *dcb.AppendCondition) []dcb.Event {
+	t.Helper()
+	got, err := s.Append(context.Background(), events, condition)
+	if err != nil {
+		t.Fatalf("Append() error = %v", err)
+	}
+	return got
+}
+
+func mustReadAll(t *testing.T, s *Store, f ReadFilter) ([]dcb.Event, bool) {
+	t.Helper()
+	it, err := s.Read(context.Background(), f)
+	if err != nil {
+		t.Fatalf("Read() error = %v", err)
+	}
+	defer it.Close()
+	var events []dcb.Event
+	for it.Next() {
+		events = append(events, toDCBEvent(t, it.Event()))
+	}
+	if err := it.Err(); err != nil {
+		t.Fatalf("iteration error = %v", err)
+	}
+	return events, it.HasMore()
+}
+
+// toDCBEvent decodes a ReadEvent's raw time/identifiers/metadata back into a
+// dcb.Event, so tests can keep asserting against the structured shape even
+// though production code (see internal/api/read.go) never does this decode.
+func toDCBEvent(t *testing.T, re ReadEvent) dcb.Event {
+	t.Helper()
+	tm, err := time.Parse(timeLayout, re.Time)
+	if err != nil {
+		t.Fatalf("decode time: %v", err)
+	}
+	var ids dcb.IdentifierSet
+	if err := ids.UnmarshalJSON(re.Identifiers); err != nil {
+		t.Fatalf("decode identifiers: %v", err)
+	}
+	var md dcb.MetadataSet
+	if err := md.UnmarshalJSON(re.Metadata); err != nil {
+		t.Fatalf("decode metadata: %v", err)
+	}
+	return dcb.Event{
+		Sequence:  re.Sequence,
+		Time:      tm,
+		EventData: dcb.EventData{Type: re.Type, Identifiers: ids, Metadata: md, Payload: re.Payload},
+	}
+}
+
+func eventWithIdentifier(typ, name, value string) dcb.EventData {
+	return dcb.EventData{Type: typ, Identifiers: dcb.IdentifierSet{{Name: name, Value: value}}}
+}
+
+func mustImport(t *testing.T, s *Store, events []dcb.Event) {
+	t.Helper()
+	if err := s.Import(context.Background(), events); err != nil {
+		t.Fatalf("Import() error = %v", err)
+	}
+}
+
+func eventAt(seq int64, ed dcb.EventData) dcb.Event {
+	return dcb.Event{Sequence: seq, Time: time.Unix(0, seq*int64(time.Microsecond)).UTC(), EventData: ed}
+}

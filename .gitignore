@@ -1,0 +1,26 @@
+/.idea
+/bin/
+/data/
+*.json
+*.toml
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.sqlite.lock
+
+# Go
+*.test
+*.out
+coverage.out
+/vendor/
+
+# TLS / secrets
+*.pem
+*.key
+*.crt
+.env
+
+# Editors / OS
+.claude/
+.vscode/
+.DS_Store
