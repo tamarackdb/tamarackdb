@@ -22,9 +22,9 @@ This builds four binaries under `bin/`:
 Each binary also has its own target with the same name, so `make tamarackdb-migrate`
 builds only that one.
 
-The running build's version comes from the `VERSION` file at the root of the repo. It
-is baked into every binary at build time, not read at runtime. See
-[design.md](design.md#versioning) for how that works.
+The running build's version comes from `git describe --tags --always --dirty`,
+evaluated at build time. It is baked into every binary at build time, not read at
+runtime. See [design.md](design.md#versioning) for how that works.
 
 `--version` prints the running build's version and exits, without loading a config
 file or opening the database. Every TamarackDB binary accepts it.

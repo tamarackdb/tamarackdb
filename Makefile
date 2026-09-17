@@ -1,5 +1,5 @@
 BINDIR := bin
-VERSION := $(shell cat VERSION)
+VERSION := $(shell git describe --tags --always --dirty)
 LDFLAGS := -X github.com/tamarackdb/tamarackdb/internal/buildinfo.Version=$(VERSION)
 
 .PHONY: build tamarackdb-server tamarackdb-migrate tamarackdb-init tamarackdb-backup tamarackdb-demo test run clean fmt vet tidy

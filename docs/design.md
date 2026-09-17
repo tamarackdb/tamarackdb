@@ -507,7 +507,7 @@ A lightweight `GET /health` endpoint confirms the process is responding and SQLi
 
 ### Versioning
 
-The running build's version is a single value, read from the `VERSION` file at the root of the repository and baked into every binary at build time, via `-ldflags "-X github.com/tamarackdb/tamarackdb/internal/buildinfo.Version=..."`. It's not something a process reads or reloads while running. Every TamarackDB binary accepts `--version`, printing that value and exiting right away, before doing anything else (loading a configuration file, opening the store, reaching out over the network). That same value is what `GET /health` reports in its `version` field above.
+The running build's version is a single value, derived from the closest Git tag with `git describe --tags --always --dirty` and baked into every binary at build time, via `-ldflags "-X github.com/tamarackdb/tamarackdb/internal/buildinfo.Version=..."`. It's not something a process reads or reloads while running. Every TamarackDB binary accepts `--version`, printing that value and exiting right away, before doing anything else (loading a configuration file, opening the store, reaching out over the network). That same value is what `GET /health` reports in its `version` field above.
 
 ### Request logging
 
