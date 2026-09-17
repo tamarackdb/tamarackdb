@@ -1,5 +1,7 @@
 ![](docs/tamarackdb-logo.png)
 
+[![ci](https://github.com/tamarackdb/tamarackdb/actions/workflows/ci.yml/badge.svg)](https://github.com/tamarackdb/tamarackdb/actions/workflows/ci.yml)
+
 TamarackDB is an event store in pure Go, compliant with the [DCB (Dynamic Consistency
 Boundaries) specification](https://dcb.events/specification/), accessible via HTTP,
 using SQLite as the storage engine.
