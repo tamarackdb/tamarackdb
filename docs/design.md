@@ -314,6 +314,12 @@ Standard DCB flow:
 3. `append(events, condition: {failIfEventsMatch: query, afterSequence})`
 4. The operation fails if an event matching `query` exists after `afterSequence`
 
+**Combining several Append Conditions into one.** An application can persist events from more than one Decision Model in a single `append` call, to make a causal chain atomic: a model appends an event, a process manager reacts to it within the same request and adds a follow-up event, and both should land together or not at all. Since `condition.failIfEventsMatch` is one Query for the whole call, the app merges each model's own Query into the same OR-combined array.
+
+This merge widens what fails the whole call. TamarackDB checks the combined condition once, against the whole batch. An event that matches only one model's Query fails the entire append, even the other model's unrelated events. This is the price of atomicity, not a flaw: since every model's events share one commit, every model's precondition must still hold for that commit to happen. Checking each model's condition against only its own events would risk committing on stale information without noticing. The only way to avoid the wider check is to give up atomicity and use separate `append` calls. Removing exact duplicate `QueryItem` (see Query grammar) only trims accidental repeats; it doesn't narrow this trade-off, since two distinct models' Queries stay two distinct items in the same OR.
+
+Only one writer is ever active on TamarackDB at a time (see Concurrency handling in Go below). The merged condition is checked once, in the same transaction as the insert, exactly like a condition from a single model: combining several doesn't introduce any extra race.
+
 ## Concurrency handling in Go
 
 ### Principle: the queue manager
