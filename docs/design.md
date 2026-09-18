@@ -133,6 +133,8 @@ Every array in this grammar (the top-level `query`, or a `QueryItem`'s `types`, 
 
 A `QueryItem` must specify at least one of `types`, `identifiers`, or `metadata`. An empty item (`{}`) is invalid and gets `400 Bad Request`: it poses no constraint, and isn't the documented way to say "all events" either, that's what `"*"` is for at the whole-query level, not something an item can express on its own.
 
+If two `QueryItem` in the same array are exact duplicates (same types, identifiers, and metadata, in any order), TamarackDB silently keeps one and drops the rest: a repeated item adds nothing to the OR beyond a wasted clause. This applies to `query` on `read` and to `condition.failIfEventsMatch` on `append` alike, since both use this same grammar. It's useful when an application merges several models' Append Conditions into one request (each reacting to the same identifier, for example) and doesn't want to bother deduplicating them itself first.
+
 ## HTTP API
 
 Routes are named after the DCB spec's own operation names, `read` and `append`, instead of being modeled as a REST resource. DCB is not a CRUD API over a resource. It is two operations, each with its own meaning.

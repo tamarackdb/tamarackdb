@@ -76,6 +76,54 @@ func TestQueryValidate(t *testing.T) {
 	}
 }
 
+func TestNewQueryDedupesExactDuplicates(t *testing.T) {
+	q := NewQuery([]QueryItem{
+		{Identifiers: []Identifier{{Name: "userId", Value: "123"}}},
+		{Identifiers: []Identifier{{Name: "userId", Value: "123"}}},
+	})
+	if len(q.Items()) != 1 {
+		t.Errorf("Items() = %+v, want 1 item after deduping exact duplicates", q.Items())
+	}
+}
+
+func TestNewQueryDedupesRegardlessOfOrder(t *testing.T) {
+	q := NewQuery([]QueryItem{
+		{
+			Types:       []string{"a", "b"},
+			Identifiers: []Identifier{{Name: "userId", Value: "123"}, {Name: "orgId", Value: "9"}},
+		},
+		{
+			Types:       []string{"b", "a"},
+			Identifiers: []Identifier{{Name: "orgId", Value: "9"}, {Name: "userId", Value: "123"}},
+		},
+	})
+	if len(q.Items()) != 1 {
+		t.Errorf("Items() = %+v, want 1 item, reordered types/identifiers should still be a duplicate", q.Items())
+	}
+}
+
+func TestNewQueryKeepsDistinctItems(t *testing.T) {
+	q := NewQuery([]QueryItem{
+		{Identifiers: []Identifier{{Name: "userId", Value: "123"}}},
+		{Identifiers: []Identifier{{Name: "userId", Value: "456"}}},
+		{Types: []string{"user-created"}},
+	})
+	if len(q.Items()) != 3 {
+		t.Errorf("Items() = %+v, want 3 distinct items kept", q.Items())
+	}
+}
+
+func TestQueryUnmarshalJSONDedupes(t *testing.T) {
+	var q Query
+	input := `[{"identifiers":[{"name":"userId","value":"123"}]},{"identifiers":[{"name":"userId","value":"123"}]}]`
+	if err := json.Unmarshal([]byte(input), &q); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if len(q.Items()) != 1 {
+		t.Errorf("Items() = %+v, want 1 item after deduping", q.Items())
+	}
+}
+
 func TestQueryItemValidate(t *testing.T) {
 	tests := []struct {
 		name    string
