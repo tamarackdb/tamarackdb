@@ -40,13 +40,23 @@ source running only on its default unix socket (see
 ## How it works
 
 Each run reads the highest Sequence Position already in the local file, then
-pages through the source's `QUERY /read` with `afterSequence` set to that
+pages through the source's `QUERY /events` with `afterSequence` set to that
 value, writing every event it gets straight into local storage: not through
-`POST /append`, but through the same code path `store.Open` always uses to
+`POST /write`, but through the same code path `store.Open` always uses to
 build a database file, so the schema comes out identical. See
 [design.md](design.md#storage-sqlite) for why that matters: the backup file
 can be pointed at directly with `tamarackdb-server --config ...` if the source ever
 needs replacing.
+
+`tamarackdb-backup` only ever copies events, into the events database file.
+It has no notion of documents at all, and never touches (or even needs to
+know the path of) a source's `tamarackdb-documents.sqlite`. This is
+deliberate, not a gap: a document's payload is reproducible from events (see
+[design.md](design.md#documents)). If you ever point `tamarackdb-server` at a
+restored backup file, the documents database starts empty: any document an
+application writes again shows up as usual, but a full catch-up for the rest
+means rebuilding, the normal `DELETE /documents/{type}` plus a fresh write of
+every projection of that type, not something that happens on its own.
 
 There's no retry inside a run: if one fails partway, nothing is retried in
 process, and the error goes to stderr with a non-zero exit code. Events

@@ -40,7 +40,7 @@ make test
 `cmd/tamarackdb-demo` fills a SQLite file with a large set of made-up events: random types,
 one or two identifiers, one metadata tag, and filler text as payload. It writes
 straight to the store, not through the HTTP server, so it can seed a large
-database fast. Use it to try `QUERY /read` at scale.
+database fast. Use it to try `QUERY /events` at scale.
 
 ```sh
 make tamarackdb-demo

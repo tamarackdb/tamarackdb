@@ -16,7 +16,8 @@
   - [Pagination](#pagination)
   - [Projection rebuilds](#projection-rebuilds)
   - [Response format](#response-format)
-  - [Appending events](#appending-events)
+  - [Writing events and documents](#writing-events-and-documents)
+  - [Documents](#documents)
   - [Event size limit](#event-size-limit)
   - [Error responses](#error-responses)
 - [Append Condition and concurrency](#append-condition-and-concurrency)
@@ -40,6 +41,8 @@
 ## Context
 
 TamarackDB is an event store in Go. It follows the [DCB (Dynamic Consistency Boundaries) specification](https://dcb.events/specification/), is reachable over HTTP, and uses SQLite as its storage engine. The service runs as a single instance ("single brain"), not a multi-instance cluster. Go serializes writes and assigns each event's Sequence Position; the actual DCB matching for the Append Condition runs as a SQL query against SQLite.
+
+It also offers an optional store for documents: versioned projections an application can update atomically alongside the events that changed them (see Documents), without having to maintain its own separate store for that purpose. An application that already maintains its projections elsewhere never has to touch this mechanism.
 
 Applications can share a single TamarackDB instance when they share events. TamarackDB does not track which application produced an event.
 
@@ -84,9 +87,9 @@ Identifiers and metadata are two separate namespaces on an event. The same name 
 
 Splitting the spec's single Tag concept into Identifiers and Metadata still follows the DCB specification. The spec allows implementations to use different terms and field names, as long as they work the same way. Both Identifiers and Metadata behave exactly like Tags for matching. The split is just a naming choice on top of that, not a deviation from the spec.
 
-An event can't carry the same `{name, value}` pair twice in its identifiers, or twice in its metadata. This matches the DCB specification's own rule that a set of Tags should not contain duplicates. An `append` that breaks this rule gets `400 Bad Request`, instead of being silently deduplicated, like every other invalid request (see Error responses).
+An event can't carry the same `{name, value}` pair twice in its identifiers, or twice in its metadata. This matches the DCB specification's own rule that a set of Tags should not contain duplicates. A `write` that breaks this rule gets `400 Bad Request`, instead of being silently deduplicated, like every other invalid request (see Error responses).
 
-An event can't carry more than **20 identifiers**, or more than **20 metadata** entries. These are fixed limits, not configuration, for the same reason as the cap on events per `append` (see Appending events): an event should stay a short, meaningful statement, not a container for a large list of values. An `append` that breaks this rule gets `400 Bad Request`.
+An event can't carry more than **20 identifiers**, or more than **20 metadata** entries. These are fixed limits, not configuration, for the same reason as the cap on events per `write` (see Writing events and documents): an event should stay a short, meaningful statement, not a container for a large list of values. A `write` that breaks this rule gets `400 Bad Request`.
 
 ### Two categories of data associated with an event
 
@@ -133,15 +136,15 @@ Every array in this grammar (the top-level `query`, or a `QueryItem`'s `types`, 
 
 A `QueryItem` must specify at least one of `types`, `identifiers`, or `metadata`. An empty item (`{}`) is invalid and gets `400 Bad Request`: it poses no constraint, and isn't the documented way to say "all events" either, that's what `"*"` is for at the whole-query level, not something an item can express on its own.
 
-If two `QueryItem` in the same array are exact duplicates (same types, identifiers, and metadata, in any order), TamarackDB silently keeps one and drops the rest: a repeated item adds nothing to the OR beyond a wasted clause. This applies to `query` on `read` and to `condition.failIfEventsMatch` on `append` alike, since both use this same grammar. It's useful when an application merges several models' Append Conditions into one request (each reacting to the same identifier, for example) and doesn't want to bother deduplicating them itself first.
+If two `QueryItem` in the same array are exact duplicates (same types, identifiers, and metadata, in any order), TamarackDB silently keeps one and drops the rest: a repeated item adds nothing to the OR beyond a wasted clause. This applies to `query` on `events` and to `condition.failIfEventsMatch` on `write` alike, since both use this same grammar. It's useful when an application merges several models' Append Conditions into one request (each reacting to the same identifier, for example) and doesn't want to bother deduplicating them itself first.
 
 ## HTTP API
 
-Routes are named after the DCB spec's own operation names, `read` and `append`, instead of being modeled as a REST resource. DCB is not a CRUD API over a resource. It is two operations, each with its own meaning.
+Reads are named by resource: `QUERY /events` for events, `GET /documents/{type}/{id}` for a document. Writes are named by verb, `POST /write`, not by resource, because a single write spans both resources at once: an application persists events and updates or deletes documents together, atomically. DCB is not a CRUD API over a resource, so `/write` is not modeled as a REST create/update endpoint either; it stays one operation, matching the DCB spec's own `append`.
 
 ### Reading events
 
-The `read` operation is exposed as `QUERY /read`, using the [HTTP QUERY method](https://www.rfc-editor.org/info/rfc10008/) (RFC 10008): safe, idempotent, and cacheable like GET, but carrying a JSON body like POST. This is needed since a Query can be too large or nested to fit in a query string.
+Events are read with `QUERY /events`, using the [HTTP QUERY method](https://www.rfc-editor.org/info/rfc10008/) (RFC 10008): safe, idempotent, and cacheable like GET, but carrying a JSON body like POST. This is needed since a Query can be too large or nested to fit in a query string.
 
 The request body is a JSON object with a `query` key. That key holds either the array of `QueryItem` shown above, or the literal string `"*"` for `Query.all()`, plus optional `afterSequence` / `time` keys:
 
@@ -201,9 +204,9 @@ Left unset, `limit` falls back to a default of **1,000**, with a server-enforced
 
 ### Projection rebuilds
 
-`QUERY /read` is also how a projection rebuilds itself: read every event matching the projection's types (and maybe identifiers/metadata) from the start of the log, replay them through the projection's own logic, then keep polling forward to stay caught up. A rebuild can mean reading a large share of the store's events.
+`QUERY /events` is also how a projection rebuilds itself: read every event matching the projection's types (and maybe identifiers/metadata) from the start of the log, replay them through the projection's own logic, then keep polling forward to stay caught up. A rebuild can mean reading a large share of the store's events.
 
-Rebuilds run while the store keeps accepting writes, not just during a maintenance window. This is why `/read` returns pages instead of one response streaming the whole result set over one long connection: holding one SQLite read transaction open for a whole large rebuild would pin one MVCC snapshot in place for as long as the rebuild runs, blocking WAL checkpointing that whole time while writes keep piling up in the WAL file. Paging through `limit`-sized requests keeps each read transaction short, so the WAL checkpoints normally between pages. How much this matters depends on write throughput. Day to day, this protection mostly guards against bursts (a batch correction, a spike in normal traffic), not steady load, but the paged design holds up no matter how heavy that load gets.
+Rebuilds run while the store keeps accepting writes, not just during a maintenance window. This is why `/events` returns pages instead of one response streaming the whole result set over one long connection: holding one SQLite read transaction open for a whole large rebuild would pin one MVCC snapshot in place for as long as the rebuild runs, blocking WAL checkpointing that whole time while writes keep piling up in the WAL file. Paging through `limit`-sized requests keeps each read transaction short, so the WAL checkpoints normally between pages. How much this matters depends on write throughput. Day to day, this protection mostly guards against bursts (a batch correction, a spike in normal traffic), not steady load, but the paged design holds up no matter how heavy that load gets.
 
 Fetch time isn't always small next to processing time: some projections process events fast enough that the per-page round trip becomes a real, if still secondary, share of total rebuild time. This is exactly why the page size and its ceiling are configuration, not a fixed constant: a slow projection can use a small `limit` and pay almost nothing for it, while a fast one benefits from a larger `limit` that spreads the round-trip cost over more events per page. The same paging logic also covers both halves of a rebuild, with no mode switch: the client pages through history with `afterSequence` until `hasMore` is `false`, at which point it has caught up, then keeps polling with that same `afterSequence` to get new events as they're appended. Catching up on history and continuing to poll forward are the same loop.
 
@@ -227,11 +230,11 @@ The trailer comes last, not first, because writing it means fetching every row o
 
 `payload` is an opaque string: the store never parses or checks it. Its real format (JSON, XML, or anything else) is a convention owned by the writing application, based on the event's `type`. The store has no notion of it.
 
-Response compression (gzip, negotiated the normal way through `Accept-Encoding`, above a minimum body size) is a nice-to-have, not built yet. Request compression isn't planned at all: writing a large batch of events at once isn't a `POST /append` use case.
+Response compression (gzip, negotiated the normal way through `Accept-Encoding`, above a minimum body size) is a nice-to-have, not built yet. Request compression isn't planned at all: writing a large batch of events at once isn't a `POST /write` use case.
 
-### Appending events
+### Writing events and documents
 
-The `append` operation is exposed as `POST /append`. The request body carries the events to write, plus an optional Append Condition:
+`POST /write` is the one write operation: events, or documents, or both together in the same call. The request body carries the events to append, an optional Append Condition, and an optional list of documents to upsert or delete:
 
 ```json
 {
@@ -246,32 +249,37 @@ The `append` operation is exposed as `POST /append`. The request body carries th
   "condition": {
     "failIfEventsMatch": [ ... ],
     "afterSequence": 12345
-  }
-}
-```
-
-`condition.failIfEventsMatch` follows the same grammar as `query` on `read` (an array of `QueryItem`, or `"*"`). `condition` itself is optional: an event with nothing to protect can be appended with no concurrency check at all.
-
-A single `append` call may carry at most **100 events**. This is a fixed limit, not configuration, since it marks an architectural boundary, not a performance trade-off: a Decision Model appends the handful of events from one business decision, not a batch. A `POST /append` over this limit gets `400 Bad Request`. Writing many events at once (a data migration, a bulk import) isn't a `POST /append` use case (see Response format).
-
-On success, the server responds `200 OK`, not `201 Created`, since there's no single addressable resource to point a `Location` header at. This matches `read`/`append` not being modeled as a REST resource. The body confirms the Sequence Position and `time` given to each event, in the order they were sent:
-
-```json
-{
-  "events": [
-    {"sequence": 12348, "time": "2026-09-01T14:25:00.000000Z"},
-    {"sequence": 12349, "time": "2026-09-01T14:25:00.000001Z"}
+  },
+  "documents": [
+    { "type": "user-profile", "id": "123", "payload": "..." }
   ]
 }
 ```
 
-If the Append Condition fails, the server responds `409 Conflict`:
+`condition.failIfEventsMatch` follows the same grammar as `query` on `events` (an array of `QueryItem`, or `"*"`). `condition` itself is optional: an event with nothing to protect can be written with no concurrency check at all. A call needs at least one event or one document, but not both: a documents-only call, with no `events` and no `condition`, is how a rebuild materializes several projections at once (see Documents below).
+
+A single `write` call may carry at most **100 events**. This is a fixed limit, not configuration, since it marks an architectural boundary, not a performance trade-off: a Decision Model appends the handful of events from one business decision, not a batch. A `POST /write` over this limit gets `400 Bad Request`. Writing many events at once (a data migration, a bulk import) isn't a `POST /write` use case (see Response format). The equivalent cap on documents, `maxDocumentsPerWrite`, is configuration instead (see Configuration): unlike the events cap, it isn't an architectural boundary, just a size guard, and a rebuild's documents-only calls have different volume needs than an ordinary event write.
+
+On success, the server responds `200 OK`, not `201 Created`, since there's no single addressable resource to point a `Location` header at. This matches `write` not being modeled as a REST resource (see HTTP API). The body confirms the Sequence Position and `time` given to each event, and the outcome for each document, in the order they were sent:
+
+```json
+{
+  "events": [
+    {"sequence": 12348, "time": "2026-09-01T14:25:00.000000Z"}
+  ],
+  "documents": [
+    {"type": "user-profile", "id": "123", "version": 1, "status": "ok"}
+  ]
+}
+```
+
+If the Append Condition fails, or a document's version doesn't match what the store has, the server responds `409 Conflict`:
 
 ```json
 { "error": "ConcurrencyException" }
 ```
 
-A malformed request gets `400 Bad Request`. An event over the size limit gets `413 Payload Too Large` (see Event size limit and Error responses). If the write queue is already full when the request arrives, it's turned away right away instead of joining, with `503 Service Unavailable`:
+A malformed request gets `400 Bad Request`. An event or a document payload over its size limit gets `413 Payload Too Large` (see Event size limit and Error responses). If the write queue is already full when the request arrives, it's turned away right away instead of joining, with `503 Service Unavailable`:
 
 ```
 HTTP/1.1 503 Service Unavailable
@@ -282,9 +290,90 @@ Retry-After: 1
 
 `Retry-After` gives the client a concrete backoff hint, instead of leaving it to guess (see Configuration for `maxQueuedWriters`, and Concurrency handling in Go for the queue itself). `DELETE /` in dev mode gets the same `503`/`Retry-After` treatment, since it joins the same queue (see Dev mode).
 
+### Documents
+
+A document is a projection: an opaque payload identified by `type` + `id`, with a version, and no history. Unlike an event, a document can be overwritten or removed; the store only ever holds its current state. The document mechanism is optional: an application that keeps its projections elsewhere, in eventual consistency, never has to touch it.
+
+A document's *identity and version* are atomic with the events in the same `write` call: they live in a `documents` table in the same SQLite file as `events` (see Schema), inside the same transaction, so a version bump and the event that caused it either both happen or neither does. A document's *payload*, though, lives in a second file, `tamarackdb-documents.sqlite`, written after that transaction commits, but before `/write` responds. Two files, two guarantees: the version is exactly as durable as the event that changed it, but the payload is best-effort, written independently once the version it belongs to is already final.
+
+This split exists for I/O isolation, not to enable switching between two copies of the payload store later (a single `tamarackdb-documents.sqlite` file is all there is today). Some applications' projections are large and heavily denormalized, rewritten in place on every update; events, by contrast, are compact and purely append-only. In one SQLite file, the two would share a WAL and a writer lock (`BEGIN IMMEDIATE` locks the whole file, not one table): large, frequent document updates would grow that WAL faster, trigger costlier checkpoints, and a `VACUUM` on the documents table would affect event write availability too. A separate file keeps that I/O profile, and its size, away from the events file entirely.
+
+**Upsert and delete, both versioned.** A document in the `documents` field of a `write` request is one of three things:
+- **Create**: `payload` present, `version` absent. The app never read this document; it's created at version 1. If it already exists, that's a conflict.
+- **Update**: `payload` present, `version` present, the version the app read. Written at `version + 1`. A version that doesn't match the document's current version, including a document that no longer exists, is a conflict.
+- **Delete**: `payload` `null`, `version` present, required (there's no unversioned deletion of a single document). A version that doesn't match, including a document already absent, is a conflict.
+
+A document can disappear as a side effect of an event, not only during a rebuild: an event like `UserDeleted` can carry a matching document deletion in the same `write` call, atomic with the event for what concerns its version.
+
+**Reading a document**: `GET /documents/{type}/{id}` returns one of three outcomes. `404` if no metadata exists for that `type`+`id` at all. `503 DocumentNotReady`, with a `Retry-After` header, if the metadata exists but its payload hasn't caught up yet in `tamarackdb-documents.sqlite` (absent, or at an older version): the ordinary state for the brief window between the metadata commit and the payload write, and the lasting state if that payload write failed. `200` with the payload and version otherwise:
+
+```json
+{ "payload": "...", "version": 1 }
+```
+
+**Clearing a type for a rebuild**: `DELETE /documents/{type}` removes every document of that type, from both files. It's unversioned (a rebuild runs without a concurrent writer touching the same documents, so there's nothing to protect against), and, unlike `DELETE /`, it isn't gated behind dev mode: a document is reconstructible from events, so clearing a type before rebuilding it is a normal operation, not a destructive one. A rebuild that then writes several documents at once does it through `write`'s `documents` field with no events and no condition (see Writing events and documents), not a separate bulk-write endpoint.
+
+**When the payload write fails.** The events-file transaction (the `documents` table, and the events themselves) is durable the moment it commits; the payload write that follows it is not. A failure there is reported per document in the `write` response (`"status": "payloadWriteFailed"`, next to `"ok"`) and counted in `tamarackdb_documents_payload_write_failures_total` (see Queue and connection pool observability), but it never fails the `write` call itself, and never undoes the commit that already happened: there's nothing left to undo it with. It's a rare failure, and specific to the documents file: a full disk on its volume (it can grow faster than the events file, being larger and more often rewritten), a `VACUUM` or an external tool briefly holding the file, a slower or less reliable volume when the two files are deliberately placed on separate disks, or the process being killed in the narrow window between the metadata commit and the payload write. An application that cares can watch for `payloadWriteFailed` and retry the write for that document.
+
+One narrow case is accepted without protection: a document deleted while still at version 1 (never updated since creation), whose payload deletion then fails, leaves an orphaned payload row behind. If an application later reuses the same `type`+`id` (only plausible with a deliberate restore, since `id` is typically a UUID an application would never reuse for a genuinely new document) and that second document's payload write also fails, `GET` could serve the orphaned content instead of `DocumentNotReady`. Three conditions have to line up for this to happen, so it's treated as negligible.
+
+The diagram below traces one `write` call from the HTTP request to the response, with the transactional boundary marked: the red block is the events-file transaction, all or nothing; the blue block is the best-effort payload step, reached only once that transaction has committed.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant C as Client
+    participant API as handleWrite
+    participant EV as tamarackdb.sqlite (events)
+    participant DOC as tamarackdb-documents.sqlite (payload)
+
+    C->>API: POST /write
+    API->>API: validate request (400 if invalid, e.g. duplicate type+id)
+    API->>API: join the write queue (FIFO)
+
+    rect rgba(255, 0, 0, 0.12)
+        Note over API,EV: Transactional boundary: all or nothing
+        API->>EV: BEGIN IMMEDIATE
+        API->>EV: check the Append Condition, insert events
+        loop for each document
+            API->>EV: INSERT / UPDATE / DELETE (type, id, version)
+        end
+        alt Append Condition or a document's version conflicts
+            API->>EV: ROLLBACK
+            API-->>C: 409 ConcurrencyException
+        else everything holds
+            API->>EV: COMMIT
+            Note over EV: events and document versions are now final, irreversible
+        end
+    end
+
+    opt commit succeeded
+        rect rgba(0, 100, 255, 0.12)
+            Note over API,DOC: Best-effort, outside the transaction: a failure here doesn't undo the commit above
+            loop for each document
+                alt payload present
+                    API->>DOC: upsert payload
+                else payload null
+                    API->>DOC: DELETE payload
+                end
+                alt write fails
+                    DOC-->>API: error
+                    API->>API: documents_payload_write_failures_total++
+                    Note right of API: status = "payloadWriteFailed"
+                else write succeeds
+                    DOC-->>API: ok
+                    Note right of API: status = "ok"
+                end
+            end
+        end
+        API-->>C: 200, response body (documents[] with a status per document)
+    end
+    Note over C: connection closed
+```
+
 ### Event size limit
 
-A single event may not be bigger than **64 KiB**, measured as the combined UTF-8 byte length of its `type`, `identifiers`, `metadata`, and `payload`, not a character count. Multi-byte characters (accented text, for instance) count for more than one byte each. An `append` carrying an event over this limit gets `413 Payload Too Large`.
+A single event may not be bigger than **64 KiB**, measured as the combined UTF-8 byte length of its `type`, `identifiers`, `metadata`, and `payload`, not a character count. Multi-byte characters (accented text, for instance) count for more than one byte each. A `write` carrying an event over this limit gets `413 Payload Too Large`.
 
 The limit is deliberate, not a technical ceiling to raise later: it keeps an event a short, meaningful statement about the world, rather than a data transport container, and keeps Decision Model replay fast (which can reload hundreds of thousands of events). Larger content (files, documents) belongs in external storage, referenced from the event instead of embedded in it.
 
@@ -302,7 +391,7 @@ Every error response uses the same JSON envelope:
 
 `error` is a stable code a client can check. `message` is a human-readable detail, included when it helps figure out the problem, left out when it wouldn't add anything (as with `ConcurrencyException` above).
 
-`QUERY /read` and `POST /append` both respond `400 Bad Request` for any malformed or invalid body: invalid JSON, a `query` / `condition.failIfEventsMatch` that isn't an array of `QueryItem` or `"*"`, an empty array anywhere the Query grammar needs a non-empty one (see Query grammar), a non-integer `afterSequence` or `limit`, a `limit` above the configured maximum (see Pagination), an invalid `time.from` / `time.before` timestamp, an event missing its `type`, an event carrying a duplicate identifier or metadata value, more than 20 identifiers/metadata entries (see Metadata), an `append` with more than 100 events (see Appending events), and so on.
+`QUERY /events` and `POST /write` both respond `400 Bad Request` for any malformed or invalid body: invalid JSON, a `query` / `condition.failIfEventsMatch` that isn't an array of `QueryItem` or `"*"`, an empty array anywhere the Query grammar needs a non-empty one (see Query grammar), a non-integer `afterSequence` or `limit`, a `limit` above the configured maximum (see Pagination), an invalid `time.from` / `time.before` timestamp, an event missing its `type`, an event carrying a duplicate identifier or metadata value, more than 20 identifiers/metadata entries (see Metadata), a `write` with more than 100 events (see Writing events and documents), and so on.
 
 Validation is hand-written in Go, not driven by a JSON Schema: the request surface is small, several rules are about meaning rather than pure structure (a valid ATOM timestamp, a consistent `time.from`/`time.before` range, the full DCB `QueryItem` grammar), and a generic schema validator's error messages don't map cleanly onto the `{error, message}` shape above.
 
@@ -314,9 +403,9 @@ Standard DCB flow:
 3. `append(events, condition: {failIfEventsMatch: query, afterSequence})`
 4. The operation fails if an event matching `query` exists after `afterSequence`
 
-**Combining several Append Conditions into one.** An application can persist events from more than one Decision Model in a single `append` call, to make a causal chain atomic: a model appends an event, a process manager reacts to it within the same request and adds a follow-up event, and both should land together or not at all. Since `condition.failIfEventsMatch` is one Query for the whole call, the app merges each model's own Query into the same OR-combined array.
+**Combining several Append Conditions into one.** An application can persist events from more than one Decision Model in a single `write` call, to make a causal chain atomic: a model appends an event, a process manager reacts to it within the same request and adds a follow-up event, and both should land together or not at all. Since `condition.failIfEventsMatch` is one Query for the whole call, the app merges each model's own Query into the same OR-combined array.
 
-This merge widens what fails the whole call. TamarackDB checks the combined condition once, against the whole batch. An event that matches only one model's Query fails the entire append, even the other model's unrelated events. This is the price of atomicity, not a flaw: since every model's events share one commit, every model's precondition must still hold for that commit to happen. Checking each model's condition against only its own events would risk committing on stale information without noticing. The only way to avoid the wider check is to give up atomicity and use separate `append` calls. Removing exact duplicate `QueryItem` (see Query grammar) only trims accidental repeats; it doesn't narrow this trade-off, since two distinct models' Queries stay two distinct items in the same OR.
+This merge widens what fails the whole call. TamarackDB checks the combined condition once, against the whole batch. An event that matches only one model's Query fails the entire write, even the other model's unrelated events. This is the price of atomicity, not a flaw: since every model's events share one commit, every model's precondition must still hold for that commit to happen. Checking each model's condition against only its own events would risk committing on stale information without noticing. The only way to avoid the wider check is to give up atomicity and use separate `write` calls. Removing exact duplicate `QueryItem` (see Query grammar) only trims accidental repeats; it doesn't narrow this trade-off, since two distinct models' Queries stay two distinct items in the same OR.
 
 Only one writer is ever active on TamarackDB at a time (see Concurrency handling in Go below). The merged condition is checked once, in the same transaction as the insert, exactly like a condition from a single model: combining several doesn't introduce any extra race.
 
@@ -324,13 +413,13 @@ Only one writer is ever active on TamarackDB at a time (see Concurrency handling
 
 ### Principle: the queue manager
 
-A queue manager gives out exclusive SQLite write access, strictly in the order requests arrive. It knows nothing about a writer's Append Condition or the events it plans to write. Only two states exist: **Active** (at most one writer at a time, the only one allowed to touch SQLite) and **Queued** (every other writer, waiting its turn in line). "Writer" covers both `POST /append` and, in dev mode, `DELETE /` (see Dev mode). Both need the same thing: to be the only one touching SQLite while they work.
+A queue manager gives out exclusive SQLite write access, strictly in the order requests arrive. It knows nothing about a writer's Append Condition or the events it plans to write. Only two states exist: **Active** (at most one writer at a time, the only one allowed to touch SQLite) and **Queued** (every other writer, waiting its turn in line). "Writer" covers both `POST /write` and, in dev mode, `DELETE /` (see Dev mode). Both need the same thing: to be the only one touching SQLite while they work.
 
 **Flow for a writer:**
 1. The HTTP handler asks the queue manager to join the line.
 2. If the queue is already at its configured depth (see Configuration), the request is turned away right away with `503 AppendQueueFull` (see Error responses), instead of joining.
 3. Otherwise it waits until every writer ahead of it (the active one, and everyone queued before it) is done.
-4. Once it becomes active, the handler does its work inside one SQLite transaction, on the single write connection: for `/append`, that means checking the Append Condition and, if it holds, inserting the events (see Application-controlled Sequence Position below); for `DELETE /`, that means wiping the tables, with no condition.
+4. Once it becomes active, the handler does its work inside one SQLite transaction, on the single write connection: for `/write`, that means checking the Append Condition and, if it holds, inserting the events (see Application-controlled Sequence Position below); for `DELETE /`, that means wiping the tables, with no condition.
 5. The handler tells the queue manager it's done. The next queued writer, if any, becomes active.
 
 **Why checking at write time is correct:** the Append Condition is checked right before the insert, against the database's real state at that moment, inside the same transaction as the insert. Nothing else can write between the check and the insert, because strict, in-order admission to the queue guarantees that by itself.
@@ -349,11 +438,11 @@ Strict, in-order admission has a second effect beyond concurrency: since only on
 
 `events.sequence` is a plain `INTEGER PRIMARY KEY`, with the value set by the application on insert (see Schema below). Before accepting any writers (reads are unaffected, and can start right away), the process reads the current highest `sequence` in the `events` table, and keeps it in memory as the next-sequence counter. An empty table starts the counter the same way `AUTOINCREMENT` would: the first event gets sequence 1.
 
-The counter is only read, and only moved forward, *after* a writer's work is confirmed to happen: for `/append`, that means working out the sequence numbers for its batch of events only once the Append Condition has been checked and holds, never before. This matters: if the condition fails, the writer inserts nothing and responds `409 Conflict`, and the counter must not have moved, or every failed append would leave a permanent gap in the sequence.
+The counter is only read, and only moved forward, *after* a writer's work is confirmed to happen: for `/write`, that means working out the sequence numbers for its batch of events only once the Append Condition has been checked and holds, never before. This matters: if the condition fails, the writer inserts nothing and responds `409 Conflict`, and the counter must not have moved, or every failed append would leave a permanent gap in the sequence.
 
 Knowing every event's sequence up front means the whole batch's `events` rows can be written as one multi-row `INSERT`, followed by one multi-row `INSERT` into `identifiers` and one into `metadata`, instead of a per-event round trip to fetch an ID between each event and its tags. `PRAGMA foreign_keys = ON` is still checked right away, not deferred to commit, so a row in `identifiers` or `metadata` still can't point to an `event_sequence` that doesn't exist yet in `events`, within the same transaction: application-controlled sequencing doesn't remove that ordering, only the round trip through SQLite needed to learn each event's ID before its tags can be written.
 
-**Skipping the conflict check when nothing was appended since the read.** When a writer becomes active, if `afterSequence` equals the counter's last-assigned value, no event exists past that point at all. That means `failIfEventsMatch` can't match anything, whatever it is, so the SELECT that would otherwise check it against events written since `afterSequence` can be skipped entirely: the writer goes straight to working out sequence numbers and inserting. This is the common case in practice: a `read` right before an `append`, with no other writer in between. A bare `afterSequence` condition (no `failIfEventsMatch`) never needs a SELECT at all, in any case: "does any event exist after `afterSequence`" can be answered directly from the counter. This is purely an internal shortcut: it changes how a writer reaches its decision, never the decision itself, or anything in the HTTP contract.
+**Skipping the conflict check when nothing was appended since the read.** When a writer becomes active, if `afterSequence` equals the counter's last-assigned value, no event exists past that point at all. That means `failIfEventsMatch` can't match anything, whatever it is, so the SELECT that would otherwise check it against events written since `afterSequence` can be skipped entirely: the writer goes straight to working out sequence numbers and inserting. This is the common case in practice: reading right before writing, with no other writer in between. A bare `afterSequence` condition (no `failIfEventsMatch`) never needs a SELECT at all, in any case: "does any event exist after `afterSequence`" can be answered directly from the counter. This is purely an internal shortcut: it changes how a writer reaches its decision, never the decision itself, or anything in the HTTP contract.
 
 ### Reads
 
@@ -394,8 +483,10 @@ SQLite is used as the storage engine, for these reasons:
 - WAL mode allows reads to happen at the same time as writes, without blocking
 - A plain, inspectable file format: the database can be opened and queried with ordinary SQLite tools, not some closed format, and backed up the same way, through SQLite's own backup tools (for example `.backup`, `VACUUM INTO`) instead of a raw copy of the file, which can miss commits still sitting in the WAL
 
+Document payloads live in a second SQLite file, `tamarackdb-documents.sqlite`, separate from `events`. See Documents for why: I/O isolation between events (compact, append-only) and document payloads (potentially large, rewritten in place), not a technical limit of SQLite itself. `tamarackdb-backup` only ever covers the events file (see [backup.md](backup.md)): a document's payload is reproducible from events, so it doesn't need its own backup copy.
+
 A file-level copy is not the only way to back up an instance. `tamarackdb-backup`
-reads events over `QUERY /read` from a live source and writes them into a local
+reads events over `QUERY /events` from a live source and writes them into a local
 file through `Store.Import`, a variant of `Append` that skips sequence
 reservation and the append-condition check, since the sequences it receives are
 already assigned by the source. The result is a plain SQLite file built through
@@ -406,8 +497,10 @@ copy, it can be opened and served as a live instance in its own right.
 
 ### Schema
 
+`tamarackdb.sqlite` (the events file):
+
 ```sql
-PRAGMA user_version = 1;
+PRAGMA user_version = 2;
 
 CREATE TABLE events (
     sequence    INTEGER PRIMARY KEY,
@@ -438,13 +531,39 @@ CREATE TABLE metadata (
 ) WITHOUT ROWID;
 
 CREATE INDEX idx_metadata_name_value ON metadata(name, value, event_sequence);
+
+-- No payload column: only a document's identity and version are atomic
+-- with events. The payload itself lives in tamarackdb-documents.sqlite
+-- (see Documents), written best-effort after this transaction commits.
+CREATE TABLE documents (
+    type    TEXT NOT NULL,
+    id      TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    PRIMARY KEY (type, id)
+) WITHOUT ROWID;
 ```
+
+`tamarackdb-documents.sqlite` (the documents payload file), its own independent `PRAGMA user_version`, unrelated to the events file's:
+
+```sql
+PRAGMA user_version = 1;
+
+CREATE TABLE documents_payload (
+    type    TEXT NOT NULL,
+    id      TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    PRIMARY KEY (type, id)
+) WITHOUT ROWID;
+```
+
+`documents` and `documents_payload` are both `WITHOUT ROWID`, keyed by `(type, id)`: a document has no history, so its natural key is also its only key, with no separate rowid needed. `documents` carries no `payload` column on purpose (see Documents): a document's payload never needs to be read or written in the same transaction as an event, only its version does.
 
 `time` is stored as `TEXT`, not as an integer timestamp: its fixed-width ATOM format sorts the same way alphabetically as it does chronologically, so nothing needs to be converted between what's stored and what's returned. A read passes the stored text straight through as the response's `time` field.
 
 `identifiers` and `metadata` are `WITHOUT ROWID` tables, keyed by their natural combined primary key `(event_sequence, name, value)`: these are pure link rows, so a separate rowid would just be an extra, unneeded btree. The secondary index `(name, value, event_sequence)` on each table is what serves the DCB matching check directly, with `event_sequence` included so the index alone can answer the scan.
 
-`events.identifiers` and `events.metadata` hold the same data again, in the compact object shape the HTTP API returns (see Response format): a ready-made copy a read can hand back directly, without joining out to the `identifiers`/`metadata` tables. A read hands these two columns to the client exactly as stored: it never decodes them into Go values and re-encodes them, since the stored bytes already are the response bytes. Those tables stay what the DCB matching check and `read`'s own filtering use, keyed for lookup by `name`/`value`; the columns on `events` are keyed by nothing but the event itself, meant for handing the whole set back at once. A column and a table can share a name in SQLite without conflict: `events.identifiers` names the column, a bare `identifiers` in a `FROM` clause names the table.
+`events.identifiers` and `events.metadata` hold the same data again, in the compact object shape the HTTP API returns (see Response format): a ready-made copy a read can hand back directly, without joining out to the `identifiers`/`metadata` tables. A read hands these two columns to the client exactly as stored: it never decodes them into Go values and re-encodes them, since the stored bytes already are the response bytes. Those tables stay what the DCB matching check and a read's own filtering use, keyed for lookup by `name`/`value`; the columns on `events` are keyed by nothing but the event itself, meant for handing the whole set back at once. A column and a table can share a name in SQLite without conflict: `events.identifiers` names the column, a bare `identifiers` in a `FROM` clause names the table.
 
 The `events(sequence)` foreign key on both tables is enforced by turning on `PRAGMA foreign_keys = ON` on every connection at startup: SQLite reads foreign key declarations, but doesn't enforce them by default. Turning this on catches implementation bugs (say, an identifier or metadata row written with an `event_sequence` that doesn't match a real event), rather than serving any real functional need, since the store is append-only with a single writer.
 
@@ -452,13 +571,13 @@ Two more pragmas are set on every connection at startup, next to `foreign_keys`:
 
 The write connection also sets `_busy_timeout = 5000` (five seconds), and opens every transaction with `BEGIN IMMEDIATE` (`_txlock=immediate` in the DSN), taking SQLite's write lock at the start of the transaction, rather than waiting until the first write statement runs. The check SELECT and the INSERTs that follow it commit as one atomic unit, with no window where another connection could slip in between them. Since `writeDB.SetMaxOpenConns(1)` already forces every write onto one connection (see Enforcing single-writer at the OS level), the busy timeout only guards against something else briefly holding the file (a passive checkpoint, an external `sqlite3` shell), not against another instance of TamarackDB.
 
-Checkpointing relies on SQLite's own automatic passive checkpoint (triggered on its own once the WAL crosses its default size, without blocking any reader or writer), instead of a separate checkpoint goroutine or schedule. This is exactly what bounded pagination on `/read` protects (see Projection rebuilds): a long-held read transaction can stall that automatic checkpoint for as long as it runs, but nothing about the checkpoint itself needs to be triggered by hand once reads stay short.
+Checkpointing relies on SQLite's own automatic passive checkpoint (triggered on its own once the WAL crosses its default size, without blocking any reader or writer), instead of a separate checkpoint goroutine or schedule. This is exactly what bounded pagination on `/events` protects (see Projection rebuilds): a long-held read transaction can stall that automatic checkpoint for as long as it runs, but nothing about the checkpoint itself needs to be triggered by hand once reads stay short.
 
 Query planner statistics are kept up to date the same hands-off way: once an hour, the process runs `PRAGMA optimize` on the write connection. `events` only grows, for the life of a deployment that's never restarted, so statistics gathered once at some point in the past drift further from reality the longer the process stays up. `PRAGMA optimize` is SQLite's own answer to this: cheap enough to run often, since it only re-analyzes tables it judges to have changed enough to matter (or that have no statistics at all yet), rather than scanning everything the way a plain `ANALYZE` does. A full `ANALYZE` is never run automatically; it's still the right tool right after a one-off bulk import, run by hand while the server is stopped.
 
-On startup, the process reads `PRAGMA user_version` and checks it against the schema version built into the binary. A database file that doesn't exist yet is created fresh, with the schema above setting it at the current version. An existing file whose version doesn't match (older, from a schema that's since changed, or newer, from a downgraded binary) is fatal: the process logs it and refuses to start, the same treatment as any other storage integrity failure (see Startup, shutdown, and crash behavior).
+On startup, the process reads `PRAGMA user_version` and checks it against the schema version built into the binary, for the events file and, independently, for `tamarackdb-documents.sqlite`. A database file that doesn't exist yet is created fresh, with the schema above setting it at the current version. An existing file whose version doesn't match (older, from a schema that's since changed, or newer, from a downgraded binary) is fatal: the process logs it and refuses to start, the same treatment as any other storage integrity failure (see Startup, shutdown, and crash behavior).
 
-Moving an existing database from one schema version to the next is the job of a separate binary, not the TamarackDB process itself: a dedicated migration tool, run once, on purpose, between a schema change and the next deployment of the main binary. The TamarackDB server never changes its own schema.
+Moving an existing database from one schema version to the next is the job of a separate binary, not the TamarackDB process itself: a dedicated migration tool, run once, on purpose, between a schema change and the next deployment of the main binary. The TamarackDB server never changes its own schema. `tamarackdb-documents.sqlite` has never had a schema change yet, so this tool only ever migrates the events file so far.
 
 ## Configuration
 
@@ -466,7 +585,7 @@ TamarackDB's startup configuration (socket path or bind address/port, TLS settin
 
 1. A TOML configuration file, passed via `--config` (defaults to `config.toml` in the working directory). Keys live under a `[server]` section, so the same file can also hold `tamarackdb-backup`'s `[backup]` section (see [backup.md](backup.md)); each binary reads only its own section.
 2. `TAMARACKDB_*` environment variables, one per configuration key.
-3. Built-in defaults, for the handful of keys that have one (`socketPath`, `databasePath`, `defaultLimit`, `maxLimit`, `maxEventSize`, `maxQueuedWriters`, `readPoolSize`).
+3. Built-in defaults, for the handful of keys that have one (`socketPath`, `databasePath`, `documentsDbPath`, `defaultLimit`, `maxLimit`, `maxEventSize`, `maxDocumentSize`, `maxDocumentsPerWrite`, `maxQueuedWriters`, `readPoolSize`).
 
 A value set in the configuration file always wins over the matching environment variable. The configuration file itself is optional: an application deployed as one instance per environment, each with its own file, uses it as the single source of truth. A container deployment with no file at all is set up entirely through the environment instead. Both paths produce the same `Config`, and every field is checked the same way regardless of where it came from (see below).
 
@@ -481,11 +600,18 @@ A value set in the configuration file always wins over the matching environment 
 | `enableAuth` | `TAMARACKDB_ENABLE_AUTH` |
 | `authToken` | `TAMARACKDB_AUTH_TOKEN` |
 | `databasePath` | `TAMARACKDB_DATABASE_PATH` |
+| `documentsDbPath` | `TAMARACKDB_DOCUMENTS_DB_PATH` |
 | `defaultLimit` | `TAMARACKDB_DEFAULT_LIMIT` |
 | `maxLimit` | `TAMARACKDB_MAX_LIMIT` |
 | `maxEventSize` | `TAMARACKDB_MAX_EVENT_SIZE` |
+| `maxDocumentSize` | `TAMARACKDB_MAX_DOCUMENT_SIZE` |
+| `maxDocumentsPerWrite` | `TAMARACKDB_MAX_DOCUMENTS_PER_WRITE` |
 | `devMode` | `TAMARACKDB_DEV_MODE` |
 | `maxQueuedWriters` | `TAMARACKDB_MAX_QUEUED_WRITERS` |
+
+`documentsDbPath` is `tamarackdb-documents.sqlite`'s path (see Documents and Schema). Optional; when left out, it defaults to a sibling of `databasePath`: `"<name>-documents<ext>"` in the same directory, so `data/tamarackdb.sqlite` gets `data/tamarackdb-documents.sqlite`.
+
+`maxDocumentSize` bounds one document's payload the same way `maxEventSize` bounds one event, and defaults the same way (64 KiB). `maxDocumentsPerWrite` caps how many documents one `write` call may carry, independent of the fixed 100-events-per-write limit (see Writing events and documents): unlike that limit, it's configuration, not an architectural boundary, since document volume needs vary more between applications, especially for a rebuild's documents-only calls.
 
 `maxQueuedWriters` caps how many writers may wait in the queue manager's line at once (see Concurrency handling in Go). A request that arrives when the queue is already at that depth gets `503 AppendQueueFull` (see Error responses) instead of joining. It's optional, like `defaultLimit`/`maxLimit`/`maxEventSize`, and gets a default from `Load` the same way when left out (built-in default: 100). It's deliberately not "0 means no limit": a queue with no cap at all would let a burst, or a broken client, pile up an unlimited number of blocked HTTP connections, so every deployment gets a bound whether it sets one or not. Beyond that default, there's no single right value: size it against how many concurrent users the owning application expects, and remember that a given user isn't always appending, so a burst of writers is normally a small share of total users, not all of them at once.
 
@@ -495,7 +621,7 @@ TLS and Bearer-token checks are each controlled by their own flag, `enableTls` a
 
 TamarackDB listens on a unix socket by default (`socketPath`), and switches to TCP once `bindAddress` or `port` is set (see Configuration); `socketPath` wins whenever it's set, even alongside `bindAddress`/`port`. `enableTls` only applies to the TCP path: the Go process handles TLS itself, via `ServeTLS`, with no reverse proxy in front, and `enableTls` is ignored entirely when `socketPath` is in effect, since a unix socket never leaves the host. When `enableTls` is off, the process serves plain HTTP on the configured bind address and port.
 
-When `enableAuth` is on, every registered route needs a Bearer token in the `Authorization` header (`Authorization: Bearer <token>`): `read`, `append`, `/health`, the observability endpoints (`/metrics`, `/debug`), and, in dev mode, `DELETE /` and the profiling endpoints too. The token is a single fixed value, set as `authToken`. A request with no valid token gets `401 Unauthorized` before it reaches any handler logic. Rotating the token means changing the configuration file or environment variable and restarting the process: there's no in-memory rotation, or window where two tokens both work, in line with the queue manager's own transient, in-memory state. When `enableAuth` is off, the API serves every request with no auth check at all.
+When `enableAuth` is on, every registered route needs a Bearer token in the `Authorization` header (`Authorization: Bearer <token>`): `events`, `write`, `/documents/...`, `/health`, the observability endpoints (`/metrics`, `/debug`), and, in dev mode, `DELETE /` and the profiling endpoints too. The token is a single fixed value, set as `authToken`. A request with no valid token gets `401 Unauthorized` before it reaches any handler logic. Rotating the token means changing the configuration file or environment variable and restarting the process: there's no in-memory rotation, or window where two tokens both work, in line with the queue manager's own transient, in-memory state. When `enableAuth` is off, the API serves every request with no auth check at all.
 
 One token, with no per-client scope, is enough because a TamarackDB instance has exactly one trusted caller: the owning application. If that application itself serves many tenants, keeping them apart is its own job, done with the `tenantId` metadata already carried on events. It's not something TamarackDB's auth layer needs to handle.
 
@@ -503,9 +629,11 @@ One token, with no per-client scope, is enough because a TamarackDB instance has
 
 `devMode` (see Configuration) turns on two things, neither reachable otherwise, both meant only for local development and test environments, never a production instance: `DELETE /`, and Go's standard profiling endpoints under `/debug/pprof/` (CPU, heap, goroutine, and so on). Neither exists at all unless `devMode` is `true`. Left at its default of `false`, a request to either gets the stdlib's plain `404`, like any other unregistered path. That keeps them out of reach in a normal deployment, instead of reachable-but-guarded, matching the "fail loud, keep it simple" stance used throughout: there's no separate permission or confirmation step once `devMode` is on.
 
-`DELETE /` wipes every event, identifier, and metadata row from the database; the schema itself stays in place. It responds `204 No Content` on success. It joins the same FIFO write-admission queue as `POST /append` (see Concurrency handling in Go), so a wipe can no longer land mid-append, or an append mid-wipe, and it counts toward `maxQueuedWriters` the same way. The in-memory Sequence Position counter is deliberately left alone by a wipe: the tables go empty, but the counter keeps climbing from wherever it was.
+`DELETE /` wipes every event, identifier, and metadata row from the database; the schema itself stays in place. It responds `204 No Content` on success. It joins the same FIFO write-admission queue as `POST /write` (see Concurrency handling in Go), so a wipe can no longer land mid-append, or an append mid-wipe, and it counts toward `maxQueuedWriters` the same way. The in-memory Sequence Position counter is deliberately left alone by a wipe: the tables go empty, but the counter keeps climbing from wherever it was.
 
 The profiling endpoints are read-only and outside the write-admission queue: they inspect the running process (CPU samples, memory allocations, goroutine stacks), not the database, so they carry none of `DELETE /`'s data-loss risk. They're still dev-mode-only because a CPU or heap profile can reveal details about the data flowing through a live request that a production deployment shouldn't expose to whoever can reach the port.
+
+`DELETE /documents/{type}` (see Documents) is not gated by `devMode`, unlike `DELETE /`: it clears one document type, reconstructible from events, the normal first step of a rebuild, not a whole-database wipe.
 
 ## Management / observability features
 
@@ -519,7 +647,7 @@ The running build's version is a single value, derived from the closest Git tag 
 
 ### Request logging
 
-Every request logs one line to stdout once its handler finishes: HTTP method, path, resulting status code, response size in bytes, and how long it took, e.g. `tamarackdb-server: POST /append 200 42B 1.23ms`. This wraps the whole routed handler, including authentication, so a request turned away with `401 Unauthorized` gets logged just like any other.
+Every request logs one line to stdout once its handler finishes: HTTP method, path, resulting status code, response size in bytes, and how long it took, e.g. `tamarackdb-server: POST /write 200 42B 1.23ms`. This wraps the whole routed handler, including authentication, so a request turned away with `401 Unauthorized` gets logged just like any other.
 
 ### Queue and connection pool observability
 
@@ -527,12 +655,13 @@ Event and row counts, per-type breakdowns, and database file size (anything you 
 
 **`GET /metrics`**: Prometheus exposition format, for scraping into existing monitoring:
 - `tamarackdb_writer_active` (gauge): whether a writer currently holds exclusive SQLite write access (`1`) or not (`0`)
-- `tamarackdb_requests_queued` (gauge): number of write requests (`POST /append`, or, in dev mode, `DELETE /`) currently waiting in the queue
+- `tamarackdb_requests_queued` (gauge): number of write requests (`POST /write`, or, in dev mode, `DELETE /`) currently waiting in the queue
 - `tamarackdb_queue_longest_wait_seconds` (gauge): longest current wait, in seconds, among queued write requests; `0` when the queue is empty
 - `tamarackdb_writes_admitted_total` (counter): total writers let through to exclusive SQLite write access since startup
-- `tamarackdb_appends_failed_total` (counter): total appends that failed on a concurrency conflict (`409 ConcurrencyException`) since startup
+- `tamarackdb_appends_failed_total` (counter): total writes that failed on a concurrency conflict (`409 ConcurrencyException`) since startup
+- `tamarackdb_documents_payload_write_failures_total` (counter): total documents, across every `write` call, whose best-effort payload write to `tamarackdb-documents.sqlite` failed since startup (see Documents); distinct from the counter above, since a payload write failure never fails the `write` call itself
 
-**`GET /debug`**: a JSON snapshot for digging into one specific stuck or slow write, or a `read` pool that looks saturated, too detailed to fit a metric:
+**`GET /debug`**: a JSON snapshot for digging into one specific stuck or slow write, or a read pool that looks saturated, too detailed to fit a metric:
 
 ```json
 {
@@ -562,10 +691,10 @@ Event and row counts, per-type breakdowns, and database file size (anything you 
 
 `write.active` describes the current active writer, if any (`null` when the queue manager is idle). `write.queued` lists every writer still waiting, oldest first, with `waitSeconds` instead of `ageSeconds`. Neither one carries the writer's Append Condition or events: the queue manager never knows either (see Principle: the queue manager). `write.queued` is always present, never `null`, even when empty.
 
-`httpOpen` is how many `POST /append`/`QUERY /read` requests (and, in dev mode, `DELETE /`) are currently in flight; `sqliteInUse` and `sqliteMax` are the underlying SQLite connection pool's usage against its configured ceiling (`database/sql`'s own `DBStats.InUse`/`MaxOpenConnections`, read straight off the read and write `*sql.DB` pools). `write.sqliteMax` is always `1`: the write pool is deliberately capped at one connection so SQLite's own driver enforces the same exclusive-writer guarantee the queue manager already provides at the HTTP layer. On the write side, `httpOpen` is always exactly `write.queued`'s length plus one if `write.active` is non-null, since every in-flight write request is either the active writer or waiting in that same queue. On the read side there is no FIFO to derive it from, so `read.httpOpen` is tracked directly; it can run higher than `read.sqliteMax` when the read pool is saturated and the extra requests are waiting inside `database/sql` for a free connection. A sustained gap between the two there is a sign that `readPoolSize` (see [deploy.md](deploy.md)) is too small for the traffic.
+`httpOpen` is how many `POST /write`/`QUERY /events` requests (and, in dev mode, `DELETE /`) are currently in flight; `sqliteInUse` and `sqliteMax` are the underlying SQLite connection pool's usage against its configured ceiling (`database/sql`'s own `DBStats.InUse`/`MaxOpenConnections`, read straight off the read and write `*sql.DB` pools). `write.sqliteMax` is always `1`: the write pool is deliberately capped at one connection so SQLite's own driver enforces the same exclusive-writer guarantee the queue manager already provides at the HTTP layer. On the write side, `httpOpen` is always exactly `write.queued`'s length plus one if `write.active` is non-null, since every in-flight write request is either the active writer or waiting in that same queue. On the read side there is no FIFO to derive it from, so `read.httpOpen` is tracked directly; it can run higher than `read.sqliteMax` when the read pool is saturated and the extra requests are waiting inside `database/sql` for a free connection. A sustained gap between the two there is a sign that `readPoolSize` (see [deploy.md](deploy.md)) is too small for the traffic.
 
 Since the queue manager already serializes access to its own state behind a mutex, and the SQLite pool stats come straight from `database/sql`'s own counters, answering a `GET /debug` request is always a quick, non-blocking read: never stuck behind a queued or in-flight write or read. The endpoint is read-only: nothing about it lets you force-finish a writer's turn, cancel a read, or otherwise change either pool's state.
 
 ## Implementation
 
-The concrete Go code behind the queue manager, the Query-to-SQL translation, the schema migration tool, and the backup tool live in `internal/queue`, `internal/store`, `cmd/tamarackdb-migrate`, and `cmd/tamarackdb-backup`.
+The concrete Go code behind the queue manager, the Query-to-SQL translation, the schema migration tool, and the backup tool live in `internal/queue`, `internal/store`, `cmd/tamarackdb-migrate`, and `cmd/tamarackdb-backup`. The document wire shape and its validation rules live in `internal/document`, independent of `internal/dcb`.

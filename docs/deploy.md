@@ -30,11 +30,14 @@ file works whether you run one binary or both.
 | `bindAddress` / `port` | `TAMARACKDB_BIND_ADDRESS` / `TAMARACKDB_PORT` | none / none | Address and port the server listens on instead of a unix socket |
 | `enableTls` / `tlsCertFile` / `tlsKeyFile` | `TAMARACKDB_ENABLE_TLS` / `TAMARACKDB_TLS_CERT_FILE` / `TAMARACKDB_TLS_KEY_FILE` | `false` / none / none | TLS termination (Go's own `ListenAndServeTLS`, no reverse proxy) |
 | `enableAuth` / `authToken` | `TAMARACKDB_ENABLE_AUTH` / `TAMARACKDB_AUTH_TOKEN` | `false` / none | Bearer token check on every endpoint |
-| `databasePath` | `TAMARACKDB_DATABASE_PATH` | `data/tamarackdb.sqlite` | Path to the SQLite database file |
-| `defaultLimit` / `maxLimit` | `TAMARACKDB_DEFAULT_LIMIT` / `TAMARACKDB_MAX_LIMIT` | `1000` / `10000` | Default and maximum page size for `QUERY /read` |
+| `databasePath` | `TAMARACKDB_DATABASE_PATH` | `data/tamarackdb.sqlite` | Path to the events SQLite database file |
+| `documentsDbPath` | `TAMARACKDB_DOCUMENTS_DB_PATH` | a sibling of `databasePath` (`data/tamarackdb-documents.sqlite`) | Path to the documents SQLite database file (see [design.md](design.md#documents)) |
+| `defaultLimit` / `maxLimit` | `TAMARACKDB_DEFAULT_LIMIT` / `TAMARACKDB_MAX_LIMIT` | `1000` / `10000` | Default and maximum page size for `QUERY /events` |
 | `maxEventSize` | `TAMARACKDB_MAX_EVENT_SIZE` | `65536` (64 KiB) | Maximum size in bytes of a single event |
-| `maxQueuedWriters` | `TAMARACKDB_MAX_QUEUED_WRITERS` | `100` | Maximum writers waiting to append at once |
-| `readPoolSize` | `TAMARACKDB_READ_POOL_SIZE` | `8` | SQLite connections available for `/read`, and so how many can run at once |
+| `maxDocumentSize` | `TAMARACKDB_MAX_DOCUMENT_SIZE` | `65536` (64 KiB) | Maximum size in bytes of a single document's payload |
+| `maxDocumentsPerWrite` | `TAMARACKDB_MAX_DOCUMENTS_PER_WRITE` | `100` | Maximum documents in a single `POST /write` call |
+| `maxQueuedWriters` | `TAMARACKDB_MAX_QUEUED_WRITERS` | `100` | Maximum writers waiting to write at once |
+| `readPoolSize` | `TAMARACKDB_READ_POOL_SIZE` | `8` | SQLite connections available for `/events`, and so how many can run at once |
 | `devMode` | `TAMARACKDB_DEV_MODE` | `false` | Turns on `DELETE /` (wipes the whole database) and `/debug/pprof/*` (profiling endpoints). Never enable this in production. |
 
 By default, TamarackDB listens on a unix socket instead of a TCP port. This
@@ -65,8 +68,11 @@ variables cover a deployment with no file at all.
 ```
 
 Once running, the server logs one line per request to stdout: method, path, status
-code, response size, and time taken, e.g. `tamarackdb-server: POST /append 200 42B
-1.23ms`.
+code, response size, and time taken, e.g. `tamarackdb-server: POST /write 200 42B
+1.23ms`. It also opens `documentsDbPath` (creating it, with its schema, if it
+doesn't exist yet) alongside `databasePath`, so the documents mechanism (see
+[design.md](design.md#documents)) is ready without a separate provisioning
+step.
 
 ## Provisioning and migration
 
@@ -82,6 +88,11 @@ Point it at a config file so it can find the database:
 The server itself never changes the schema on its own. See
 [design.md](design.md#schema) for why migration is a separate tool.
 
+Both tools only ever touch the events database file (`databasePath`). The
+documents database file (`documentsDbPath`) has never had a schema change, so
+there's nothing yet for either tool to do there; the server creates it itself
+on startup if it doesn't exist (see Run above).
+
 ## Docker
 
 ```sh
@@ -94,7 +105,9 @@ Configure above); no `config.toml` is needed inside the container. It sets
 `TAMARACKDB_BIND_ADDRESS=0.0.0.0` and `TAMARACKDB_PORT=8085` itself, so it
 listens over TCP by default, unlike a plain `tamarackdb-server` binary. The
 database file defaults to `/data/tamarackdb.sqlite`, so mount a volume on
-`/data` to keep it across restarts.
+`/data` to keep it across restarts. The documents database file defaults to
+the sibling `/data/tamarackdb-documents.sqlite`, on the same volume, with no
+extra mount needed.
 
 To use a unix socket instead, e.g. for a reverse proxy container in the same
 pod or `docker-compose` setup, override `TAMARACKDB_SOCKET_PATH`: it wins over
@@ -131,15 +144,16 @@ against any endpoint below, not just `/health`.
 ## Observability
 
 Two more endpoints show the server's own in-memory state. They matter when you are
-chasing a slow or stuck `append`, or a `read` connection pool that looks saturated,
-not during normal `read`/`append` use.
+chasing a slow or stuck `write`, or a read connection pool that looks saturated,
+not during normal `events`/`write` use.
 
 - `GET /metrics`: Prometheus text format. Shows whether a writer is active right
-  now, how many writes are queued, the longest current wait, and write/failure
-  counts.
+  now, how many writes are queued, the longest current wait, write/failure
+  counts, and how many documents have had a best-effort payload write fail
+  (see [design.md](design.md#documents)).
 - `GET /debug`: a JSON snapshot with a `write` object (the current active writer,
   if any, every queued writer with its wait time, and the write SQLite pool's
-  usage) and a `read` object (in-flight `/read` requests and the read SQLite
+  usage) and a `read` object (in-flight `/events` requests and the read SQLite
   pool's usage, sized by `readPoolSize` below).
 
 See [design.md](design.md#queue-and-connection-pool-observability) for the exact
@@ -168,7 +182,7 @@ go tool pprof -http=:0 "http://127.0.0.1:8085/debug/pprof/profile?seconds=30"
 
 This opens the result as a flame graph once the 30 seconds are up (or once the
 request finishes, if that takes longer, in which case raise `seconds`
-accordingly). For a request that allocates heavily, such as a `/read` page
+accordingly). For a request that allocates heavily, such as a `/events` page
 with many rows, also check `/debug/pprof/allocs`. For a timeline instead of
 an aggregate, use `/debug/pprof/trace?seconds=30` with `go tool trace`.
 
@@ -176,6 +190,6 @@ an aggregate, use `/debug/pprof/trace?seconds=30` with `go tool trace`.
 
 While testing an integration, watch the server's stdout: one line per request, with
 method, path, status code, response size, and time taken, e.g. `tamarackdb-server:
-POST /append 200 42B 1.23ms`. At startup, it also prints a banner and its resolved
-configuration (bind address, port, database path, limits, and so on), so you can
-confirm what a given instance is actually running with.
+POST /write 200 42B 1.23ms`. At startup, it also prints a banner and its resolved
+configuration (bind address, port, database and documents paths, limits, and so
+on), so you can confirm what a given instance is actually running with.

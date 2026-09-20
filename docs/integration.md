@@ -17,7 +17,7 @@ Reading uses the HTTP `QUERY` method, not `GET`, since a query can be too large 
 nested to fit in a URL:
 
 ```sh
-curl -X QUERY http://127.0.0.1:8085/read \
+curl -X QUERY http://127.0.0.1:8085/events \
   -H "Content-Type: application/json" \
   -d '{
     "query": [
@@ -29,7 +29,7 @@ curl -X QUERY http://127.0.0.1:8085/read \
 Use the literal string `"*"` in place of `query` to read every event:
 
 ```sh
-curl -X QUERY http://127.0.0.1:8085/read \
+curl -X QUERY http://127.0.0.1:8085/events \
   -H "Content-Type: application/json" \
   -d '{ "query": "*" }'
 ```
@@ -107,7 +107,7 @@ The same loop that pages through history can also follow new events live: keep
 polling with `afterSequence` set to the last Sequence Position you saw. Once
 `hasMore` reads `false`, you have caught up, and further polling picks up new
 events as they arrive. `tamarackdb-backup` (see [backup.md](backup.md)) is a
-real example of this loop: it pages through `/read` with `afterSequence` set
+real example of this loop: it pages through `/events` with `afterSequence` set
 to the last sequence it saved locally, and stops once `hasMore` reads
 `false`.
 
@@ -115,10 +115,10 @@ to the last sequence it saved locally, and stops once `hasMore` reads
 the box) and is capped at `maxLimit` (10000 out of the box). Asking for more than
 that gets you `400 Bad Request`.
 
-## Appending events
+## Writing events and documents
 
 ```sh
-curl -X POST http://127.0.0.1:8085/append \
+curl -X POST http://127.0.0.1:8085/write \
   -H "Content-Type: application/json" \
   -d '{
     "events": [
@@ -155,11 +155,11 @@ embedding it.
 
 ### Optimistic concurrency
 
-Pass a `condition` to make the append fail if something relevant happened since
+Pass a `condition` to make the write fail if something relevant happened since
 you last read:
 
 ```sh
-curl -X POST http://127.0.0.1:8085/append \
+curl -X POST http://127.0.0.1:8085/write \
   -H "Content-Type: application/json" \
   -d '{
     "events": [ { "type": "user-renamed", "identifiers": { "userId": "123" }, "payload": "..." } ],
@@ -171,10 +171,10 @@ curl -X POST http://127.0.0.1:8085/append \
 ```
 
 `afterSequence` is the Sequence Position you last read up to (see Pagination
-above). `failIfEventsMatch` is a query, using the same grammar as `read` (see
-above). The append fails if any event matching it exists after `afterSequence`.
+above). `failIfEventsMatch` is a query, using the same grammar as a read (see
+above). The write fails if any event matching it exists after `afterSequence`.
 Both are optional and independent: an event with nothing to protect can be
-appended with no `condition` at all.
+written with no `condition` at all.
 
 A failed condition gets `409 Conflict`:
 
@@ -182,9 +182,90 @@ A failed condition gets `409 Conflict`:
 { "error": "ConcurrencyException" }
 ```
 
-The usual flow is: `read` the events relevant to your decision, keep the Sequence
-Position of the last one you saw, decide what to write, then `append` with that
+The usual flow is: read the events relevant to your decision, keep the Sequence
+Position of the last one you saw, decide what to write, then write with that
 Sequence Position as `afterSequence` and the same query as `failIfEventsMatch`.
+
+## Documents
+
+Alongside events, `/write` can carry `documents`: an optional list of projections
+to create, update, or delete, atomically with the events in the same call (see
+[design.md](design.md#documents) for the full mechanism, including why a
+document's payload can, rarely, fail to persist without the whole call
+failing). A document is identified by `type` + `id`, holds one opaque `payload`,
+and carries a `version` for optimistic concurrency.
+
+**Creating a document**: leave `version` out. You've never read this document,
+so you know it's new; it's created at version 1. If it already exists, that's a
+conflict.
+
+```sh
+curl -X POST http://127.0.0.1:8085/write \
+  -H "Content-Type: application/json" \
+  -d '{ "documents": [ { "type": "user-profile", "id": "123", "payload": "{\"name\":\"Ada\"}" } ] }'
+```
+
+A call with `documents` and no `events`/`condition` is valid: this is how you
+materialize several projections at once during a rebuild.
+
+**Updating a document**: pass the `version` you last read it at. It's written at
+`version + 1`. A `version` that doesn't match what the store has, including a
+document that no longer exists, is a conflict.
+
+```sh
+curl -X POST http://127.0.0.1:8085/write \
+  -H "Content-Type: application/json" \
+  -d '{ "documents": [ { "type": "user-profile", "id": "123", "payload": "{\"name\":\"Ada Lovelace\"}", "version": 1 } ] }'
+```
+
+**Deleting a document**: set `payload` to `null`, and pass the `version` you
+read it at (required; there's no unversioned deletion of a single document).
+Deleting an already-absent document is a conflict too, not a silent no-op.
+
+```sh
+curl -X POST http://127.0.0.1:8085/write \
+  -H "Content-Type: application/json" \
+  -d '{ "documents": [ { "type": "user-profile", "id": "123", "version": 2 } ] }'
+```
+
+The response reports each document's outcome, in the order you sent them:
+
+```json
+{
+  "events": [],
+  "documents": [
+    { "type": "user-profile", "id": "123", "version": 3, "status": "ok" }
+  ]
+}
+```
+
+`status` is `"ok"`, or `"payloadWriteFailed"` if the document's identity and
+version were committed but its payload failed to persist (rare; see
+[design.md](design.md#documents)). Either way the call as a whole still
+succeeds (`200 OK`): only retry the specific document that failed, not the
+whole request.
+
+**Reading a document**: `GET /documents/{type}/{id}`.
+
+```sh
+curl http://127.0.0.1:8085/documents/user-profile/123
+```
+
+```json
+{ "payload": "{\"name\":\"Ada Lovelace\"}", "version": 3 }
+```
+
+This returns `404 DocumentNotFound` if no document exists at that `type` + `id`,
+or `503 DocumentNotReady` (with a `Retry-After` header) if it exists but its
+payload hasn't caught up yet: retry after the given delay, rather than
+treating it as absent.
+
+**Clearing a type before a rebuild**: `DELETE /documents/{type}` removes every
+document of that type, unversioned, no `devMode` required:
+
+```sh
+curl -X DELETE http://127.0.0.1:8085/documents/user-profile
+```
 
 ## Resetting between test runs
 
@@ -227,10 +308,12 @@ present when it helps and left out otherwise.
 
 | Status | `error` | Meaning |
 |---|---|---|
-| 400 | `InvalidRequest` | Malformed or invalid request body: bad JSON, invalid query shape, `limit` over the configured maximum, more than 100 events in one `append`, and so on |
+| 400 | `InvalidRequest` | Malformed or invalid request body: bad JSON, invalid query shape, `limit` over the configured maximum, more than 100 events or too many documents in one `write`, a document missing `type`/`id`, a repeated document `type`+`id` in the same call, a document deletion with no `version`, and so on |
 | 401 | `Unauthorized` | Missing or invalid Bearer token (only when `enableAuth` is on) |
-| 409 | `ConcurrencyException` | The append's `condition` failed |
-| 413 | `PayloadTooLarge` | An event is bigger than the configured maximum size |
+| 404 | `DocumentNotFound` | `GET /documents/{type}/{id}` only: no document exists at that `type` + `id` |
+| 409 | `ConcurrencyException` | The write's `condition` failed, or a document's `version` didn't match |
+| 413 | `PayloadTooLarge` | An event, or a document's `payload`, is bigger than the configured maximum size |
 | 500 | `InternalError` | Unexpected server-side failure |
-| 503 | `AppendQueueFull` | `append`/`DELETE /` only: the write queue is already full; retry after the `Retry-After` header |
+| 503 | `AppendQueueFull` | `write`/`DELETE /`/`DELETE /documents/{type}` only: the write queue is already full; retry after the `Retry-After` header |
+| 503 | `DocumentNotReady` | `GET /documents/{type}/{id}` only: the document exists but its payload hasn't caught up yet; retry after the `Retry-After` header |
 | 503 | `Unavailable` | `GET /health` only: storage is unreachable |
