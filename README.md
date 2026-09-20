@@ -32,6 +32,6 @@ using SQLite as the storage engine.
 
 ## Project status
 
-TamarackDB's source is public, but the project doesn't accept issues or
-pull requests at this time; development is managed privately. No support
+TamarackDB is under active development. Governance is private, and the
+project does not accept external contributions at this time. No support
 is offered, and the code is available as-is, at your own risk.
