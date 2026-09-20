@@ -194,7 +194,7 @@ func main() {
 // template, not a Marshal of config.Config, so it can carry comments;
 // TOML's Marshal would drop them.
 const defaultConfigTemplate = `[server]
-# socketPath = "%s"  # unix socket; wins over bindAddress/port and enableTls when set
+# socketPath = "%s"
 # bindAddress = "%s"
 # port = %d
 # enableTls = false
@@ -202,14 +202,14 @@ const defaultConfigTemplate = `[server]
 # tlsKeyFile = "/path/to/key.pem"
 # enableAuth = false
 # authToken = "changeme"
-# dataDir = "%s"  # holds both SQLite files: tamarackdb.sqlite and tamarackdb-documents.sqlite
-# devMode = false  # Turns on DELETE / (wipes the database) and /debug/pprof/*. Never enable in production.
+# dataDir = "%s"
+# devMode = false
 # defaultLimit = %d
 # maxLimit = %d
 # maxEventSize = %d
 # maxDocumentSize = %d
 # maxDocumentsPerWrite = %d
-# maxQueuedWriters = %d  # Caps the write-admission queue; requests beyond this get 503 when full.
+# maxQueuedWriters = %d
 # readPoolSize = %d
 `
 
