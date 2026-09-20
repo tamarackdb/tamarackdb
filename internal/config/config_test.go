@@ -43,7 +43,7 @@ func TestLoadFullConfig(t *testing.T) {
 		BindAddress: "0.0.0.0", Port: 8443,
 		EnableTLS: true, TLSCertFile: "/etc/tamarackdb/cert.pem", TLSKeyFile: "/etc/tamarackdb/key.pem",
 		EnableAuth: true, AuthToken: "secret", DataDir: "/var/lib/tamarackdb",
-		LogLevel: DefaultLogLevel,
+		LogLevel:     DefaultLogLevel,
 		DefaultLimit: 500, MaxLimit: 5000, MaxEventSize: 32768,
 		MaxDocumentSize: 16384, MaxDocumentsPerWrite: 50,
 		MaxQueuedWriters: 250, ReadPoolSize: 16,
