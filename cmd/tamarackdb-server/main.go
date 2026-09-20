@@ -68,10 +68,13 @@ func main() {
 	fmt.Printf("tlsKeyFile: %s\n", cfg.TLSKeyFile)
 	fmt.Printf("enableAuth: %t\n", cfg.EnableAuth)
 	fmt.Printf("databasePath: %s\n", cfg.DatabasePath)
+	fmt.Printf("documentsDbPath: %s\n", cfg.DocumentsDBPath)
 	fmt.Printf("devMode: %t\n", cfg.DevMode)
 	fmt.Printf("defaultLimit: %d\n", cfg.DefaultLimit)
 	fmt.Printf("maxLimit: %d\n", cfg.MaxLimit)
 	fmt.Printf("maxEventSize: %d\n", cfg.MaxEventSize)
+	fmt.Printf("maxDocumentSize: %d\n", cfg.MaxDocumentSize)
+	fmt.Printf("maxDocumentsPerWrite: %d\n", cfg.MaxDocumentsPerWrite)
 	fmt.Printf("maxQueuedWriters: %d\n", cfg.MaxQueuedWriters)
 	fmt.Printf("readPoolSize: %d\n\n", cfg.ReadPoolSize)
 
@@ -81,25 +84,22 @@ func main() {
 	}
 	// st.Close() is not deferred: shutdown is ordered explicitly below,
 	// not left to main's return.
+	if err := st.OpenDocuments(context.Background(), cfg.DocumentsDBPath, cfg.ReadPoolSize); err != nil {
+		log.Fatalf("tamarackdb-server: %v", err)
+	}
 
 	qm := queue.New(cfg.MaxQueuedWriters)
 
 	fatalCh := make(chan error, 1)
 	srv := api.New(qm, st, api.Options{
-		Version:      buildinfo.Version,
-		EnableAuth:   cfg.EnableAuth,
-		AuthToken:    cfg.AuthToken,
-		DefaultLimit: cfg.DefaultLimit,
-		MaxLimit:     cfg.MaxLimit,
-		MaxEventSize: cfg.MaxEventSize,
-		// TODO(section 5): MaxDocumentSize/MaxDocumentsPerWrite become
-		// cfg.MaxDocumentSize/cfg.MaxDocumentsPerWrite once config.go
-		// gains those fields; tamarackdb-documents.sqlite also isn't
-		// opened yet (st.OpenDocuments), so /write's documents field and
-		// GET/DELETE /documents/... all report ErrDocumentsNotOpen for
-		// now.
-		MaxDocumentSize:      65536,
-		MaxDocumentsPerWrite: 100,
+		Version:              buildinfo.Version,
+		EnableAuth:           cfg.EnableAuth,
+		AuthToken:            cfg.AuthToken,
+		DefaultLimit:         cfg.DefaultLimit,
+		MaxLimit:             cfg.MaxLimit,
+		MaxEventSize:         cfg.MaxEventSize,
+		MaxDocumentSize:      cfg.MaxDocumentSize,
+		MaxDocumentsPerWrite: cfg.MaxDocumentsPerWrite,
 		DevMode:              cfg.DevMode,
 		OnFatalStorageError: func(err error) {
 			select {
@@ -202,10 +202,13 @@ const defaultConfigTemplate = `[server]
 # enableAuth = false
 # authToken = "changeme"
 # databasePath = "%s"
+# documentsDbPath = "%s"  # defaults to a sibling of databasePath: "<name>-documents<ext>"
 # devMode = false  # Turns on DELETE / (wipes the database) and /debug/pprof/*. Never enable in production.
 # defaultLimit = %d
 # maxLimit = %d
 # maxEventSize = %d
+# maxDocumentSize = %d
+# maxDocumentsPerWrite = %d  # Independent of the events-per-write cap.
 # maxQueuedWriters = %d  # Caps the write-admission queue; requests beyond this get 503 when full.
 # readPoolSize = %d
 `
@@ -215,6 +218,8 @@ const defaultConfigTemplate = `[server]
 func printDefaultConfig() {
 	fmt.Printf(defaultConfigTemplate,
 		config.DefaultSocketPath, config.DefaultBindAddress, config.DefaultPort, config.DefaultDatabasePath,
+		config.DefaultDocumentsDBPath,
 		config.DefaultLimit, config.DefaultMaxLimit, config.DefaultEventSize,
+		config.DefaultDocumentSize, config.DefaultMaxDocumentsPerWrite,
 		config.DefaultMaxQueuedWriters, config.DefaultReadPoolSize)
 }

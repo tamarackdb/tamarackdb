@@ -15,7 +15,9 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/pelletier/go-toml/v2"
 )
@@ -23,16 +25,25 @@ import (
 // Default values for Config's optional fields, exported so callers (such as
 // a -default-config flag) can print them without duplicating the numbers.
 const (
-	DefaultSocketPath       = "/var/run/tamarackdb-server.sock"
-	DefaultBindAddress      = "127.0.0.1"
-	DefaultPort             = 8085
-	DefaultDatabasePath     = "data/tamarackdb.sqlite"
-	DefaultLimit            = 1000
-	DefaultMaxLimit         = 10000
-	DefaultEventSize        = 65536 // 64 KiB
-	DefaultMaxQueuedWriters = 100
-	DefaultReadPoolSize     = 8
+	DefaultSocketPath           = "/var/run/tamarackdb-server.sock"
+	DefaultBindAddress          = "127.0.0.1"
+	DefaultPort                 = 8085
+	DefaultDatabasePath         = "data/tamarackdb.sqlite"
+	DefaultLimit                = 1000
+	DefaultMaxLimit             = 10000
+	DefaultEventSize            = 65536 // 64 KiB
+	DefaultMaxQueuedWriters     = 100
+	DefaultReadPoolSize         = 8
+	DefaultDocumentSize         = 65536 // 64 KiB
+	DefaultMaxDocumentsPerWrite = 100
 )
+
+// DefaultDocumentsDBPath is documentsDBPath(DefaultDatabasePath): the
+// tamarackdb-documents.sqlite sibling of the default events database
+// path, for callers (such as -default-config) with no opinion of their
+// own. Load computes the same derivation from the actual, possibly
+// customized, DatabasePath when DocumentsDBPath is left unset.
+var DefaultDocumentsDBPath = documentsDBPath(DefaultDatabasePath)
 
 // Config is TamarackDB's startup configuration, resolved once from a TOML
 // file and/or environment variables and never mutated or reloaded while the
@@ -56,6 +67,14 @@ type Config struct {
 
 	DatabasePath string `toml:"databasePath"` // default: data/tamarackdb.sqlite
 
+	// DocumentsDBPath is the path of tamarackdb-documents.sqlite, the
+	// separate file holding document payloads (see docs/design.md's I/O
+	// isolation rationale for why it's a second file rather than a table
+	// in DatabasePath). Optional; defaulted by Load to a sibling of
+	// DatabasePath when omitted: "<name>-documents<ext>" in the same
+	// directory.
+	DocumentsDBPath string `toml:"documentsDbPath"`
+
 	// DevMode, when true, registers the DELETE / endpoint, which wipes the
 	// entire database. Never enable this in production.
 	DevMode bool `toml:"devMode"`
@@ -65,6 +84,18 @@ type Config struct {
 	DefaultLimit int `toml:"defaultLimit"` // default: 1000
 	MaxLimit     int `toml:"maxLimit"`     // default: 10000
 	MaxEventSize int `toml:"maxEventSize"` // default: 65536 (64 KiB)
+
+	// MaxDocumentSize is the maximum UTF-8 byte size of one document's
+	// payload in a /write request; only checked when the payload is
+	// present (a deletion has none to bound). Optional; defaulted by Load
+	// when omitted.
+	MaxDocumentSize int `toml:"maxDocumentSize"` // default: 65536 (64 KiB)
+
+	// MaxDocumentsPerWrite caps how many documents a single /write
+	// request may carry, independent of dcb.MaxEventsPerWrite — the two
+	// are unrelated limits, not a combined one. Optional; defaulted by
+	// Load when omitted.
+	MaxDocumentsPerWrite int `toml:"maxDocumentsPerWrite"` // default: 100
 
 	// MaxQueuedWriters caps how many writers (POST /append or, in dev mode,
 	// DELETE /) may wait in the FIFO write-admission queue at once; a
@@ -126,6 +157,9 @@ func Load(path string) (*Config, error) {
 	if cfg.DatabasePath == "" {
 		cfg.DatabasePath = DefaultDatabasePath
 	}
+	if cfg.DocumentsDBPath == "" {
+		cfg.DocumentsDBPath = documentsDBPath(cfg.DatabasePath)
+	}
 	if cfg.DefaultLimit == 0 {
 		cfg.DefaultLimit = DefaultLimit
 	}
@@ -134,6 +168,12 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.MaxEventSize == 0 {
 		cfg.MaxEventSize = DefaultEventSize
+	}
+	if cfg.MaxDocumentSize == 0 {
+		cfg.MaxDocumentSize = DefaultDocumentSize
+	}
+	if cfg.MaxDocumentsPerWrite == 0 {
+		cfg.MaxDocumentsPerWrite = DefaultMaxDocumentsPerWrite
 	}
 	if cfg.MaxQueuedWriters == 0 {
 		cfg.MaxQueuedWriters = DefaultMaxQueuedWriters
@@ -209,6 +249,11 @@ func applyEnv(cfg *Config) error {
 			cfg.DatabasePath = v
 		}
 	}
+	if cfg.DocumentsDBPath == "" {
+		if v, ok := os.LookupEnv("TAMARACKDB_DOCUMENTS_DB_PATH"); ok {
+			cfg.DocumentsDBPath = v
+		}
+	}
 	if !cfg.DevMode {
 		if v, ok := os.LookupEnv("TAMARACKDB_DEV_MODE"); ok {
 			b, err := strconv.ParseBool(v)
@@ -243,6 +288,24 @@ func applyEnv(cfg *Config) error {
 				return fmt.Errorf("invalid TAMARACKDB_MAX_EVENT_SIZE %q: %w", v, err)
 			}
 			cfg.MaxEventSize = n
+		}
+	}
+	if cfg.MaxDocumentSize == 0 {
+		if v, ok := os.LookupEnv("TAMARACKDB_MAX_DOCUMENT_SIZE"); ok {
+			n, err := strconv.Atoi(v)
+			if err != nil {
+				return fmt.Errorf("invalid TAMARACKDB_MAX_DOCUMENT_SIZE %q: %w", v, err)
+			}
+			cfg.MaxDocumentSize = n
+		}
+	}
+	if cfg.MaxDocumentsPerWrite == 0 {
+		if v, ok := os.LookupEnv("TAMARACKDB_MAX_DOCUMENTS_PER_WRITE"); ok {
+			n, err := strconv.Atoi(v)
+			if err != nil {
+				return fmt.Errorf("invalid TAMARACKDB_MAX_DOCUMENTS_PER_WRITE %q: %w", v, err)
+			}
+			cfg.MaxDocumentsPerWrite = n
 		}
 	}
 	if cfg.MaxQueuedWriters == 0 {
@@ -293,10 +356,26 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("defaultLimit (%d) must not exceed maxLimit (%d)", c.DefaultLimit, c.MaxLimit)
 	case c.MaxEventSize <= 0:
 		return fmt.Errorf("maxEventSize must be positive, got %d", c.MaxEventSize)
+	case c.DocumentsDBPath == "":
+		return fmt.Errorf("documentsDbPath must not be empty")
+	case c.MaxDocumentSize <= 0:
+		return fmt.Errorf("maxDocumentSize must be positive, got %d", c.MaxDocumentSize)
+	case c.MaxDocumentsPerWrite <= 0:
+		return fmt.Errorf("maxDocumentsPerWrite must be positive, got %d", c.MaxDocumentsPerWrite)
 	case c.MaxQueuedWriters <= 0:
 		return fmt.Errorf("maxQueuedWriters must be positive, got %d", c.MaxQueuedWriters)
 	case c.ReadPoolSize <= 0:
 		return fmt.Errorf("readPoolSize must be positive, got %d", c.ReadPoolSize)
 	}
 	return nil
+}
+
+// documentsDBPath derives tamarackdb-documents.sqlite's default path from
+// the events database path: a sibling file in the same directory, named
+// "<name>-documents<ext>". "data/tamarackdb.sqlite" becomes
+// "data/tamarackdb-documents.sqlite".
+func documentsDBPath(databasePath string) string {
+	ext := filepath.Ext(databasePath)
+	name := strings.TrimSuffix(filepath.Base(databasePath), ext)
+	return filepath.Join(filepath.Dir(databasePath), name+"-documents"+ext)
 }
