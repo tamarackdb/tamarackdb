@@ -30,8 +30,7 @@ file works whether you run one binary or both.
 | `bindAddress` / `port` | `TAMARACKDB_BIND_ADDRESS` / `TAMARACKDB_PORT` | none / none | Address and port the server listens on instead of a unix socket |
 | `enableTls` / `tlsCertFile` / `tlsKeyFile` | `TAMARACKDB_ENABLE_TLS` / `TAMARACKDB_TLS_CERT_FILE` / `TAMARACKDB_TLS_KEY_FILE` | `false` / none / none | TLS termination (Go's own `ListenAndServeTLS`, no reverse proxy) |
 | `enableAuth` / `authToken` | `TAMARACKDB_ENABLE_AUTH` / `TAMARACKDB_AUTH_TOKEN` | `false` / none | Bearer token check on every endpoint |
-| `databasePath` | `TAMARACKDB_DATABASE_PATH` | `data/tamarackdb.sqlite` | Path to the events SQLite database file |
-| `documentsDbPath` | `TAMARACKDB_DOCUMENTS_DB_PATH` | a sibling of `databasePath` (`data/tamarackdb-documents.sqlite`) | Path to the documents SQLite database file (see [design.md](design.md#documents)) |
+| `dataDir` | `TAMARACKDB_DATA_DIR` | `data` | Directory holding both SQLite files, `tamarackdb.sqlite` and `tamarackdb-documents.sqlite` (see [design.md](design.md#documents)); only the directory is configurable, the two filenames are fixed |
 | `defaultLimit` / `maxLimit` | `TAMARACKDB_DEFAULT_LIMIT` / `TAMARACKDB_MAX_LIMIT` | `1000` / `10000` | Default and maximum page size for `QUERY /events` |
 | `maxEventSize` | `TAMARACKDB_MAX_EVENT_SIZE` | `65536` (64 KiB) | Maximum size in bytes of a single event |
 | `maxDocumentSize` | `TAMARACKDB_MAX_DOCUMENT_SIZE` | `65536` (64 KiB) | Maximum size in bytes of a single document's payload |
@@ -63,23 +62,24 @@ variables cover a deployment with no file at all.
 ## Run
 
 ```sh
-./bin/tamarackdb-init --db /path/to/tamarackdb.sqlite
+./bin/tamarackdb-init --dataDir /path/to/data
 ./bin/tamarackdb-server --config /path/to/config.toml
 ```
 
 Once running, the server logs one line per request to stdout: method, path, status
 code, response size, and time taken, e.g. `tamarackdb-server: POST /write 200 42B
-1.23ms`. It also opens `documentsDbPath` (creating it, with its schema, if it
-doesn't exist yet) alongside `databasePath`, so the documents mechanism (see
+1.23ms`. It opens both SQLite files under `dataDir` (creating either one, with
+its schema, if it doesn't exist yet), so the documents mechanism (see
 [design.md](design.md#documents)) is ready without a separate provisioning
 step.
 
 ## Provisioning and migration
 
-`tamarackdb-init` creates a new, empty database file, as shown above.
-`tamarackdb-migrate` brings an existing database up to the schema this binary
-expects, run once between a schema change and rolling out the new server.
-Point it at a config file so it can find the database:
+`tamarackdb-init` creates a new data directory with both SQLite files, as
+shown above. `tamarackdb-migrate` brings an existing events database up to
+the schema this binary expects, run once between a schema change and rolling
+out the new server. Point it at a config file so it can find the data
+directory:
 
 ```sh
 ./bin/tamarackdb-migrate --config /path/to/config.toml
@@ -88,10 +88,11 @@ Point it at a config file so it can find the database:
 The server itself never changes the schema on its own. See
 [design.md](design.md#schema) for why migration is a separate tool.
 
-Both tools only ever touch the events database file (`databasePath`). The
-documents database file (`documentsDbPath`) has never had a schema change, so
-there's nothing yet for either tool to do there; the server creates it itself
-on startup if it doesn't exist (see Run above).
+`tamarackdb-migrate` only ever touches the events database file
+(`tamarackdb.sqlite`). The documents database file
+(`tamarackdb-documents.sqlite`) has never had a schema change, so there's
+nothing yet for it to do there; the server creates it itself on startup if
+it's missing (see Run above).
 
 ## Docker
 
@@ -103,11 +104,9 @@ docker run -d -p 8085:8085 -v tamarackdb-data:/data tamarackdb
 The image is set up entirely through `TAMARACKDB_*` environment variables (see
 Configure above); no `config.toml` is needed inside the container. It sets
 `TAMARACKDB_BIND_ADDRESS=0.0.0.0` and `TAMARACKDB_PORT=8085` itself, so it
-listens over TCP by default, unlike a plain `tamarackdb-server` binary. The
-database file defaults to `/data/tamarackdb.sqlite`, so mount a volume on
-`/data` to keep it across restarts. The documents database file defaults to
-the sibling `/data/tamarackdb-documents.sqlite`, on the same volume, with no
-extra mount needed.
+listens over TCP by default, unlike a plain `tamarackdb-server` binary. It
+also sets `TAMARACKDB_DATA_DIR=/data`, so mount a volume on `/data` to keep
+both SQLite files across restarts.
 
 To use a unix socket instead, e.g. for a reverse proxy container in the same
 pod or `docker-compose` setup, override `TAMARACKDB_SOCKET_PATH`: it wins over
@@ -118,7 +117,7 @@ volume for the socket path so the other container can reach it.
 against the mounted volume:
 
 ```sh
-docker exec <container> ./tamarackdb-init --db /data/tamarackdb.sqlite
+docker exec <container> ./tamarackdb-init --dataDir /data
 ```
 
 ## Health check
@@ -191,5 +190,5 @@ an aggregate, use `/debug/pprof/trace?seconds=30` with `go tool trace`.
 While testing an integration, watch the server's stdout: one line per request, with
 method, path, status code, response size, and time taken, e.g. `tamarackdb-server:
 POST /write 200 42B 1.23ms`. At startup, it also prints a banner and its resolved
-configuration (bind address, port, database and documents paths, limits, and so
-on), so you can confirm what a given instance is actually running with.
+configuration (bind address, port, data directory, limits, and so on), so you
+can confirm what a given instance is actually running with.

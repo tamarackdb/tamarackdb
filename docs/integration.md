@@ -283,16 +283,16 @@ behind. It responds `204 No Content` and only exists when `devMode` is on; see
 
 ## Generating test events
 
-`tamarackdb-demo` fills a database with a large set of made-up events, useful for
-testing a client library against realistic volume instead of one or two
-hand-written events:
+`tamarackdb-demo` fills an events database with a large set of made-up events,
+useful for testing a client library against realistic volume instead of one
+or two hand-written events:
 
 ```sh
-./bin/tamarackdb-demo --db /path/to/tamarackdb.sqlite --n 100000 --seed 1
+./bin/tamarackdb-demo --dataDir /path/to/data --n 100000 --seed 1
 ```
 
 It writes straight to the database file, not through the running server, so run
-it before starting `tamarackdb-server`, or against a separate file. See
+it before starting `tamarackdb-server`, or against a separate data directory. See
 [build.md](build.md#demo-dataset) for how to build it and what its flags do.
 
 ## Error responses

@@ -1,9 +1,9 @@
-// Command demo seeds a TamarackDB SQLite database with a large synthetic,
+// Command demo seeds a TamarackDB events database with a large synthetic,
 // schema-agnostic event stream: each event has a random type, 1 or 2
 // identifiers, a tenantId metadata entry, and a garbage-text payload. It
-// exists to exercise /read and storage at scale rather than to model any
-// particular domain. Build it via `make demo`, producing
-// bin/tamarackdb-demo.
+// exists to exercise /events and storage at scale rather than to model any
+// particular domain; it never touches documents. Build it via `make demo`,
+// producing bin/tamarackdb-demo.
 package main
 
 import (
@@ -12,9 +12,11 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"os"
 	"strconv"
 
 	"github.com/tamarackdb/tamarackdb/internal/buildinfo"
+	"github.com/tamarackdb/tamarackdb/internal/config"
 	"github.com/tamarackdb/tamarackdb/internal/dcb"
 	"github.com/tamarackdb/tamarackdb/internal/store"
 )
@@ -44,7 +46,7 @@ var identifierNames = []string{"foo", "bar", "baz", "qux", "quux"}
 const garbageAlphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
 func main() {
-	path := flag.String("db", "", "path of the SQLite database file to seed")
+	dataDir := flag.String("dataDir", "", "directory holding the SQLite database files to seed")
 	n := flag.Int("n", 1_000_000, "target number of events to append")
 	seed := flag.Int64("seed", 1, "random seed, for reproducible datasets")
 	showVersion := flag.Bool("version", false, "print the version and exit")
@@ -55,8 +57,8 @@ func main() {
 		return
 	}
 
-	if *path == "" {
-		log.Fatal("tamarackdb-demo: -db is required")
+	if *dataDir == "" {
+		log.Fatal("tamarackdb-demo: -dataDir is required")
 	}
 	if *n <= 0 {
 		log.Fatal("tamarackdb-demo: -n must be positive")
@@ -64,7 +66,11 @@ func main() {
 
 	rng := rand.New(rand.NewSource(*seed))
 
-	st, err := store.Open(context.Background(), *path, 0)
+	if err := os.MkdirAll(*dataDir, 0o755); err != nil {
+		log.Fatalf("tamarackdb-demo: %v", err)
+	}
+	cfg := config.Config{DataDir: *dataDir}
+	st, err := store.Open(context.Background(), cfg.EventsDatabasePath(), 0)
 	if err != nil {
 		log.Fatalf("tamarackdb-demo: %v", err)
 	}
@@ -88,7 +94,7 @@ func main() {
 		log.Printf("tamarackdb-demo: appended %d/%d events", appended, total)
 	}
 
-	log.Printf("tamarackdb-demo: done, %d events in %s", total, *path)
+	log.Printf("tamarackdb-demo: done, %d events in %s", total, cfg.EventsDatabasePath())
 }
 
 // generateEvent builds a single random, schema-agnostic event: a type out

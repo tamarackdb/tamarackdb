@@ -25,8 +25,7 @@ func TestLoadFullConfig(t *testing.T) {
 		tlsKeyFile = "/etc/tamarackdb/key.pem"
 		enableAuth = true
 		authToken = "secret"
-		databasePath = "/var/lib/tamarackdb/db.sqlite"
-		documentsDbPath = "/var/lib/tamarackdb/documents.sqlite"
+		dataDir = "/var/lib/tamarackdb"
 		defaultLimit = 500
 		maxLimit = 5000
 		maxEventSize = 32768
@@ -43,14 +42,23 @@ func TestLoadFullConfig(t *testing.T) {
 	want := Config{
 		BindAddress: "0.0.0.0", Port: 8443,
 		EnableTLS: true, TLSCertFile: "/etc/tamarackdb/cert.pem", TLSKeyFile: "/etc/tamarackdb/key.pem",
-		EnableAuth: true, AuthToken: "secret", DatabasePath: "/var/lib/tamarackdb/db.sqlite",
-		DocumentsDBPath: "/var/lib/tamarackdb/documents.sqlite",
-		DefaultLimit:    500, MaxLimit: 5000, MaxEventSize: 32768,
+		EnableAuth: true, AuthToken: "secret", DataDir: "/var/lib/tamarackdb",
+		DefaultLimit: 500, MaxLimit: 5000, MaxEventSize: 32768,
 		MaxDocumentSize: 16384, MaxDocumentsPerWrite: 50,
 		MaxQueuedWriters: 250, ReadPoolSize: 16,
 	}
 	if *cfg != want {
 		t.Errorf("Load() = %+v, want %+v", *cfg, want)
+	}
+}
+
+func TestEventsAndDocumentsDatabasePath(t *testing.T) {
+	cfg := Config{DataDir: "/var/lib/tamarackdb"}
+	if got, want := cfg.EventsDatabasePath(), "/var/lib/tamarackdb/tamarackdb.sqlite"; got != want {
+		t.Errorf("EventsDatabasePath() = %q, want %q", got, want)
+	}
+	if got, want := cfg.DocumentsDatabasePath(), "/var/lib/tamarackdb/tamarackdb-documents.sqlite"; got != want {
+		t.Errorf("DocumentsDatabasePath() = %q, want %q", got, want)
 	}
 }
 
@@ -61,7 +69,7 @@ func TestLoadIgnoresBackupSection(t *testing.T) {
 		tlsCertFile = "cert.pem"
 		tlsKeyFile = "key.pem"
 		authToken = "secret"
-		databasePath = "db.sqlite"
+		dataDir = "data"
 
 		[backup]
 		sourceUrl = "https://example.com"
@@ -72,8 +80,8 @@ func TestLoadIgnoresBackupSection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	if cfg.DatabasePath != "db.sqlite" {
-		t.Errorf("DatabasePath = %q, want %q ([backup] section must not leak into [server])", cfg.DatabasePath, "db.sqlite")
+	if cfg.DataDir != "data" {
+		t.Errorf("DataDir = %q, want %q ([backup] section must not leak into [server])", cfg.DataDir, "data")
 	}
 }
 
@@ -84,7 +92,7 @@ func TestLoadAppliesDefaults(t *testing.T) {
 		tlsCertFile = "cert.pem"
 		tlsKeyFile = "key.pem"
 		authToken = "secret"
-		databasePath = "db.sqlite"
+		dataDir = "data"
 	`)
 
 	cfg, err := Load(path)
@@ -100,6 +108,12 @@ func TestLoadAppliesDefaults(t *testing.T) {
 	if cfg.MaxEventSize != DefaultEventSize {
 		t.Errorf("MaxEventSize = %d, want %d", cfg.MaxEventSize, DefaultEventSize)
 	}
+	if cfg.MaxDocumentSize != DefaultDocumentSize {
+		t.Errorf("MaxDocumentSize = %d, want %d", cfg.MaxDocumentSize, DefaultDocumentSize)
+	}
+	if cfg.MaxDocumentsPerWrite != DefaultMaxDocumentsPerWrite {
+		t.Errorf("MaxDocumentsPerWrite = %d, want %d", cfg.MaxDocumentsPerWrite, DefaultMaxDocumentsPerWrite)
+	}
 	if cfg.MaxQueuedWriters != DefaultMaxQueuedWriters {
 		t.Errorf("MaxQueuedWriters = %d, want %d", cfg.MaxQueuedWriters, DefaultMaxQueuedWriters)
 	}
@@ -109,7 +123,7 @@ func TestLoadAppliesDefaults(t *testing.T) {
 }
 
 func TestLoadMissingRequiredFields(t *testing.T) {
-	// port and databasePath are not here: they're optional, defaulted by
+	// port and dataDir are not here: they're optional, defaulted by
 	// Load when omitted (see TestLoadAppliesDefaults). Only
 	// tlsCertFile/tlsKeyFile/authToken are required, and only because
 	// enableTls/enableAuth are forced true below. bindAddress is written
@@ -161,7 +175,7 @@ func TestLoadInvalidPort(t *testing.T) {
 				tlsCertFile = "cert.pem"
 				tlsKeyFile = "key.pem"
 				authToken = "secret"
-				databasePath = "db.sqlite"
+				dataDir = "data"
 			`)
 			if _, err := Load(path); err == nil {
 				t.Fatalf("Load() error = nil, want error for port %s", tt.port)
@@ -177,7 +191,7 @@ func TestLoadDefaultLimitExceedsMaxLimit(t *testing.T) {
 		tlsCertFile = "cert.pem"
 		tlsKeyFile = "key.pem"
 		authToken = "secret"
-		databasePath = "db.sqlite"
+		dataDir = "data"
 		defaultLimit = 5000
 		maxLimit = 1000
 	`)
@@ -193,7 +207,7 @@ func TestLoadDevModeFromFile(t *testing.T) {
 		tlsCertFile = "cert.pem"
 		tlsKeyFile = "key.pem"
 		authToken = "secret"
-		databasePath = "db.sqlite"
+		dataDir = "data"
 		devMode = true
 	`)
 	cfg, err := Load(path)
@@ -212,7 +226,7 @@ func TestLoadDevModeDefaultsFalse(t *testing.T) {
 		tlsCertFile = "cert.pem"
 		tlsKeyFile = "key.pem"
 		authToken = "secret"
-		databasePath = "db.sqlite"
+		dataDir = "data"
 	`)
 	cfg, err := Load(path)
 	if err != nil {
@@ -231,7 +245,7 @@ func TestLoadDevModeFromEnv(t *testing.T) {
 		tlsCertFile = "cert.pem"
 		tlsKeyFile = "key.pem"
 		authToken = "secret"
-		databasePath = "db.sqlite"
+		dataDir = "data"
 	`)
 	cfg, err := Load(path)
 	if err != nil {
@@ -250,7 +264,7 @@ func TestLoadDevModeInvalidEnvValue(t *testing.T) {
 		tlsCertFile = "cert.pem"
 		tlsKeyFile = "key.pem"
 		authToken = "secret"
-		databasePath = "db.sqlite"
+		dataDir = "data"
 	`)
 	if _, err := Load(path); err == nil {
 		t.Fatal("Load() error = nil, want error for invalid TAMARACKDB_DEV_MODE")
@@ -259,7 +273,7 @@ func TestLoadDevModeInvalidEnvValue(t *testing.T) {
 
 func TestLoadFileNotFoundUsesBuiltInDefaults(t *testing.T) {
 	// No file and no environment variables: every field with a built-in
-	// default (socketPath, databasePath, and the pagination/queue limits)
+	// default (socketPath, dataDir, and the pagination/queue limits)
 	// falls back to it, and nothing else is required, so Load succeeds.
 	// bindAddress/port stay empty: socketPath wins when nothing picks TCP
 	// (see TestLoadDefaultsToSocketPath).
@@ -268,7 +282,7 @@ func TestLoadFileNotFoundUsesBuiltInDefaults(t *testing.T) {
 		t.Fatalf("Load() error = %v, want nil (built-in defaults cover every required field)", err)
 	}
 	want := Config{
-		SocketPath: DefaultSocketPath, DatabasePath: DefaultDatabasePath, DocumentsDBPath: DefaultDocumentsDBPath,
+		SocketPath: DefaultSocketPath, DataDir: DefaultDataDir,
 		DefaultLimit: DefaultLimit, MaxLimit: DefaultMaxLimit, MaxEventSize: DefaultEventSize,
 		MaxDocumentSize: DefaultDocumentSize, MaxDocumentsPerWrite: DefaultMaxDocumentsPerWrite,
 		MaxQueuedWriters: DefaultMaxQueuedWriters, ReadPoolSize: DefaultReadPoolSize,
@@ -286,7 +300,7 @@ func TestLoadDefaultsToSocketPath(t *testing.T) {
 		tlsCertFile = "cert.pem"
 		tlsKeyFile = "key.pem"
 		authToken = "secret"
-		databasePath = "db.sqlite"
+		dataDir = "data"
 	`)
 	cfg, err := Load(path)
 	if err != nil {
@@ -309,7 +323,7 @@ func TestLoadBindAddressPicksTCPOverSocketDefault(t *testing.T) {
 		tlsCertFile = "cert.pem"
 		tlsKeyFile = "key.pem"
 		authToken = "secret"
-		databasePath = "db.sqlite"
+		dataDir = "data"
 	`)
 	cfg, err := Load(path)
 	if err != nil {
@@ -329,7 +343,7 @@ func TestLoadSocketPathWinsOverBindAddressAndPort(t *testing.T) {
 		bindAddress = "0.0.0.0"
 		port = 8443
 		authToken = "secret"
-		databasePath = "db.sqlite"
+		dataDir = "data"
 	`)
 	cfg, err := Load(path)
 	if err != nil {
@@ -351,7 +365,7 @@ func TestLoadSocketPathIgnoresTLS(t *testing.T) {
 		socketPath = "/tmp/tamarackdb.sock"
 		enableTls = true
 		authToken = "secret"
-		databasePath = "db.sqlite"
+		dataDir = "data"
 	`)
 	if _, err := Load(path); err != nil {
 		t.Errorf("Load() error = %v, want nil (enableTls is ignored when socketPath is set)", err)
@@ -362,7 +376,7 @@ func TestLoadSocketPathFromEnv(t *testing.T) {
 	setEnv(t, map[string]string{"TAMARACKDB_SOCKET_PATH": "/tmp/from-env.sock"})
 	path := writeConfigFile(t, `[server]
 		authToken = "secret"
-		databasePath = "db.sqlite"
+		dataDir = "data"
 	`)
 	cfg, err := Load(path)
 	if err != nil {
@@ -387,7 +401,7 @@ func TestLoadFromEnvWithoutFile(t *testing.T) {
 		"TAMARACKDB_TLS_CERT_FILE": "cert.pem",
 		"TAMARACKDB_TLS_KEY_FILE":  "key.pem",
 		"TAMARACKDB_AUTH_TOKEN":    "secret",
-		"TAMARACKDB_DATABASE_PATH": "db.sqlite",
+		"TAMARACKDB_DATA_DIR":      "data",
 	})
 
 	cfg, err := Load(filepath.Join(t.TempDir(), "does-not-exist.toml"))
@@ -397,7 +411,7 @@ func TestLoadFromEnvWithoutFile(t *testing.T) {
 	want := Config{
 		BindAddress: "0.0.0.0", Port: 8443,
 		TLSCertFile: "cert.pem", TLSKeyFile: "key.pem",
-		AuthToken: "secret", DatabasePath: "db.sqlite", DocumentsDBPath: documentsDBPath("db.sqlite"),
+		AuthToken: "secret", DataDir: "data",
 		DefaultLimit: DefaultLimit, MaxLimit: DefaultMaxLimit, MaxEventSize: DefaultEventSize,
 		MaxDocumentSize: DefaultDocumentSize, MaxDocumentsPerWrite: DefaultMaxDocumentsPerWrite,
 		MaxQueuedWriters: DefaultMaxQueuedWriters, ReadPoolSize: DefaultReadPoolSize,
@@ -418,7 +432,7 @@ func TestLoadEnvFillsOmittedFields(t *testing.T) {
 		port = 8443
 		tlsCertFile = "cert.pem"
 		tlsKeyFile = "key.pem"
-		databasePath = "db.sqlite"
+		dataDir = "data"
 	`)
 
 	cfg, err := Load(path)
@@ -447,7 +461,7 @@ func TestLoadFileTakesPrecedenceOverEnv(t *testing.T) {
 		tlsCertFile = "cert.pem"
 		tlsKeyFile = "key.pem"
 		authToken = "from-file"
-		databasePath = "db.sqlite"
+		dataDir = "data"
 	`)
 
 	cfg, err := Load(path)
@@ -469,7 +483,7 @@ func TestLoadInvalidEnvValue(t *testing.T) {
 		tlsCertFile = "cert.pem"
 		tlsKeyFile = "key.pem"
 		authToken = "secret"
-		databasePath = "db.sqlite"
+		dataDir = "data"
 	`)
 	if _, err := Load(path); err == nil {
 		t.Fatal("Load() error = nil, want error for invalid TAMARACKDB_PORT")
@@ -490,7 +504,7 @@ func TestLoadMaxQueuedWritersFromFile(t *testing.T) {
 		tlsCertFile = "cert.pem"
 		tlsKeyFile = "key.pem"
 		authToken = "secret"
-		databasePath = "db.sqlite"
+		dataDir = "data"
 		maxQueuedWriters = 50
 	`)
 	cfg, err := Load(path)
@@ -510,7 +524,7 @@ func TestLoadMaxQueuedWritersFromEnv(t *testing.T) {
 		tlsCertFile = "cert.pem"
 		tlsKeyFile = "key.pem"
 		authToken = "secret"
-		databasePath = "db.sqlite"
+		dataDir = "data"
 	`)
 	cfg, err := Load(path)
 	if err != nil {
@@ -529,7 +543,7 @@ func TestLoadMaxQueuedWritersFileTakesPrecedenceOverEnv(t *testing.T) {
 		tlsCertFile = "cert.pem"
 		tlsKeyFile = "key.pem"
 		authToken = "secret"
-		databasePath = "db.sqlite"
+		dataDir = "data"
 		maxQueuedWriters = 50
 	`)
 	cfg, err := Load(path)
@@ -548,7 +562,7 @@ func TestLoadReadPoolSizeFromFile(t *testing.T) {
 		tlsCertFile = "cert.pem"
 		tlsKeyFile = "key.pem"
 		authToken = "secret"
-		databasePath = "db.sqlite"
+		dataDir = "data"
 		readPoolSize = 32
 	`)
 	cfg, err := Load(path)
@@ -568,7 +582,7 @@ func TestLoadReadPoolSizeFromEnv(t *testing.T) {
 		tlsCertFile = "cert.pem"
 		tlsKeyFile = "key.pem"
 		authToken = "secret"
-		databasePath = "db.sqlite"
+		dataDir = "data"
 	`)
 	cfg, err := Load(path)
 	if err != nil {
@@ -587,7 +601,7 @@ func TestLoadReadPoolSizeFileTakesPrecedenceOverEnv(t *testing.T) {
 		tlsCertFile = "cert.pem"
 		tlsKeyFile = "key.pem"
 		authToken = "secret"
-		databasePath = "db.sqlite"
+		dataDir = "data"
 		readPoolSize = 32
 	`)
 	cfg, err := Load(path)
@@ -599,60 +613,58 @@ func TestLoadReadPoolSizeFileTakesPrecedenceOverEnv(t *testing.T) {
 	}
 }
 
-func TestLoadDocumentsDBPathDefaultsToSibling(t *testing.T) {
+func TestLoadDataDirFromFile(t *testing.T) {
 	path := writeConfigFile(t, `[server]
 		bindAddress = "0.0.0.0"
 		port = 8443
 		tlsCertFile = "cert.pem"
 		tlsKeyFile = "key.pem"
 		authToken = "secret"
-		databasePath = "/var/lib/tamarackdb/mydb.sqlite"
+		dataDir = "/custom/data"
 	`)
 	cfg, err := Load(path)
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	want := "/var/lib/tamarackdb/mydb-documents.sqlite"
-	if cfg.DocumentsDBPath != want {
-		t.Errorf("DocumentsDBPath = %q, want %q (sibling of databasePath)", cfg.DocumentsDBPath, want)
+	if cfg.DataDir != "/custom/data" {
+		t.Errorf("DataDir = %q, want %q", cfg.DataDir, "/custom/data")
 	}
 }
 
-func TestLoadDocumentsDBPathFromFile(t *testing.T) {
+func TestLoadDataDirFromEnv(t *testing.T) {
+	setEnv(t, map[string]string{"TAMARACKDB_DATA_DIR": "/from-env/data"})
 	path := writeConfigFile(t, `[server]
 		bindAddress = "0.0.0.0"
 		port = 8443
 		tlsCertFile = "cert.pem"
 		tlsKeyFile = "key.pem"
 		authToken = "secret"
-		databasePath = "db.sqlite"
-		documentsDbPath = "custom-documents.sqlite"
 	`)
 	cfg, err := Load(path)
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	if cfg.DocumentsDBPath != "custom-documents.sqlite" {
-		t.Errorf("DocumentsDBPath = %q, want %q", cfg.DocumentsDBPath, "custom-documents.sqlite")
+	if cfg.DataDir != "/from-env/data" {
+		t.Errorf("DataDir = %q, want %q (from env)", cfg.DataDir, "/from-env/data")
 	}
 }
 
-func TestLoadDocumentsDBPathFromEnv(t *testing.T) {
-	setEnv(t, map[string]string{"TAMARACKDB_DOCUMENTS_DB_PATH": "from-env-documents.sqlite"})
+func TestLoadDataDirFileTakesPrecedenceOverEnv(t *testing.T) {
+	setEnv(t, map[string]string{"TAMARACKDB_DATA_DIR": "/from-env/data"})
 	path := writeConfigFile(t, `[server]
 		bindAddress = "0.0.0.0"
 		port = 8443
 		tlsCertFile = "cert.pem"
 		tlsKeyFile = "key.pem"
 		authToken = "secret"
-		databasePath = "db.sqlite"
+		dataDir = "/from-file/data"
 	`)
 	cfg, err := Load(path)
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	if cfg.DocumentsDBPath != "from-env-documents.sqlite" {
-		t.Errorf("DocumentsDBPath = %q, want %q (from env)", cfg.DocumentsDBPath, "from-env-documents.sqlite")
+	if cfg.DataDir != "/from-file/data" {
+		t.Errorf("DataDir = %q, want %q (file must win over env)", cfg.DataDir, "/from-file/data")
 	}
 }
 
@@ -663,7 +675,7 @@ func TestLoadMaxDocumentSizeFromFile(t *testing.T) {
 		tlsCertFile = "cert.pem"
 		tlsKeyFile = "key.pem"
 		authToken = "secret"
-		databasePath = "db.sqlite"
+		dataDir = "data"
 		maxDocumentSize = 32768
 	`)
 	cfg, err := Load(path)
@@ -683,7 +695,7 @@ func TestLoadMaxDocumentSizeFromEnv(t *testing.T) {
 		tlsCertFile = "cert.pem"
 		tlsKeyFile = "key.pem"
 		authToken = "secret"
-		databasePath = "db.sqlite"
+		dataDir = "data"
 	`)
 	cfg, err := Load(path)
 	if err != nil {
@@ -701,7 +713,7 @@ func TestLoadMaxDocumentsPerWriteFromFile(t *testing.T) {
 		tlsCertFile = "cert.pem"
 		tlsKeyFile = "key.pem"
 		authToken = "secret"
-		databasePath = "db.sqlite"
+		dataDir = "data"
 		maxDocumentsPerWrite = 25
 	`)
 	cfg, err := Load(path)
@@ -721,7 +733,7 @@ func TestLoadMaxDocumentsPerWriteFromEnv(t *testing.T) {
 		tlsCertFile = "cert.pem"
 		tlsKeyFile = "key.pem"
 		authToken = "secret"
-		databasePath = "db.sqlite"
+		dataDir = "data"
 	`)
 	cfg, err := Load(path)
 	if err != nil {
@@ -735,7 +747,7 @@ func TestLoadMaxDocumentsPerWriteFromEnv(t *testing.T) {
 func TestValidateNonPositiveMaxDocumentSize(t *testing.T) {
 	cfg := Config{
 		BindAddress: "0.0.0.0", Port: 8443,
-		AuthToken: "secret", DatabasePath: "db.sqlite", DocumentsDBPath: "documents.sqlite",
+		AuthToken: "secret", DataDir: "data",
 		DefaultLimit: 1000, MaxLimit: 10000, MaxEventSize: 65536,
 		MaxDocumentSize: 0, MaxDocumentsPerWrite: 100,
 		MaxQueuedWriters: 100, ReadPoolSize: 8,
@@ -748,7 +760,7 @@ func TestValidateNonPositiveMaxDocumentSize(t *testing.T) {
 func TestValidateNonPositiveMaxDocumentsPerWrite(t *testing.T) {
 	cfg := Config{
 		BindAddress: "0.0.0.0", Port: 8443,
-		AuthToken: "secret", DatabasePath: "db.sqlite", DocumentsDBPath: "documents.sqlite",
+		AuthToken: "secret", DataDir: "data",
 		DefaultLimit: 1000, MaxLimit: 10000, MaxEventSize: 65536,
 		MaxDocumentSize: 65536, MaxDocumentsPerWrite: 0,
 		MaxQueuedWriters: 100, ReadPoolSize: 8,
@@ -758,16 +770,16 @@ func TestValidateNonPositiveMaxDocumentsPerWrite(t *testing.T) {
 	}
 }
 
-func TestValidateEmptyDocumentsDBPath(t *testing.T) {
+func TestValidateEmptyDataDir(t *testing.T) {
 	cfg := Config{
 		BindAddress: "0.0.0.0", Port: 8443,
-		AuthToken: "secret", DatabasePath: "db.sqlite", DocumentsDBPath: "",
+		AuthToken: "secret", DataDir: "",
 		DefaultLimit: 1000, MaxLimit: 10000, MaxEventSize: 65536,
 		MaxDocumentSize: 65536, MaxDocumentsPerWrite: 100,
 		MaxQueuedWriters: 100, ReadPoolSize: 8,
 	}
 	if err := cfg.Validate(); err == nil {
-		t.Error("Validate() error = nil, want error for empty DocumentsDBPath")
+		t.Error("Validate() error = nil, want error for empty DataDir")
 	}
 }
 
@@ -775,7 +787,7 @@ func TestValidateDirectly(t *testing.T) {
 	cfg := Config{
 		BindAddress: "0.0.0.0", Port: 8443,
 		EnableTLS: true, TLSCertFile: "cert.pem", TLSKeyFile: "key.pem",
-		EnableAuth: true, AuthToken: "secret", DatabasePath: "db.sqlite", DocumentsDBPath: "documents.sqlite",
+		EnableAuth: true, AuthToken: "secret", DataDir: "data",
 		DefaultLimit: 1000, MaxLimit: 10000, MaxEventSize: 65536,
 		MaxDocumentSize: 65536, MaxDocumentsPerWrite: 100, MaxQueuedWriters: 100,
 		ReadPoolSize: 8,
@@ -802,7 +814,7 @@ func TestValidateNonPositiveMaxQueuedWriters(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := Config{
 				BindAddress: "0.0.0.0", Port: 8443,
-				AuthToken: "secret", DatabasePath: "db.sqlite", DocumentsDBPath: "documents.sqlite",
+				AuthToken: "secret", DataDir: "data",
 				DefaultLimit: 1000, MaxLimit: 10000, MaxEventSize: 65536,
 				MaxDocumentSize: 65536, MaxDocumentsPerWrite: 100,
 				MaxQueuedWriters: tt.maxQueuedWriters, ReadPoolSize: 8,
@@ -826,7 +838,7 @@ func TestValidateNonPositiveReadPoolSize(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := Config{
 				BindAddress: "0.0.0.0", Port: 8443,
-				AuthToken: "secret", DatabasePath: "db.sqlite", DocumentsDBPath: "documents.sqlite",
+				AuthToken: "secret", DataDir: "data",
 				DefaultLimit: 1000, MaxLimit: 10000, MaxEventSize: 65536,
 				MaxDocumentSize: 65536, MaxDocumentsPerWrite: 100,
 				MaxQueuedWriters: 100, ReadPoolSize: tt.readPoolSize,

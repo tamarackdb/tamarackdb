@@ -581,11 +581,11 @@ Moving an existing database from one schema version to the next is the job of a 
 
 ## Configuration
 
-TamarackDB's startup configuration (socket path or bind address/port, TLS settings, auth token, database path, pagination/event-size limits, and the write queue depth) comes from three sources, in this order:
+TamarackDB's startup configuration (socket path or bind address/port, TLS settings, auth token, data directory, pagination/event-size limits, and the write queue depth) comes from three sources, in this order:
 
 1. A TOML configuration file, passed via `--config` (defaults to `config.toml` in the working directory). Keys live under a `[server]` section, so the same file can also hold `tamarackdb-backup`'s `[backup]` section (see [backup.md](backup.md)); each binary reads only its own section.
 2. `TAMARACKDB_*` environment variables, one per configuration key.
-3. Built-in defaults, for the handful of keys that have one (`socketPath`, `databasePath`, `documentsDbPath`, `defaultLimit`, `maxLimit`, `maxEventSize`, `maxDocumentSize`, `maxDocumentsPerWrite`, `maxQueuedWriters`, `readPoolSize`).
+3. Built-in defaults, for the handful of keys that have one (`socketPath`, `dataDir`, `defaultLimit`, `maxLimit`, `maxEventSize`, `maxDocumentSize`, `maxDocumentsPerWrite`, `maxQueuedWriters`, `readPoolSize`).
 
 A value set in the configuration file always wins over the matching environment variable. The configuration file itself is optional: an application deployed as one instance per environment, each with its own file, uses it as the single source of truth. A container deployment with no file at all is set up entirely through the environment instead. Both paths produce the same `Config`, and every field is checked the same way regardless of where it came from (see below).
 
@@ -599,8 +599,7 @@ A value set in the configuration file always wins over the matching environment 
 | `tlsKeyFile` | `TAMARACKDB_TLS_KEY_FILE` |
 | `enableAuth` | `TAMARACKDB_ENABLE_AUTH` |
 | `authToken` | `TAMARACKDB_AUTH_TOKEN` |
-| `databasePath` | `TAMARACKDB_DATABASE_PATH` |
-| `documentsDbPath` | `TAMARACKDB_DOCUMENTS_DB_PATH` |
+| `dataDir` | `TAMARACKDB_DATA_DIR` |
 | `defaultLimit` | `TAMARACKDB_DEFAULT_LIMIT` |
 | `maxLimit` | `TAMARACKDB_MAX_LIMIT` |
 | `maxEventSize` | `TAMARACKDB_MAX_EVENT_SIZE` |
@@ -609,7 +608,7 @@ A value set in the configuration file always wins over the matching environment 
 | `devMode` | `TAMARACKDB_DEV_MODE` |
 | `maxQueuedWriters` | `TAMARACKDB_MAX_QUEUED_WRITERS` |
 
-`documentsDbPath` is `tamarackdb-documents.sqlite`'s path (see Documents and Schema). Optional; when left out, it defaults to a sibling of `databasePath`: `"<name>-documents<ext>"` in the same directory, so `data/tamarackdb.sqlite` gets `data/tamarackdb-documents.sqlite`.
+`dataDir` is the one directory holding both SQLite files, the same convention MySQL's own `datadir` uses: only the directory is configurable, the two filenames within it (`tamarackdb.sqlite`, `tamarackdb-documents.sqlite`, see Documents and Schema) are fixed. Optional; defaults to `data` when left out.
 
 `maxDocumentSize` bounds one document's payload the same way `maxEventSize` bounds one event, and defaults the same way (64 KiB). `maxDocumentsPerWrite` caps how many documents one `write` call may carry, independent of the fixed 100-events-per-write limit (see Writing events and documents): unlike that limit, it's configuration, not an architectural boundary, since document volume needs vary more between applications, especially for a rebuild's documents-only calls.
 

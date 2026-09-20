@@ -67,8 +67,9 @@ func main() {
 	fmt.Printf("tlsCertFile: %s\n", cfg.TLSCertFile)
 	fmt.Printf("tlsKeyFile: %s\n", cfg.TLSKeyFile)
 	fmt.Printf("enableAuth: %t\n", cfg.EnableAuth)
-	fmt.Printf("databasePath: %s\n", cfg.DatabasePath)
-	fmt.Printf("documentsDbPath: %s\n", cfg.DocumentsDBPath)
+	fmt.Printf("dataDir: %s\n", cfg.DataDir)
+	fmt.Printf("  events database: %s\n", cfg.EventsDatabasePath())
+	fmt.Printf("  documents database: %s\n", cfg.DocumentsDatabasePath())
 	fmt.Printf("devMode: %t\n", cfg.DevMode)
 	fmt.Printf("defaultLimit: %d\n", cfg.DefaultLimit)
 	fmt.Printf("maxLimit: %d\n", cfg.MaxLimit)
@@ -78,13 +79,13 @@ func main() {
 	fmt.Printf("maxQueuedWriters: %d\n", cfg.MaxQueuedWriters)
 	fmt.Printf("readPoolSize: %d\n\n", cfg.ReadPoolSize)
 
-	st, err := store.Open(context.Background(), cfg.DatabasePath, cfg.ReadPoolSize)
+	st, err := store.Open(context.Background(), cfg.EventsDatabasePath(), cfg.ReadPoolSize)
 	if err != nil {
 		log.Fatalf("tamarackdb-server: %v", err)
 	}
 	// st.Close() is not deferred: shutdown is ordered explicitly below,
 	// not left to main's return.
-	if err := st.OpenDocuments(context.Background(), cfg.DocumentsDBPath, cfg.ReadPoolSize); err != nil {
+	if err := st.OpenDocuments(context.Background(), cfg.DocumentsDatabasePath(), cfg.ReadPoolSize); err != nil {
 		log.Fatalf("tamarackdb-server: %v", err)
 	}
 
@@ -201,8 +202,7 @@ const defaultConfigTemplate = `[server]
 # tlsKeyFile = "/path/to/key.pem"
 # enableAuth = false
 # authToken = "changeme"
-# databasePath = "%s"
-# documentsDbPath = "%s"  # defaults to a sibling of databasePath: "<name>-documents<ext>"
+# dataDir = "%s"  # holds both SQLite files: tamarackdb.sqlite and tamarackdb-documents.sqlite
 # devMode = false  # Turns on DELETE / (wipes the database) and /debug/pprof/*. Never enable in production.
 # defaultLimit = %d
 # maxLimit = %d
@@ -217,8 +217,7 @@ const defaultConfigTemplate = `[server]
 // defaults filled in from the config package's exported constants.
 func printDefaultConfig() {
 	fmt.Printf(defaultConfigTemplate,
-		config.DefaultSocketPath, config.DefaultBindAddress, config.DefaultPort, config.DefaultDatabasePath,
-		config.DefaultDocumentsDBPath,
+		config.DefaultSocketPath, config.DefaultBindAddress, config.DefaultPort, config.DefaultDataDir,
 		config.DefaultLimit, config.DefaultMaxLimit, config.DefaultEventSize,
 		config.DefaultDocumentSize, config.DefaultMaxDocumentsPerWrite,
 		config.DefaultMaxQueuedWriters, config.DefaultReadPoolSize)

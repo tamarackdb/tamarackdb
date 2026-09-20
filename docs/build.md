@@ -16,7 +16,7 @@ This builds four binaries under `bin/`:
 |---|---|
 | `tamarackdb-server` | The HTTP server |
 | `tamarackdb-migrate` | Standalone schema migration tool |
-| `tamarackdb-init` | Creates a new, empty database file |
+| `tamarackdb-init` | Creates a new data directory with both SQLite files |
 | `tamarackdb-backup` | Copies new events from a remote instance into a local backup file |
 
 Each binary also has its own target with the same name, so `make tamarackdb-migrate`
@@ -37,14 +37,14 @@ make test
 
 ## Demo dataset
 
-`cmd/tamarackdb-demo` fills a SQLite file with a large set of made-up events: random types,
-one or two identifiers, one metadata tag, and filler text as payload. It writes
-straight to the store, not through the HTTP server, so it can seed a large
-database fast. Use it to try `QUERY /events` at scale.
+`cmd/tamarackdb-demo` fills an events database with a large set of made-up events:
+random types, one or two identifiers, one metadata tag, and filler text as
+payload. It writes straight to the store, not through the HTTP server, so it
+can seed a large database fast. Use it to try `QUERY /events` at scale.
 
 ```sh
 make tamarackdb-demo
-./bin/tamarackdb-demo --db /path/to/tamarackdb.sqlite --n 1000000 --seed 1
+./bin/tamarackdb-demo --dataDir /path/to/data --n 1000000 --seed 1
 ```
 
 `--n` sets how many events to write, `--seed` makes the run repeatable.

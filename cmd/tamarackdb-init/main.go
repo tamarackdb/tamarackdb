@@ -1,7 +1,8 @@
-// Command init creates a new, empty SQLite database file with the schema
-// this binary expects already applied, for use by either tamarackdb-server
-// or tamarackdb-backup. It is a thin wrapper around store.Open, which
-// creates the file and its schema as a side effect of opening it.
+// Command init creates a new TamarackDB data directory: the events
+// database and its documents companion, both empty with their schema
+// already applied, ready for tamarackdb-server. It is a thin wrapper
+// around store.Open and Store.OpenDocuments, which create each file and
+// its schema as a side effect of opening it.
 package main
 
 import (
@@ -12,11 +13,12 @@ import (
 	"os"
 
 	"github.com/tamarackdb/tamarackdb/internal/buildinfo"
+	"github.com/tamarackdb/tamarackdb/internal/config"
 	"github.com/tamarackdb/tamarackdb/internal/store"
 )
 
 func main() {
-	dbPath := flag.String("db", "", "path of the SQLite database file to create")
+	dataDir := flag.String("dataDir", "", "directory to create the SQLite database files in")
 	showVersion := flag.Bool("version", false, "print the version and exit")
 	flag.Parse()
 
@@ -25,22 +27,35 @@ func main() {
 		return
 	}
 
-	if *dbPath == "" {
+	if *dataDir == "" {
 		flag.Usage()
-		log.Fatal("tamarackdb-init: -db is required")
+		log.Fatal("tamarackdb-init: -dataDir is required")
 	}
 
-	if err := checkNotExists(*dbPath); err != nil {
+	cfg := config.Config{DataDir: *dataDir}
+	eventsPath, documentsPath := cfg.EventsDatabasePath(), cfg.DocumentsDatabasePath()
+
+	if err := checkNotExists(eventsPath); err != nil {
 		log.Fatalf("tamarackdb-init: %v", err)
 	}
-	st, err := store.Open(context.Background(), *dbPath, 0)
+	if err := checkNotExists(documentsPath); err != nil {
+		log.Fatalf("tamarackdb-init: %v", err)
+	}
+	if err := os.MkdirAll(*dataDir, 0o755); err != nil {
+		log.Fatalf("tamarackdb-init: %v", err)
+	}
+
+	st, err := store.Open(context.Background(), eventsPath, 0)
 	if err != nil {
+		log.Fatalf("tamarackdb-init: %v", err)
+	}
+	if err := st.OpenDocuments(context.Background(), documentsPath, 0); err != nil {
 		log.Fatalf("tamarackdb-init: %v", err)
 	}
 	if err := st.Close(); err != nil {
 		log.Fatalf("tamarackdb-init: %v", err)
 	}
-	log.Printf("tamarackdb-init: created database at %s", *dbPath)
+	log.Printf("tamarackdb-init: created %s and %s", eventsPath, documentsPath)
 }
 
 // checkNotExists returns an error if path already exists, so tamarackdb-init

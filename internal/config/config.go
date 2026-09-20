@@ -1,6 +1,6 @@
 // Package config loads TamarackDB's startup configuration: socket path or
 // bind address/port, TLS enablement and certificate/key paths, auth token,
-// database path, and pagination/event-size limits.
+// data directory, and pagination/event-size limits.
 //
 // Values come from a TOML file when present, with any field it omits (or
 // the whole file, if missing) filled in from TAMARACKDB_* environment
@@ -17,7 +17,6 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 
 	"github.com/pelletier/go-toml/v2"
 )
@@ -28,7 +27,7 @@ const (
 	DefaultSocketPath           = "/var/run/tamarackdb-server.sock"
 	DefaultBindAddress          = "127.0.0.1"
 	DefaultPort                 = 8085
-	DefaultDatabasePath         = "data/tamarackdb.sqlite"
+	DefaultDataDir              = "data"
 	DefaultLimit                = 1000
 	DefaultMaxLimit             = 10000
 	DefaultEventSize            = 65536 // 64 KiB
@@ -38,12 +37,15 @@ const (
 	DefaultMaxDocumentsPerWrite = 100
 )
 
-// DefaultDocumentsDBPath is documentsDBPath(DefaultDatabasePath): the
-// tamarackdb-documents.sqlite sibling of the default events database
-// path, for callers (such as -default-config) with no opinion of their
-// own. Load computes the same derivation from the actual, possibly
-// customized, DatabasePath when DocumentsDBPath is left unset.
-var DefaultDocumentsDBPath = documentsDBPath(DefaultDatabasePath)
+// eventsDatabaseFilename and documentsDatabaseFilename are the fixed
+// filenames TamarackDB uses within DataDir: only the directory is
+// configurable, not either file's name, the same convention MySQL's own
+// datadir uses. Unexported: EventsDatabasePath/DocumentsDatabasePath are
+// the only supported way to get at these paths.
+const (
+	eventsDatabaseFilename    = "tamarackdb.sqlite"
+	documentsDatabaseFilename = "tamarackdb-documents.sqlite"
+)
 
 // Config is TamarackDB's startup configuration, resolved once from a TOML
 // file and/or environment variables and never mutated or reloaded while the
@@ -65,15 +67,13 @@ type Config struct {
 	EnableAuth  bool   `toml:"enableAuth"`
 	AuthToken   string `toml:"authToken"`
 
-	DatabasePath string `toml:"databasePath"` // default: data/tamarackdb.sqlite
-
-	// DocumentsDBPath is the path of tamarackdb-documents.sqlite, the
-	// separate file holding document payloads (see docs/design.md's I/O
-	// isolation rationale for why it's a second file rather than a table
-	// in DatabasePath). Optional; defaulted by Load to a sibling of
-	// DatabasePath when omitted: "<name>-documents<ext>" in the same
-	// directory.
-	DocumentsDBPath string `toml:"documentsDbPath"`
+	// DataDir is the directory holding both SQLite files: the events
+	// database (EventsDatabasePath) and the documents database
+	// (DocumentsDatabasePath, see docs/design.md's I/O isolation
+	// rationale for why it's a second file rather than a table in the
+	// events database). Only the directory is configurable; the two
+	// filenames within it are fixed.
+	DataDir string `toml:"dataDir"` // default: data
 
 	// DevMode, when true, registers the DELETE / endpoint, which wipes the
 	// entire database. Never enable this in production.
@@ -154,11 +154,8 @@ func Load(path string) (*Config, error) {
 			cfg.Port = DefaultPort
 		}
 	}
-	if cfg.DatabasePath == "" {
-		cfg.DatabasePath = DefaultDatabasePath
-	}
-	if cfg.DocumentsDBPath == "" {
-		cfg.DocumentsDBPath = documentsDBPath(cfg.DatabasePath)
+	if cfg.DataDir == "" {
+		cfg.DataDir = DefaultDataDir
 	}
 	if cfg.DefaultLimit == 0 {
 		cfg.DefaultLimit = DefaultLimit
@@ -244,14 +241,9 @@ func applyEnv(cfg *Config) error {
 			cfg.AuthToken = v
 		}
 	}
-	if cfg.DatabasePath == "" {
-		if v, ok := os.LookupEnv("TAMARACKDB_DATABASE_PATH"); ok {
-			cfg.DatabasePath = v
-		}
-	}
-	if cfg.DocumentsDBPath == "" {
-		if v, ok := os.LookupEnv("TAMARACKDB_DOCUMENTS_DB_PATH"); ok {
-			cfg.DocumentsDBPath = v
+	if cfg.DataDir == "" {
+		if v, ok := os.LookupEnv("TAMARACKDB_DATA_DIR"); ok {
+			cfg.DataDir = v
 		}
 	}
 	if !cfg.DevMode {
@@ -346,8 +338,8 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("tlsKeyFile must not be empty when enableTls is true")
 	case c.EnableAuth && c.AuthToken == "":
 		return fmt.Errorf("authToken must not be empty when enableAuth is true")
-	case c.DatabasePath == "":
-		return fmt.Errorf("databasePath must not be empty")
+	case c.DataDir == "":
+		return fmt.Errorf("dataDir must not be empty")
 	case c.DefaultLimit <= 0:
 		return fmt.Errorf("defaultLimit must be positive, got %d", c.DefaultLimit)
 	case c.MaxLimit <= 0:
@@ -356,8 +348,6 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("defaultLimit (%d) must not exceed maxLimit (%d)", c.DefaultLimit, c.MaxLimit)
 	case c.MaxEventSize <= 0:
 		return fmt.Errorf("maxEventSize must be positive, got %d", c.MaxEventSize)
-	case c.DocumentsDBPath == "":
-		return fmt.Errorf("documentsDbPath must not be empty")
 	case c.MaxDocumentSize <= 0:
 		return fmt.Errorf("maxDocumentSize must be positive, got %d", c.MaxDocumentSize)
 	case c.MaxDocumentsPerWrite <= 0:
@@ -370,12 +360,14 @@ func (c *Config) Validate() error {
 	return nil
 }
 
-// documentsDBPath derives tamarackdb-documents.sqlite's default path from
-// the events database path: a sibling file in the same directory, named
-// "<name>-documents<ext>". "data/tamarackdb.sqlite" becomes
-// "data/tamarackdb-documents.sqlite".
-func documentsDBPath(databasePath string) string {
-	ext := filepath.Ext(databasePath)
-	name := strings.TrimSuffix(filepath.Base(databasePath), ext)
-	return filepath.Join(filepath.Dir(databasePath), name+"-documents"+ext)
+// EventsDatabasePath is the events SQLite file's path: DataDir joined with
+// its fixed filename.
+func (c Config) EventsDatabasePath() string {
+	return filepath.Join(c.DataDir, eventsDatabaseFilename)
+}
+
+// DocumentsDatabasePath is the documents SQLite file's path: DataDir
+// joined with its fixed filename.
+func (c Config) DocumentsDatabasePath() string {
+	return filepath.Join(c.DataDir, documentsDatabaseFilename)
 }

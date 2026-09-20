@@ -30,7 +30,7 @@ func main() {
 		log.Fatalf("tamarackdb-migrate: %v", err)
 	}
 
-	from, to, err := store.Migrate(context.Background(), cfg.DatabasePath)
+	from, to, err := store.Migrate(context.Background(), cfg.EventsDatabasePath())
 	if err != nil {
 		log.Fatalf("tamarackdb-migrate: %v", err)
 	}
