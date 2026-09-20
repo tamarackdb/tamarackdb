@@ -7,6 +7,21 @@ using SQLite as the storage engine.
 [![release](https://img.shields.io/github/v/release/tamarackdb/tamarackdb)](https://github.com/tamarackdb/tamarackdb/releases/latest)
 [![ci](https://github.com/tamarackdb/tamarackdb/actions/workflows/ci.yml/badge.svg)](https://github.com/tamarackdb/tamarackdb/actions/workflows/ci.yml)
 
+## Features
+
+- Compliant with the DCB specification, with optimistic concurrency on
+  writes.
+- Full HTTP API to read and write events, with pagination for large
+  result sets.
+- Optional document store, for projections that stay in sync with the
+  events that changed them.
+- Single-instance design, so consistency never depends on coordination
+  across a cluster.
+- Single static binary deployment, with no external dependency.
+- Authentication and TLS encryption.
+- Incremental backup and schema migration tooling.
+- Built-in monitoring and troubleshooting endpoints.
+
 ## Documentation
 
 - [Build](docs/build.md): how to build and test TamarackDB from source.
