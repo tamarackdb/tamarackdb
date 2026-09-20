@@ -19,12 +19,19 @@ type migration struct {
 	SQL         string // executed in the same transaction as the user_version bump
 }
 
-// migrations is the ordered history of schema changes. Empty today:
-// schema version 1 is the initial schema (created fresh by
-// ensureSchema/createSchema), not migrated to from anything. The next
-// schema change adds one entry here and bumps schemaVersion in
-// schema.go — those two edits are the only thing a schema change touches.
-var migrations = []migration{}
+// migrations is the ordered history of schema changes. A schema change
+// adds one entry here and bumps schemaVersion in schema.go — those two
+// edits are the only thing a schema change touches.
+var migrations = []migration{
+	{FromVersion: 1, SQL: `
+CREATE TABLE documents (
+    type    TEXT NOT NULL,
+    id      TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    PRIMARY KEY (type, id)
+) WITHOUT ROWID;
+`},
+}
 
 // ErrNoSuchDatabase is returned by Migrate when path doesn't exist.
 // Migrate only advances an already-initialized database; creating one is

@@ -23,7 +23,7 @@ func TestOpenCreatesSchemaOnFreshFile(t *testing.T) {
 		t.Errorf("user_version = %d, want %d", version, schemaVersion)
 	}
 
-	for _, table := range []string{"events", "identifiers", "metadata"} {
+	for _, table := range []string{"events", "identifiers", "metadata", "documents"} {
 		var name string
 		err := s.writeDB.QueryRowContext(context.Background(),
 			"SELECT name FROM sqlite_master WHERE type='table' AND name=?", table).Scan(&name)
@@ -64,6 +64,33 @@ func TestOpenCreatesSchemaOnFreshFile(t *testing.T) {
 	for name, found := range wantColumns {
 		if !found {
 			t.Errorf("events column %q not found", name)
+		}
+	}
+
+	wantDocColumns := map[string]bool{"type": false, "id": false, "version": false}
+	docRows, err := s.writeDB.QueryContext(context.Background(), "PRAGMA table_info(documents)")
+	if err != nil {
+		t.Fatalf("read documents table_info: %v", err)
+	}
+	defer docRows.Close()
+	for docRows.Next() {
+		var cid int
+		var name, colType string
+		var notNull, pk int
+		var dfltValue any
+		if err := docRows.Scan(&cid, &name, &colType, &notNull, &dfltValue, &pk); err != nil {
+			t.Fatalf("scan documents table_info: %v", err)
+		}
+		if _, ok := wantDocColumns[name]; ok {
+			wantDocColumns[name] = true
+		}
+		if name == "payload" {
+			t.Error("documents table has a payload column; it must not, that lives in tamarackdb-documents.sqlite")
+		}
+	}
+	for name, found := range wantDocColumns {
+		if !found {
+			t.Errorf("documents column %q not found", name)
 		}
 	}
 }

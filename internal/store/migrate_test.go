@@ -144,6 +144,56 @@ func TestMigrateToNoMigrationRegistered(t *testing.T) {
 	}
 }
 
+// TestMigrateAddsDocumentsTable exercises the real schema-version-1-to-2
+// migration: a v1 file (events/identifiers/metadata only, no documents
+// table) reaches SchemaVersion with the documents table present.
+func TestMigrateAddsDocumentsTable(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "v1.db")
+	db := openRawSQLite(t, path)
+	if _, err := db.ExecContext(context.Background(), `
+CREATE TABLE events (
+    sequence    INTEGER PRIMARY KEY,
+    time        TEXT NOT NULL,
+    type        TEXT NOT NULL,
+    payload     TEXT NOT NULL,
+    identifiers TEXT NOT NULL,
+    metadata    TEXT NOT NULL
+);
+CREATE TABLE identifiers (
+    event_sequence INTEGER NOT NULL REFERENCES events(sequence),
+    name           TEXT NOT NULL,
+    value          TEXT NOT NULL,
+    PRIMARY KEY (event_sequence, name, value)
+) WITHOUT ROWID;
+CREATE TABLE metadata (
+    event_sequence INTEGER NOT NULL REFERENCES events(sequence),
+    name           TEXT NOT NULL,
+    value          TEXT NOT NULL,
+    PRIMARY KEY (event_sequence, name, value)
+) WITHOUT ROWID;
+PRAGMA user_version = 1;
+`); err != nil {
+		t.Fatalf("create v1 schema: %v", err)
+	}
+	db.Close()
+
+	from, to, err := Migrate(context.Background(), path)
+	if err != nil {
+		t.Fatalf("Migrate() error = %v", err)
+	}
+	if from != 1 || to != SchemaVersion {
+		t.Errorf("Migrate() = (%d, %d), want (1, %d)", from, to, SchemaVersion)
+	}
+
+	db2 := openRawSQLite(t, path)
+	defer db2.Close()
+	var name string
+	if err := db2.QueryRowContext(context.Background(),
+		"SELECT name FROM sqlite_master WHERE type='table' AND name='documents'").Scan(&name); err != nil {
+		t.Errorf("table documents not found after migration: %v", err)
+	}
+}
+
 // openRawSQLite opens path with plain database/sql, bypassing store.Open
 // entirely, so the file is left with SQLite's own default user_version
 // (0) rather than being initialized to SchemaVersion.
