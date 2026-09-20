@@ -17,16 +17,36 @@ var ErrConcurrencyConflict = errors.New("store: an event matching the append con
 // processes are never meant to share one TamarackDB database file.
 var ErrDatabaseLocked = errors.New("store: database file is locked by another tamarackdb process")
 
+// ErrDocumentsNotOpen is returned by GetDocument, DeleteDocumentsByType,
+// and Append (only when it's actually asked to write documents) when
+// OpenDocuments was never called on this Store. A Store used only for
+// events (most tests, cmd/tamarackdb-demo) never needs to call it.
+var ErrDocumentsNotOpen = errors.New("store: tamarackdb-documents.sqlite was not opened; call OpenDocuments first")
+
 // Primary SQLite result codes (https://www.sqlite.org/rescode.html). An
 // extended result code packs detail into higher bits (e.g.
-// SQLITE_IOERR_WRITE = SQLITE_IOERR | (3<<8)); IsFatal masks with & 0xff
-// before comparing.
+// SQLITE_IOERR_WRITE = SQLITE_IOERR | (3<<8)); IsFatal and
+// isConstraintViolation mask with & 0xff before comparing.
 const (
-	sqliteIOErr    = 10
-	sqliteCorrupt  = 11
-	sqliteCantOpen = 14
-	sqliteNotADB   = 26
+	sqliteIOErr      = 10
+	sqliteCorrupt    = 11
+	sqliteCantOpen   = 14
+	sqliteConstraint = 19
+	sqliteNotADB     = 26
 )
+
+// isConstraintViolation reports whether err is a SQLite constraint
+// failure (e.g. a PRIMARY KEY collision from the document-creation
+// INSERT in document.go). Distinct from IsFatal: a constraint violation
+// means the request conflicts with existing data, not that the database
+// file is compromised.
+func isConstraintViolation(err error) bool {
+	var sqliteErr *sqlite.Error
+	if !errors.As(err, &sqliteErr) {
+		return false
+	}
+	return sqliteErr.Code()&0xff == sqliteConstraint
+}
 
 // IsFatal reports whether err indicates the SQLite file itself may be
 // compromised: an I/O error, detected corruption, or failure to open the

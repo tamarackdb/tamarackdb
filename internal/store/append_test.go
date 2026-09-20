@@ -85,7 +85,7 @@ func TestAppendEmptyConditionSameAsNil(t *testing.T) {
 	mustAppend(t, s, []dcb.EventData{eventWithIdentifier("t", "courseId", "123")}, nil)
 
 	// AppendCondition{} with both fields nil must perform no check at all.
-	_, err := s.Append(context.Background(), []dcb.EventData{eventWithIdentifier("t", "courseId", "123")}, &dcb.AppendCondition{})
+	_, _, err := s.Append(context.Background(), []dcb.EventData{eventWithIdentifier("t", "courseId", "123")}, &dcb.AppendCondition{}, nil)
 	if err != nil {
 		t.Fatalf("Append() with empty AppendCondition{} error = %v, want nil", err)
 	}
@@ -101,7 +101,7 @@ func TestAppendConditionConflictOnMatchingQuery(t *testing.T) {
 	mustAppend(t, s, []dcb.EventData{eventWithIdentifier("t", "courseId", "123")}, nil)
 
 	q := dcb.NewQuery([]dcb.QueryItem{{Identifiers: []dcb.Identifier{{Name: "courseId", Value: "123"}}}})
-	_, err := s.Append(context.Background(), []dcb.EventData{eventWithIdentifier("t", "courseId", "999")}, &dcb.AppendCondition{FailIfEventsMatch: &q})
+	_, _, err := s.Append(context.Background(), []dcb.EventData{eventWithIdentifier("t", "courseId", "999")}, &dcb.AppendCondition{FailIfEventsMatch: &q}, nil)
 	if !errors.Is(err, ErrConcurrencyConflict) {
 		t.Fatalf("Append() error = %v, want ErrConcurrencyConflict", err)
 	}
@@ -122,7 +122,7 @@ func TestAppendConditionAfterSequenceOnlyDefaultsToQueryAll(t *testing.T) {
 	// conflict against ANY event after afterSequence, even one that
 	// wouldn't match any real business query.
 	cond := &dcb.AppendCondition{AfterSequence: &seq}
-	_, err := s.Append(context.Background(), []dcb.EventData{{Type: "unrelated-append"}}, cond)
+	_, _, err := s.Append(context.Background(), []dcb.EventData{{Type: "unrelated-append"}}, cond, nil)
 	if !errors.Is(err, ErrConcurrencyConflict) {
 		t.Fatalf("Append() error = %v, want ErrConcurrencyConflict", err)
 	}
@@ -131,7 +131,7 @@ func TestAppendConditionAfterSequenceOnlyDefaultsToQueryAll(t *testing.T) {
 	// after it, so no conflict.
 	seqAfter := first[0].Sequence
 	condOK := &dcb.AppendCondition{AfterSequence: &seqAfter}
-	_, err = s.Append(context.Background(), []dcb.EventData{{Type: "unrelated-append"}}, condOK)
+	_, _, err = s.Append(context.Background(), []dcb.EventData{{Type: "unrelated-append"}}, condOK, nil)
 	if err != nil {
 		t.Fatalf("Append() error = %v, want nil", err)
 	}
@@ -201,7 +201,7 @@ func TestAppendConditionFullCheckWhenEventsExistSinceReadButNoMatch(t *testing.T
 
 	q := dcb.NewQuery([]dcb.QueryItem{{Identifiers: []dcb.Identifier{{Name: "courseId", Value: "123"}}}})
 	cond := &dcb.AppendCondition{FailIfEventsMatch: &q, AfterSequence: &readSeq}
-	if _, err := s.Append(context.Background(), []dcb.EventData{eventWithIdentifier("t", "courseId", "789")}, cond); err != nil {
+	if _, _, err := s.Append(context.Background(), []dcb.EventData{eventWithIdentifier("t", "courseId", "789")}, cond, nil); err != nil {
 		t.Fatalf("Append() error = %v, want nil: the event committed since the read doesn't match the protected query", err)
 	}
 }
@@ -235,7 +235,7 @@ func TestAppendFailedConditionLeavesNoGapInSequence(t *testing.T) {
 	first := mustAppend(t, s, []dcb.EventData{eventWithIdentifier("t", "courseId", "123")}, nil)
 
 	q := dcb.NewQuery([]dcb.QueryItem{{Identifiers: []dcb.Identifier{{Name: "courseId", Value: "123"}}}})
-	_, err := s.Append(context.Background(), []dcb.EventData{eventWithIdentifier("t", "courseId", "999")}, &dcb.AppendCondition{FailIfEventsMatch: &q})
+	_, _, err := s.Append(context.Background(), []dcb.EventData{eventWithIdentifier("t", "courseId", "999")}, &dcb.AppendCondition{FailIfEventsMatch: &q}, nil)
 	if !errors.Is(err, ErrConcurrencyConflict) {
 		t.Fatalf("Append() error = %v, want ErrConcurrencyConflict", err)
 	}

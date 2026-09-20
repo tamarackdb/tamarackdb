@@ -94,11 +94,11 @@ func TestRunCopiesAllEventsAcrossMultiplePages(t *testing.T) {
 	defer sourceStore.Close()
 
 	for i := 0; i < 7; i++ {
-		_, err := sourceStore.Append(context.Background(), []dcb.EventData{{
+		_, _, err := sourceStore.Append(context.Background(), []dcb.EventData{{
 			Type:        "Seeded",
 			Identifiers: dcb.IdentifierSet{{Name: "n", Value: fmt.Sprintf("%d", i)}},
 			Payload:     fmt.Sprintf(`{"i":%d}`, i),
-		}}, nil)
+		}}, nil, nil)
 		if err != nil {
 			t.Fatalf("Append() error = %v", err)
 		}
@@ -136,7 +136,7 @@ func TestRunResumesFromLastImportedSequence(t *testing.T) {
 
 	mustSourceAppend := func(n int) {
 		for i := 0; i < n; i++ {
-			if _, err := sourceStore.Append(context.Background(), []dcb.EventData{{Type: "Seeded"}}, nil); err != nil {
+			if _, _, err := sourceStore.Append(context.Background(), []dcb.EventData{{Type: "Seeded"}}, nil, nil); err != nil {
 				t.Fatalf("Append() error = %v", err)
 			}
 		}
@@ -192,7 +192,7 @@ func TestRunFailsWithoutTouchingAlreadyImportedPages(t *testing.T) {
 		t.Fatalf("Open() error = %v", err)
 	}
 	defer sourceStore.Close()
-	if _, err := sourceStore.Append(context.Background(), []dcb.EventData{{Type: "Seeded"}}, nil); err != nil {
+	if _, _, err := sourceStore.Append(context.Background(), []dcb.EventData{{Type: "Seeded"}}, nil, nil); err != nil {
 		t.Fatalf("Append() error = %v", err)
 	}
 

@@ -81,7 +81,7 @@ func main() {
 		for i := range batch {
 			batch[i] = generateEvent(rng)
 		}
-		if _, err := st.Append(ctx, batch, nil); err != nil {
+		if _, _, err := st.Append(ctx, batch, nil, nil); err != nil {
 			log.Fatalf("tamarackdb-demo: %v", err)
 		}
 		appended += batchSize

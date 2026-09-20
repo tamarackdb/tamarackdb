@@ -58,7 +58,9 @@ func (s *Server) handleAppend(w http.ResponseWriter, r *http.Request) {
 	}
 	defer ticket.Done()
 
-	events, err := s.st.Append(r.Context(), req.Events, req.Condition)
+	// TODO(section 4): pass req.Documents once appendRequest carries a
+	// Documents field; this endpoint is being renamed to /write there too.
+	events, _, err := s.st.Append(r.Context(), req.Events, req.Condition, nil)
 	if err != nil {
 		s.handleErr(w, r, err) // store.ErrConcurrencyConflict -> 409, etc.
 		return

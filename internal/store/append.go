@@ -8,12 +8,14 @@ import (
 	"time"
 
 	"github.com/tamarackdb/tamarackdb/internal/dcb"
+	"github.com/tamarackdb/tamarackdb/internal/document"
 )
 
-// Append writes events in a single SQLite transaction (BEGIN IMMEDIATE, via
-// the write pool's _txlock=immediate DSN), optionally checking condition
-// first. events is assumed already validated by the caller (dcb.EventData
-// .Validate, the 100-events-per-append cap): this package doesn't
+// Append writes events and document metadata in a single SQLite
+// transaction (BEGIN IMMEDIATE, via the write pool's _txlock=immediate
+// DSN), optionally checking condition first. events and documents are
+// assumed already validated by the caller (dcb.EventData.Validate/
+// document.Data.Validate, the per-write caps): this package doesn't
 // re-validate request shape, only concurrency and persistence.
 //
 // BEGIN IMMEDIATE takes SQLite's write lock before the condition check
@@ -25,13 +27,27 @@ import (
 // and keeps this package correct even when Append is called directly, with
 // no queue manager in front of it at all, as cmd/tamarackdb-demo and this package's
 // own tests do.
-func (s *Store) Append(ctx context.Context, events []dcb.EventData, condition *dcb.AppendCondition) ([]dcb.Event, error) {
-	if len(events) == 0 {
-		return nil, nil
+//
+// Once that transaction commits, events and document identity/version are
+// final — including for a conflicting document, which rolls back the
+// whole transaction, events included, the same as a failed condition.
+// Only then does Append write each document's payload to
+// tamarackdb-documents.sqlite, independently per document and after the
+// point of no return: a payload write failing there is reported in the
+// returned []DocumentWriteResult (PayloadWritten: false), never as an
+// error from Append itself, and never undoes the commit above. See the
+// design doc's "Deux stockages, deux garanties différentes" for why.
+func (s *Store) Append(ctx context.Context, events []dcb.EventData, condition *dcb.AppendCondition, documents []document.Data) ([]dcb.Event, []DocumentWriteResult, error) {
+	if len(events) == 0 && len(documents) == 0 {
+		return nil, nil, nil
 	}
+	if len(documents) > 0 && s.docWriteDB == nil {
+		return nil, nil, ErrDocumentsNotOpen
+	}
+
 	tx, err := s.writeDB.BeginTx(ctx, nil)
 	if err != nil {
-		return nil, wrapf("begin append", err)
+		return nil, nil, wrapf("begin append", err)
 	}
 	defer tx.Rollback() // no-op after Commit
 
@@ -44,11 +60,11 @@ func (s *Store) Append(ctx context.Context, events []dcb.EventData, condition *d
 		if !decided {
 			holds, err = checkFailIfEventsMatchSQL(ctx, tx, *condition.FailIfEventsMatch, after)
 			if err != nil {
-				return nil, wrapf("check append condition", err)
+				return nil, nil, wrapf("check append condition", err)
 			}
 		}
 		if !holds {
-			return nil, ErrConcurrencyConflict
+			return nil, nil, ErrConcurrencyConflict
 		}
 	}
 
@@ -67,19 +83,37 @@ func (s *Store) Append(ctx context.Context, events []dcb.EventData, condition *d
 	}
 
 	if err := insertEventsBatch(ctx, tx, result); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if err := insertIdentifiersBatch(ctx, tx, result); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if err := insertMetadataBatch(ctx, tx, result); err != nil {
-		return nil, err
+		return nil, nil, err
+	}
+
+	docResults := make([]DocumentWriteResult, len(documents))
+	for i, d := range documents {
+		newVersion, err := applyDocumentMetadata(ctx, tx, d)
+		if err != nil {
+			return nil, nil, err
+		}
+		docResults[i] = DocumentWriteResult{Type: d.Type, ID: d.ID, Version: newVersion}
 	}
 
 	if err := tx.Commit(); err != nil {
-		return nil, wrapf("commit append", err)
+		return nil, nil, wrapf("commit append", err)
 	}
-	return result, nil
+
+	// Point of no return: events and document metadata are now durable.
+	// A payload write failing from here on is this document's problem
+	// alone, reported below, never grounds to have rolled back the commit
+	// above (which has, in any case, already happened).
+	for i, d := range documents {
+		docResults[i].PayloadWritten = s.writeDocumentPayload(ctx, d, docResults[i].Version) == nil
+	}
+
+	return result, docResults, nil
 }
 
 // peekLastAssigned returns the highest sequence number the in-memory
