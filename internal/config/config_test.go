@@ -43,6 +43,7 @@ func TestLoadFullConfig(t *testing.T) {
 		BindAddress: "0.0.0.0", Port: 8443,
 		EnableTLS: true, TLSCertFile: "/etc/tamarackdb/cert.pem", TLSKeyFile: "/etc/tamarackdb/key.pem",
 		EnableAuth: true, AuthToken: "secret", DataDir: "/var/lib/tamarackdb",
+		LogLevel: DefaultLogLevel,
 		DefaultLimit: 500, MaxLimit: 5000, MaxEventSize: 32768,
 		MaxDocumentSize: 16384, MaxDocumentsPerWrite: 50,
 		MaxQueuedWriters: 250, ReadPoolSize: 16,
@@ -282,7 +283,7 @@ func TestLoadFileNotFoundUsesBuiltInDefaults(t *testing.T) {
 		t.Fatalf("Load() error = %v, want nil (built-in defaults cover every required field)", err)
 	}
 	want := Config{
-		SocketPath: DefaultSocketPath, DataDir: DefaultDataDir,
+		SocketPath: DefaultSocketPath, DataDir: DefaultDataDir, LogLevel: DefaultLogLevel,
 		DefaultLimit: DefaultLimit, MaxLimit: DefaultMaxLimit, MaxEventSize: DefaultEventSize,
 		MaxDocumentSize: DefaultDocumentSize, MaxDocumentsPerWrite: DefaultMaxDocumentsPerWrite,
 		MaxQueuedWriters: DefaultMaxQueuedWriters, ReadPoolSize: DefaultReadPoolSize,
@@ -411,7 +412,7 @@ func TestLoadFromEnvWithoutFile(t *testing.T) {
 	want := Config{
 		BindAddress: "0.0.0.0", Port: 8443,
 		TLSCertFile: "cert.pem", TLSKeyFile: "key.pem",
-		AuthToken: "secret", DataDir: "data",
+		AuthToken: "secret", DataDir: "data", LogLevel: DefaultLogLevel,
 		DefaultLimit: DefaultLimit, MaxLimit: DefaultMaxLimit, MaxEventSize: DefaultEventSize,
 		MaxDocumentSize: DefaultDocumentSize, MaxDocumentsPerWrite: DefaultMaxDocumentsPerWrite,
 		MaxQueuedWriters: DefaultMaxQueuedWriters, ReadPoolSize: DefaultReadPoolSize,
@@ -744,10 +745,96 @@ func TestLoadMaxDocumentsPerWriteFromEnv(t *testing.T) {
 	}
 }
 
+func TestLoadLogLevelFromFile(t *testing.T) {
+	path := writeConfigFile(t, `[server]
+		bindAddress = "0.0.0.0"
+		port = 8443
+		tlsCertFile = "cert.pem"
+		tlsKeyFile = "key.pem"
+		authToken = "secret"
+		dataDir = "data"
+		logLevel = "DEBUG"
+	`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.LogLevel != "debug" {
+		t.Errorf("LogLevel = %q, want %q (lowercased)", cfg.LogLevel, "debug")
+	}
+}
+
+func TestLoadLogLevelFromEnv(t *testing.T) {
+	setEnv(t, map[string]string{"TAMARACKDB_LOG_LEVEL": "Error"})
+	path := writeConfigFile(t, `[server]
+		bindAddress = "0.0.0.0"
+		port = 8443
+		tlsCertFile = "cert.pem"
+		tlsKeyFile = "key.pem"
+		authToken = "secret"
+		dataDir = "data"
+	`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.LogLevel != "error" {
+		t.Errorf("LogLevel = %q, want %q (from env, lowercased)", cfg.LogLevel, "error")
+	}
+}
+
+func TestLoadLogLevelDefault(t *testing.T) {
+	path := writeConfigFile(t, `[server]
+		bindAddress = "0.0.0.0"
+		port = 8443
+		tlsCertFile = "cert.pem"
+		tlsKeyFile = "key.pem"
+		authToken = "secret"
+		dataDir = "data"
+	`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.LogLevel != DefaultLogLevel {
+		t.Errorf("LogLevel = %q, want %q (default)", cfg.LogLevel, DefaultLogLevel)
+	}
+}
+
+func TestValidateLogLevelValues(t *testing.T) {
+	for _, lvl := range []string{"debug", "info", "warning", "error"} {
+		t.Run(lvl, func(t *testing.T) {
+			cfg := Config{
+				BindAddress: "0.0.0.0", Port: 8443,
+				AuthToken: "secret", DataDir: "data", LogLevel: lvl,
+				DefaultLimit: 1000, MaxLimit: 10000, MaxEventSize: 65536,
+				MaxDocumentSize: 65536, MaxDocumentsPerWrite: 100,
+				MaxQueuedWriters: 100, ReadPoolSize: 8,
+			}
+			if err := cfg.Validate(); err != nil {
+				t.Errorf("Validate() error = %v, want nil for logLevel = %q", err, lvl)
+			}
+		})
+	}
+}
+
+func TestValidateInvalidLogLevel(t *testing.T) {
+	cfg := Config{
+		BindAddress: "0.0.0.0", Port: 8443,
+		AuthToken: "secret", DataDir: "data", LogLevel: "verbose",
+		DefaultLimit: 1000, MaxLimit: 10000, MaxEventSize: 65536,
+		MaxDocumentSize: 65536, MaxDocumentsPerWrite: 100,
+		MaxQueuedWriters: 100, ReadPoolSize: 8,
+	}
+	if err := cfg.Validate(); err == nil {
+		t.Error("Validate() error = nil, want error for logLevel = \"verbose\"")
+	}
+}
+
 func TestValidateNonPositiveMaxDocumentSize(t *testing.T) {
 	cfg := Config{
 		BindAddress: "0.0.0.0", Port: 8443,
-		AuthToken: "secret", DataDir: "data",
+		AuthToken: "secret", DataDir: "data", LogLevel: "warning",
 		DefaultLimit: 1000, MaxLimit: 10000, MaxEventSize: 65536,
 		MaxDocumentSize: 0, MaxDocumentsPerWrite: 100,
 		MaxQueuedWriters: 100, ReadPoolSize: 8,
@@ -760,7 +847,7 @@ func TestValidateNonPositiveMaxDocumentSize(t *testing.T) {
 func TestValidateNonPositiveMaxDocumentsPerWrite(t *testing.T) {
 	cfg := Config{
 		BindAddress: "0.0.0.0", Port: 8443,
-		AuthToken: "secret", DataDir: "data",
+		AuthToken: "secret", DataDir: "data", LogLevel: "warning",
 		DefaultLimit: 1000, MaxLimit: 10000, MaxEventSize: 65536,
 		MaxDocumentSize: 65536, MaxDocumentsPerWrite: 0,
 		MaxQueuedWriters: 100, ReadPoolSize: 8,
@@ -773,7 +860,7 @@ func TestValidateNonPositiveMaxDocumentsPerWrite(t *testing.T) {
 func TestValidateEmptyDataDir(t *testing.T) {
 	cfg := Config{
 		BindAddress: "0.0.0.0", Port: 8443,
-		AuthToken: "secret", DataDir: "",
+		AuthToken: "secret", DataDir: "", LogLevel: "warning",
 		DefaultLimit: 1000, MaxLimit: 10000, MaxEventSize: 65536,
 		MaxDocumentSize: 65536, MaxDocumentsPerWrite: 100,
 		MaxQueuedWriters: 100, ReadPoolSize: 8,
@@ -787,7 +874,7 @@ func TestValidateDirectly(t *testing.T) {
 	cfg := Config{
 		BindAddress: "0.0.0.0", Port: 8443,
 		EnableTLS: true, TLSCertFile: "cert.pem", TLSKeyFile: "key.pem",
-		EnableAuth: true, AuthToken: "secret", DataDir: "data",
+		EnableAuth: true, AuthToken: "secret", DataDir: "data", LogLevel: "warning",
 		DefaultLimit: 1000, MaxLimit: 10000, MaxEventSize: 65536,
 		MaxDocumentSize: 65536, MaxDocumentsPerWrite: 100, MaxQueuedWriters: 100,
 		ReadPoolSize: 8,
@@ -814,7 +901,7 @@ func TestValidateNonPositiveMaxQueuedWriters(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := Config{
 				BindAddress: "0.0.0.0", Port: 8443,
-				AuthToken: "secret", DataDir: "data",
+				AuthToken: "secret", DataDir: "data", LogLevel: "warning",
 				DefaultLimit: 1000, MaxLimit: 10000, MaxEventSize: 65536,
 				MaxDocumentSize: 65536, MaxDocumentsPerWrite: 100,
 				MaxQueuedWriters: tt.maxQueuedWriters, ReadPoolSize: 8,
@@ -838,7 +925,7 @@ func TestValidateNonPositiveReadPoolSize(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := Config{
 				BindAddress: "0.0.0.0", Port: 8443,
-				AuthToken: "secret", DataDir: "data",
+				AuthToken: "secret", DataDir: "data", LogLevel: "warning",
 				DefaultLimit: 1000, MaxLimit: 10000, MaxEventSize: 65536,
 				MaxDocumentSize: 65536, MaxDocumentsPerWrite: 100,
 				MaxQueuedWriters: 100, ReadPoolSize: tt.readPoolSize,

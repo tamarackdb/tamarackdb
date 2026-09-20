@@ -59,6 +59,15 @@ type Options struct {
 	// production.
 	DevMode bool
 
+	// LogLevel is the minimum severity the per-request access log line
+	// (withLogging) is written at: a request whose computed level is
+	// below this is not logged at all. One of "debug", "info",
+	// "warning", "error". internal/api applies no defaulting or
+	// case-folding of its own: this must already be one of the four
+	// exact lowercase names by the time it reaches here, the same
+	// "already resolved" contract every other Options field follows.
+	LogLevel string
+
 	// OnFatalStorageError, if non-nil, is called whenever a handler
 	// observes store.IsFatal(err) == true. The handler itself never
 	// crashes the process, only reports; a future main.go supplies a
@@ -96,6 +105,10 @@ type Server struct {
 	// lifetime, including NDJSON streaming.
 	readHTTPOpen atomic.Int64
 
+	// logThreshold is Options.LogLevel parsed once at construction; see
+	// withLogging.
+	logThreshold level
+
 	handler http.Handler
 }
 
@@ -108,6 +121,7 @@ type Server struct {
 // bugs, not request-time conditions, the same "fail loud and immediately"
 // treatment store.Open gives a bad database file.
 func New(qm *queue.Manager, st *store.Store, opts Options) *Server {
+	logThreshold, validLogLevel := parseLevel(opts.LogLevel)
 	switch {
 	case qm == nil:
 		panic("api: New: qm must not be nil")
@@ -125,9 +139,11 @@ func New(qm *queue.Manager, st *store.Store, opts Options) *Server {
 		panic("api: New: Options.MaxDocumentSize must be positive")
 	case opts.MaxDocumentsPerWrite <= 0:
 		panic("api: New: Options.MaxDocumentsPerWrite must be positive")
+	case !validLogLevel:
+		panic(`api: New: Options.LogLevel must be one of "debug", "info", "warning", "error"`)
 	}
 
-	s := &Server{qm: qm, st: st, opts: opts}
+	s := &Server{qm: qm, st: st, opts: opts, logThreshold: logThreshold}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("QUERY /events", s.handleEvents)

@@ -38,6 +38,7 @@ file works whether you run one binary or both.
 | `maxQueuedWriters` | `TAMARACKDB_MAX_QUEUED_WRITERS` | `100` | Maximum writers waiting to write at once |
 | `readPoolSize` | `TAMARACKDB_READ_POOL_SIZE` | `8` | SQLite connections available for `/events`, and so how many can run at once |
 | `devMode` | `TAMARACKDB_DEV_MODE` | `false` | Turns on `DELETE /events` (wipes every event) and `/debug/pprof/*` (profiling endpoints). Never enable this in production. |
+| `logLevel` | `TAMARACKDB_LOG_LEVEL` | `warning` | Minimum severity for the per-request access log line: `debug`, `info`, `warning`, or `error` |
 
 By default, TamarackDB listens on a unix socket instead of a TCP port. This
 keeps it off the network entirely unless you opt in, the way MySQL's own
@@ -66,12 +67,16 @@ variables cover a deployment with no file at all.
 ./bin/tamarackdb-server --config /path/to/config.toml
 ```
 
-Once running, the server logs one line per request to stdout: method, path, status
-code, response size, and time taken, e.g. `tamarackdb-server: POST /write 200 42B
-1.23ms`. It opens everything it needs under `dataDir` (creating it, with its
-schema, if it doesn't exist yet), so the documents mechanism (see
-[design.md](design.md#documents)) is ready without a separate provisioning
-step.
+Once running, the server logs one line per request to stdout, tagged with a
+severity level: method, path, status code, response size, and time taken,
+e.g. `tamarackdb-server: [WARNING] POST /append 503 12B 4.10ms`. Only lines
+at or above `logLevel` are printed; by default that's `warning`, so a plain
+successful request or an expected rejection like a concurrency conflict
+stays quiet, and only capacity issues and real failures show up. See
+[Logs](#logs) for the full list of severities. It opens everything it needs
+under `dataDir` (creating it, with its schema, if it doesn't exist yet), so
+the documents mechanism (see [design.md](design.md#documents)) is ready
+without a separate provisioning step.
 
 ## Provisioning and migration
 
@@ -186,8 +191,35 @@ an aggregate, use `/debug/pprof/trace?seconds=30` with `go tool trace`.
 
 ## Logs
 
-While testing an integration, watch the server's stdout: one line per request, with
-method, path, status code, response size, and time taken, e.g. `tamarackdb-server:
-POST /write 200 42B 1.23ms`. At startup, it also prints a banner and its resolved
-configuration (bind address, port, data directory, limits, and so on), so you
-can confirm what a given instance is actually running with.
+The server logs one line per request to stdout, tagged with a severity level:
+method, path, status code, response size, and time taken, e.g.
+`tamarackdb-server: [WARNING] POST /write 503 12B 4.10ms`. By default only
+`warning` and `error` lines print; set `logLevel` to `debug` to see every
+request, including successful ones, while testing an integration.
+
+Each outcome carries a fixed level, not derived from the status code alone:
+
+| Outcome | Status | Level |
+|---|---|---|
+| Successful request | 2XX | `debug` |
+| Document not found | 404 | `debug` |
+| Document not ready yet | 503 | `debug` |
+| Concurrency conflict | 409 | `debug` |
+| Invalid request | 400 | `info` |
+| Payload too large | 413 | `info` |
+| Missing or invalid bearer token | 401 | `info` |
+| Write-admission queue full | 503 | `warning` |
+| Internal error | 500 | `error` |
+| Storage unreachable | 503 | `error` |
+
+A successful request and an expected rejection, such as a concurrency
+conflict or a document that hasn't caught up yet, are both `debug`: the
+server did exactly what it was supposed to do. A malformed or oversized
+request, or a bad token, is `info`: not the server's fault, but worth
+knowing about. A full write-admission queue is `warning`: a real signal of
+capacity or contention. An internal error or an unreachable store is
+`error`: a real failure.
+
+At startup, the server also prints a banner and its resolved configuration
+(bind address, port, data directory, limits, and so on), so you can confirm
+what a given instance is actually running with.

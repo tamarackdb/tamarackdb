@@ -69,6 +69,7 @@ func main() {
 	fmt.Printf("enableAuth: %t\n", cfg.EnableAuth)
 	fmt.Printf("dataDir: %s\n", cfg.DataDir)
 	fmt.Printf("devMode: %t\n", cfg.DevMode)
+	fmt.Printf("logLevel: %s\n", cfg.LogLevel)
 	fmt.Printf("defaultLimit: %d\n", cfg.DefaultLimit)
 	fmt.Printf("maxLimit: %d\n", cfg.MaxLimit)
 	fmt.Printf("maxEventSize: %d\n", cfg.MaxEventSize)
@@ -100,6 +101,7 @@ func main() {
 		MaxDocumentSize:      cfg.MaxDocumentSize,
 		MaxDocumentsPerWrite: cfg.MaxDocumentsPerWrite,
 		DevMode:              cfg.DevMode,
+		LogLevel:             cfg.LogLevel,
 		OnFatalStorageError: func(err error) {
 			select {
 			case fatalCh <- err:
@@ -202,6 +204,7 @@ const defaultConfigTemplate = `[server]
 # authToken = "changeme"
 # dataDir = "%s"
 # devMode = false
+# logLevel = "%s"
 # defaultLimit = %d
 # maxLimit = %d
 # maxEventSize = %d
@@ -216,6 +219,7 @@ const defaultConfigTemplate = `[server]
 func printDefaultConfig() {
 	fmt.Printf(defaultConfigTemplate,
 		config.DefaultSocketPath, config.DefaultBindAddress, config.DefaultPort, config.DefaultDataDir,
+		config.DefaultLogLevel,
 		config.DefaultLimit, config.DefaultMaxLimit, config.DefaultEventSize,
 		config.DefaultDocumentSize, config.DefaultMaxDocumentsPerWrite,
 		config.DefaultMaxQueuedWriters, config.DefaultReadPoolSize)

@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/pelletier/go-toml/v2"
 )
@@ -35,6 +36,7 @@ const (
 	DefaultReadPoolSize         = 8
 	DefaultDocumentSize         = 65536 // 64 KiB
 	DefaultMaxDocumentsPerWrite = 100
+	DefaultLogLevel             = "warning"
 )
 
 // eventsDatabaseFilename and documentsDatabaseFilename are the fixed
@@ -78,6 +80,13 @@ type Config struct {
 	// DevMode, when true, registers the DELETE / endpoint, which wipes the
 	// entire database. Never enable this in production.
 	DevMode bool `toml:"devMode"`
+
+	// LogLevel is the minimum severity the per-request access log line is
+	// written at: "debug", "info", "warning", or "error", case-insensitive
+	// in the file or environment (Load lowercases it). Anything below
+	// this threshold is not logged at all. Optional; defaulted by Load
+	// when omitted, like the fields above.
+	LogLevel string `toml:"logLevel"` // default: warning
 
 	// Optional; defaulted by Load when omitted (zero value in the file and
 	// unset in the environment).
@@ -142,6 +151,7 @@ func Load(path string) (*Config, error) {
 	if err := applyEnv(&cfg); err != nil {
 		return nil, fmt.Errorf("config: %w", err)
 	}
+	cfg.LogLevel = strings.ToLower(cfg.LogLevel)
 
 	if cfg.SocketPath == "" && cfg.BindAddress == "" && cfg.Port == 0 {
 		cfg.SocketPath = DefaultSocketPath
@@ -156,6 +166,9 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.DataDir == "" {
 		cfg.DataDir = DefaultDataDir
+	}
+	if cfg.LogLevel == "" {
+		cfg.LogLevel = DefaultLogLevel
 	}
 	if cfg.DefaultLimit == 0 {
 		cfg.DefaultLimit = DefaultLimit
@@ -244,6 +257,11 @@ func applyEnv(cfg *Config) error {
 	if cfg.DataDir == "" {
 		if v, ok := os.LookupEnv("TAMARACKDB_DATA_DIR"); ok {
 			cfg.DataDir = v
+		}
+	}
+	if cfg.LogLevel == "" {
+		if v, ok := os.LookupEnv("TAMARACKDB_LOG_LEVEL"); ok {
+			cfg.LogLevel = v
 		}
 	}
 	if !cfg.DevMode {
@@ -340,6 +358,8 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("authToken must not be empty when enableAuth is true")
 	case c.DataDir == "":
 		return fmt.Errorf("dataDir must not be empty")
+	case c.LogLevel != "debug" && c.LogLevel != "info" && c.LogLevel != "warning" && c.LogLevel != "error":
+		return fmt.Errorf("logLevel must be one of \"debug\", \"info\", \"warning\", \"error\", got %q", c.LogLevel)
 	case c.DefaultLimit <= 0:
 		return fmt.Errorf("defaultLimit must be positive, got %d", c.DefaultLimit)
 	case c.MaxLimit <= 0:

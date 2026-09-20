@@ -41,6 +41,7 @@ func newTestServerWithMaxQueued(t *testing.T, maxQueued int) (*Server, *queue.Ma
 		MaxEventSize:         65536,
 		MaxDocumentSize:      65536,
 		MaxDocumentsPerWrite: 100,
+		LogLevel:             "debug",
 	})
 	return srv, qm, st
 }
@@ -70,6 +71,7 @@ func newTestServerWithDocuments(t *testing.T) (*Server, *queue.Manager, *store.S
 		MaxEventSize:         65536,
 		MaxDocumentSize:      65536,
 		MaxDocumentsPerWrite: 100,
+		LogLevel:             "debug",
 	})
 	return srv, qm, st
 }

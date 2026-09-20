@@ -22,6 +22,7 @@ func newSourceServer(t *testing.T, st *store.Store) *httptest.Server {
 	t.Helper()
 	srv := api.New(queue.New(100), st, api.Options{
 		DefaultLimit: 1000, MaxLimit: 10000, MaxEventSize: 65536, MaxDocumentSize: 65536, MaxDocumentsPerWrite: 100,
+		LogLevel: "debug",
 	})
 	ts := httptest.NewServer(srv)
 	t.Cleanup(ts.Close)

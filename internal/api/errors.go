@@ -25,6 +25,11 @@ type errorEnvelope struct {
 // every error response through this (directly, or via handleErr) — no
 // handler builds error JSON by hand.
 func writeError(w http.ResponseWriter, status int, code, message string) {
+	if sw, ok := w.(*statusWriter); ok {
+		if lvl, ok := codeLevel[code]; ok {
+			sw.level = lvl
+		}
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(errorEnvelope{Error: code, Message: message})

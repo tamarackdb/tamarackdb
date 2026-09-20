@@ -37,6 +37,7 @@ func newDevModeTestServerWithMaxQueued(t *testing.T, maxQueued int) (*Server, *q
 		MaxEventSize:         65536,
 		MaxDocumentSize:      65536,
 		MaxDocumentsPerWrite: 100,
+		LogLevel:             "debug",
 		DevMode:              true,
 	})
 	return srv, qm, st

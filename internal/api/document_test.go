@@ -46,6 +46,7 @@ func TestGetDocumentNotReady(t *testing.T) {
 	srv := New(qm, st, Options{
 		EnableAuth: true, AuthToken: testToken, DefaultLimit: 1000, MaxLimit: 10000,
 		MaxEventSize: 65536, MaxDocumentSize: 65536, MaxDocumentsPerWrite: 100,
+		LogLevel: "debug",
 	})
 
 	create := doRequest(t, srv, "POST", "/write", `{"documents":[{"type":"user-profile","id":"123","payload":"hello"}]}`)
