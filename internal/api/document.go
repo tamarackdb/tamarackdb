@@ -14,14 +14,14 @@ const documentNotReadyRetryAfterSeconds = 1
 // DocumentVersionHeader carries a document's version on a successful
 // GET /documents/{type}/{id}, so the response body can be the payload
 // itself instead of a JSON envelope around it.
-const DocumentVersionHeader = "X-Document-Version"
+const DocumentVersionHeader = "X-Tamarackdb-Document-Version"
 
 // handleGetDocument implements GET /documents/{type}/{id}. It maps
 // store.DocumentStatus to one of three outcomes: 404 when no metadata
 // exists at all, 503 DocumentNotReady (with Retry-After) when the
 // metadata exists but its payload hasn't caught up yet, or 200 with the
 // current payload as the response body and its version in the
-// X-Document-Version header. The payload is returned as-is: its own
+// X-Tamarackdb-Document-Version header. The payload is returned as-is: its own
 // format (JSON, XML, plain text) is up to the writing application, the
 // store never parses it.
 func (s *Server) handleGetDocument(w http.ResponseWriter, r *http.Request) {

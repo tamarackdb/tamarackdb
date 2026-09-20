@@ -254,14 +254,14 @@ curl -i http://127.0.0.1:8085/documents/user-profile/123
 ```
 HTTP/1.1 200 OK
 Content-Type: text/plain; charset=utf-8
-X-Document-Version: 3
+X-Tamarackdb-Document-Version: 3
 
 {"name":"Ada Lovelace"}
 ```
 
 The response body is the payload exactly as written, not wrapped in a JSON
 envelope: its own format (JSON, XML, plain text) is up to the writing
-application. The version comes back in the `X-Document-Version` header
+application. The version comes back in the `X-Tamarackdb-Document-Version` header
 instead.
 
 This returns `404 DocumentNotFound` if no document exists at that `type` + `id`,
