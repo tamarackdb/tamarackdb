@@ -211,12 +211,9 @@ func TestWriteDocumentCreateUpdateDelete(t *testing.T) {
 	if get.Code != 200 {
 		t.Fatalf("get status = %d, body = %s", get.Code, get.Body.String())
 	}
-	var getResp getDocumentResponse
-	if err := json.Unmarshal(get.Body.Bytes(), &getResp); err != nil {
-		t.Fatalf("decode get response: %v", err)
-	}
-	if getResp.Payload != "hello" || getResp.Version != 1 {
-		t.Fatalf("get response = %+v, want payload=hello version=1", getResp)
+	if get.Body.String() != "hello" || get.Header().Get(DocumentVersionHeader) != "1" {
+		t.Fatalf("get body = %q, version header = %q, want body=hello version=1",
+			get.Body.String(), get.Header().Get(DocumentVersionHeader))
 	}
 
 	update := doRequest(t, srv, "POST", "/write",

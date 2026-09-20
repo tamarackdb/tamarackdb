@@ -305,11 +305,7 @@ This split exists for I/O isolation, not to enable switching between two copies 
 
 A document can disappear as a side effect of an event, not only during a rebuild: an event like `UserDeleted` can carry a matching document deletion in the same `write` call, atomic with the event for what concerns its version.
 
-**Reading a document**: `GET /documents/{type}/{id}` returns one of three outcomes. `404` if no metadata exists for that `type`+`id` at all. `503 DocumentNotReady`, with a `Retry-After` header, if the metadata exists but its payload hasn't caught up yet in `tamarackdb-documents.sqlite` (absent, or at an older version): the ordinary state for the brief window between the metadata commit and the payload write, and the lasting state if that payload write failed. `200` with the payload and version otherwise:
-
-```json
-{ "payload": "...", "version": 1 }
-```
+**Reading a document**: `GET /documents/{type}/{id}` returns one of three outcomes. `404` if no metadata exists for that `type`+`id` at all. `503 DocumentNotReady`, with a `Retry-After` header, if the metadata exists but its payload hasn't caught up yet in `tamarackdb-documents.sqlite` (absent, or at an older version): the ordinary state for the brief window between the metadata commit and the payload write, and the lasting state if that payload write failed. `200` otherwise, with the payload as the response body, exactly as written, and the version in an `X-Document-Version` header: no JSON envelope around it, since the payload's own format (JSON, XML, plain text) is up to the writing application, not something the store imposes a wrapper on top of.
 
 **Clearing a type for a rebuild**: `DELETE /documents/{type}` removes every document of that type, from both files. It's unversioned (a rebuild runs without a concurrent writer touching the same documents, so there's nothing to protect against), and, unlike `DELETE /events`, it isn't gated behind dev mode: a document is reconstructible from events, so clearing a type before rebuilding it is a normal operation, not a destructive one. A rebuild that then writes several documents at once does it through `write`'s `documents` field with no events and no condition (see Writing events and documents), not a separate bulk-write endpoint.
 
