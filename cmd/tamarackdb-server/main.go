@@ -68,8 +68,6 @@ func main() {
 	fmt.Printf("tlsKeyFile: %s\n", cfg.TLSKeyFile)
 	fmt.Printf("enableAuth: %t\n", cfg.EnableAuth)
 	fmt.Printf("dataDir: %s\n", cfg.DataDir)
-	fmt.Printf("  events database: %s\n", cfg.EventsDatabasePath())
-	fmt.Printf("  documents database: %s\n", cfg.DocumentsDatabasePath())
 	fmt.Printf("devMode: %t\n", cfg.DevMode)
 	fmt.Printf("defaultLimit: %d\n", cfg.DefaultLimit)
 	fmt.Printf("maxLimit: %d\n", cfg.MaxLimit)

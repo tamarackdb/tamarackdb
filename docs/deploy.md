@@ -30,7 +30,7 @@ file works whether you run one binary or both.
 | `bindAddress` / `port` | `TAMARACKDB_BIND_ADDRESS` / `TAMARACKDB_PORT` | none / none | Address and port the server listens on instead of a unix socket |
 | `enableTls` / `tlsCertFile` / `tlsKeyFile` | `TAMARACKDB_ENABLE_TLS` / `TAMARACKDB_TLS_CERT_FILE` / `TAMARACKDB_TLS_KEY_FILE` | `false` / none / none | TLS termination (Go's own `ListenAndServeTLS`, no reverse proxy) |
 | `enableAuth` / `authToken` | `TAMARACKDB_ENABLE_AUTH` / `TAMARACKDB_AUTH_TOKEN` | `false` / none | Bearer token check on every endpoint |
-| `dataDir` | `TAMARACKDB_DATA_DIR` | `data` | Directory holding both SQLite files, `tamarackdb.sqlite` and `tamarackdb-documents.sqlite` (see [design.md](design.md#documents)); only the directory is configurable, the two filenames are fixed |
+| `dataDir` | `TAMARACKDB_DATA_DIR` | `data` | Directory holding all of TamarackDB's data. Its internal layout is managed by TamarackDB and may change between versions: don't rely on it, and don't edit its contents directly |
 | `defaultLimit` / `maxLimit` | `TAMARACKDB_DEFAULT_LIMIT` / `TAMARACKDB_MAX_LIMIT` | `1000` / `10000` | Default and maximum page size for `QUERY /events` |
 | `maxEventSize` | `TAMARACKDB_MAX_EVENT_SIZE` | `65536` (64 KiB) | Maximum size in bytes of a single event |
 | `maxDocumentSize` | `TAMARACKDB_MAX_DOCUMENT_SIZE` | `65536` (64 KiB) | Maximum size in bytes of a single document's payload |
@@ -68,15 +68,14 @@ variables cover a deployment with no file at all.
 
 Once running, the server logs one line per request to stdout: method, path, status
 code, response size, and time taken, e.g. `tamarackdb-server: POST /write 200 42B
-1.23ms`. It opens both SQLite files under `dataDir` (creating either one, with
-its schema, if it doesn't exist yet), so the documents mechanism (see
+1.23ms`. It opens everything it needs under `dataDir` (creating it, with its
+schema, if it doesn't exist yet), so the documents mechanism (see
 [design.md](design.md#documents)) is ready without a separate provisioning
 step.
 
 ## Provisioning and migration
 
-`tamarackdb-init` creates a new data directory with both SQLite files, as
-shown above. `tamarackdb-migrate` brings an existing events database up to
+`tamarackdb-init` creates a new data directory, as shown above. `tamarackdb-migrate` brings an existing events database up to
 the schema this binary expects, run once between a schema change and rolling
 out the new server. Point it at a config file so it can find the data
 directory:
