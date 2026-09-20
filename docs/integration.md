@@ -269,15 +269,16 @@ curl -X DELETE http://127.0.0.1:8085/documents/user-profile
 
 ## Resetting between test runs
 
-If the server has `devMode` on, `DELETE /` wipes every event, identifier, and
-metadata row, leaving an empty database ready for the next test:
+If the server has `devMode` on, `DELETE /events` wipes every event,
+identifier, and metadata row, leaving an empty event log ready for the next
+test. Documents are untouched:
 
 ```sh
-curl -X DELETE http://127.0.0.1:8085/
+curl -X DELETE http://127.0.0.1:8085/events
 ```
 
 This is useful for a client library's own test suite: start each test, or each
-test run, from a clean database instead of tracking what earlier tests left
+test run, from a clean event log instead of tracking what earlier tests left
 behind. It responds `204 No Content` and only exists when `devMode` is on; see
 [deploy.md](deploy.md#configure). Never rely on it against a production instance.
 
@@ -314,6 +315,6 @@ present when it helps and left out otherwise.
 | 409 | `ConcurrencyException` | The write's `condition` failed, or a document's `version` didn't match |
 | 413 | `PayloadTooLarge` | An event, or a document's `payload`, is bigger than the configured maximum size |
 | 500 | `InternalError` | Unexpected server-side failure |
-| 503 | `AppendQueueFull` | `write`/`DELETE /`/`DELETE /documents/{type}` only: the write queue is already full; retry after the `Retry-After` header |
+| 503 | `AppendQueueFull` | `write`/`DELETE /events`/`DELETE /documents/{type}` only: the write queue is already full; retry after the `Retry-After` header |
 | 503 | `DocumentNotReady` | `GET /documents/{type}/{id}` only: the document exists but its payload hasn't caught up yet; retry after the `Retry-After` header |
 | 503 | `Unavailable` | `GET /health` only: storage is unreachable |

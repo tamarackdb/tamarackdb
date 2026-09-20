@@ -12,7 +12,7 @@ import (
 )
 
 // newDevModeTestServer is newTestServer with Options.DevMode set to true, so
-// DELETE / is registered.
+// DELETE /events is registered.
 func newDevModeTestServer(t *testing.T) (*Server, *store.Store) {
 	t.Helper()
 	srv, _, st := newDevModeTestServerWithMaxQueued(t, 0)
@@ -50,7 +50,7 @@ func TestResetWipesDatabase(t *testing.T) {
 		t.Fatalf("append status = %d, body = %s", appendRec.Code, appendRec.Body.String())
 	}
 
-	rec := doRequest(t, srv, "DELETE", "/", "")
+	rec := doRequest(t, srv, "DELETE", "/events", "")
 	if rec.Code != 204 {
 		t.Fatalf("status = %d, want 204, body = %s", rec.Code, rec.Body.String())
 	}
@@ -68,11 +68,15 @@ func TestResetWipesDatabase(t *testing.T) {
 	}
 }
 
+// TestResetNotRegisteredWithoutDevMode confirms DELETE /events isn't
+// registered when DevMode is false: 405, not 404, since QUERY /events is
+// still a known path, just not for DELETE (see router.go's no-catch-all
+// rationale).
 func TestResetNotRegisteredWithoutDevMode(t *testing.T) {
 	srv, _, _ := newTestServer(t)
-	rec := doRequest(t, srv, "DELETE", "/", "")
-	if rec.Code != 404 {
-		t.Fatalf("status = %d, want 404 (DELETE / must not be registered when DevMode is false), body = %s", rec.Code, rec.Body.String())
+	rec := doRequest(t, srv, "DELETE", "/events", "")
+	if rec.Code != 405 {
+		t.Fatalf("status = %d, want 405, body = %s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -98,7 +102,7 @@ func TestResetReturns503WhenQueueFull(t *testing.T) {
 		<-queuedDone
 	}()
 
-	rec := doRequest(t, srv, "DELETE", "/", "")
+	rec := doRequest(t, srv, "DELETE", "/events", "")
 	if rec.Code != 503 {
 		t.Fatalf("status = %d, want 503, body = %s", rec.Code, rec.Body.String())
 	}

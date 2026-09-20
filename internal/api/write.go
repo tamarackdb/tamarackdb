@@ -44,7 +44,7 @@ type appendedEvent struct {
 // request: Version is the new version for a create/update, or the
 // version just deleted (there's no new one to report). Status is
 // "payloadWriteFailed" when the metadata committed but the best-effort
-// payload write to tamarackdb-documents.sqlite failed — the write as a
+// payload write to tamarackdb-documents.sqlite failed: the write as a
 // whole still succeeds (200), this is per-document detail only.
 type writtenDocument struct {
 	Type    string `json:"type"`
@@ -117,11 +117,9 @@ func (s *Server) handleWrite(w http.ResponseWriter, r *http.Request) {
 // same request rather than leaving its outcome to transaction execution
 // order (see internal/store/document.go).
 //
-// At least one event or document is required — a request with neither
-// is meaningless — but not both: a documents-only call (a rebuild
-// materializing several projections at once, with no events and no
-// condition) is exactly what section "Pas de PUT/POST /documents/..."
-// of the design doc relies on.
+// At least one event or document is required, since a request with
+// neither is meaningless: a documents-only call, no events and no
+// condition, is how a rebuild materializes several projections at once.
 func validateWriteRequest(req writeRequest, maxEventSize, maxDocumentSize, maxDocumentsPerWrite int) error {
 	if len(req.Events) == 0 && len(req.Documents) == 0 {
 		return &dcb.ValidationError{Err: errEmptyWrite, Message: "write request must carry at least one event or document"}

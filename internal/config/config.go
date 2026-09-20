@@ -92,7 +92,7 @@ type Config struct {
 	MaxDocumentSize int `toml:"maxDocumentSize"` // default: 65536 (64 KiB)
 
 	// MaxDocumentsPerWrite caps how many documents a single /write
-	// request may carry, independent of dcb.MaxEventsPerWrite — the two
+	// request may carry, independent of dcb.MaxEventsPerWrite: the two
 	// are unrelated limits, not a combined one. Optional; defaulted by
 	// Load when omitted.
 	MaxDocumentsPerWrite int `toml:"maxDocumentsPerWrite"` // default: 100

@@ -15,7 +15,7 @@ type debugResponse struct {
 // debugWrite is the write side's full picture: exclusive-writer admission
 // state (active/queued, from internal/queue) plus the underlying SQLite
 // write pool, which is always InUse<=1, Max=1 (see store.WritePoolStats).
-// HTTPOpen is the number of POST /write and, in dev mode, DELETE /
+// HTTPOpen is the number of POST /write and, in dev mode, DELETE /events
 // requests currently in flight; since every one of them is either the
 // active writer or sitting in the queue, it's derived as
 // len(Queued)+1(if Active), not tracked separately.

@@ -29,7 +29,7 @@ import (
 // own tests do.
 //
 // Once that transaction commits, events and document identity/version are
-// final — including for a conflicting document, which rolls back the
+// final, including for a conflicting document, which rolls back the
 // whole transaction, events included, the same as a failed condition.
 // Only then does Append write each document's payload to
 // tamarackdb-documents.sqlite, independently per document and after the

@@ -31,8 +31,8 @@ const (
 // for a deletion, since there's no new one to report), and whether its
 // payload write to tamarackdb-documents.sqlite succeeded. PayloadWritten
 // is false only when the metadata transaction already committed but the
-// best-effort payload step failed — see the design doc's accepted-risk
-// rationale; it never means the whole document write was rolled back.
+// best-effort payload step failed (see the design doc's accepted-risk
+// rationale); it never means the whole document write was rolled back.
 type DocumentWriteResult struct {
 	Type           string
 	ID             string
@@ -43,7 +43,7 @@ type DocumentWriteResult struct {
 // GetDocument reads a document by type+id. Metadata (the version) is
 // read from the events file's readDB; the payload is read from
 // tamarackdb-documents.sqlite separately, and only trusted when its
-// version matches the metadata's — a mismatch (or an outright missing
+// version matches the metadata's. A mismatch (or an outright missing
 // payload row) means the payload write for the current version hasn't
 // landed yet, reported as DocumentNotReady rather than served stale.
 func (s *Store) GetDocument(ctx context.Context, typ, id string) (document.Data, DocumentStatus, error) {
@@ -80,9 +80,9 @@ func (s *Store) GetDocument(ctx context.Context, typ, id string) (document.Data,
 
 // DeleteDocumentsByType removes every document of typ from both files:
 // its metadata (events file) and its payload
-// (tamarackdb-documents.sqlite). Unversioned by design — see the
-// design doc's rebuild rationale — so it never reports a conflict, only
-// a database error.
+// (tamarackdb-documents.sqlite). Unversioned by design (see the design
+// doc's rebuild rationale), so it never reports a conflict, only a
+// database error.
 func (s *Store) DeleteDocumentsByType(ctx context.Context, typ string) error {
 	if s.docWriteDB == nil {
 		return ErrDocumentsNotOpen
@@ -97,7 +97,7 @@ func (s *Store) DeleteDocumentsByType(ctx context.Context, typ string) error {
 }
 
 // applyDocumentMetadata runs the one query matching d's shape (create,
-// update, or delete — see document.Data's own doc comment) against the
+// update, or delete, see document.Data's own doc comment) against the
 // documents table, inside the caller's still-open events-file
 // transaction. It returns the version to report for d: the new version
 // for a create/update, or the version just deleted. ErrConcurrencyConflict

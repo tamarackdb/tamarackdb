@@ -19,7 +19,7 @@ import (
 // Version nil means the app never read this document and knows it's
 // new: the store creates it at version 1. Version non-nil is the
 // version the app read; an upsert lands at Version+1, a deletion
-// requires the current version to match exactly — either way, a
+// requires the current version to match exactly. Either way, a
 // mismatch is a conflict, not a silent no-op.
 type Data struct {
 	Type    string  `json:"type"`
@@ -31,9 +31,9 @@ type Data struct {
 // Validate checks the domain rules that apply to a single document
 // regardless of the rest of the write request: non-empty Type/ID, a
 // positive Version when present, and Version required whenever Payload
-// is nil — a deletion always needs a known version; there is no
-// unversioned deletion of a single document outside DELETE
-// /documents/<type>.
+// is nil, since a deletion always needs a known version. The only
+// unversioned deletion is DELETE /documents/<type>, which clears every
+// document of a type at once, not a single one.
 func (d Data) Validate() error {
 	if d.Type == "" {
 		return &ValidationError{Err: ErrMissingType, Message: "document is missing its type"}

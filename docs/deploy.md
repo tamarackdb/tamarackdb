@@ -37,7 +37,7 @@ file works whether you run one binary or both.
 | `maxDocumentsPerWrite` | `TAMARACKDB_MAX_DOCUMENTS_PER_WRITE` | `100` | Maximum documents in a single `POST /write` call |
 | `maxQueuedWriters` | `TAMARACKDB_MAX_QUEUED_WRITERS` | `100` | Maximum writers waiting to write at once |
 | `readPoolSize` | `TAMARACKDB_READ_POOL_SIZE` | `8` | SQLite connections available for `/events`, and so how many can run at once |
-| `devMode` | `TAMARACKDB_DEV_MODE` | `false` | Turns on `DELETE /` (wipes the whole database) and `/debug/pprof/*` (profiling endpoints). Never enable this in production. |
+| `devMode` | `TAMARACKDB_DEV_MODE` | `false` | Turns on `DELETE /events` (wipes every event) and `/debug/pprof/*` (profiling endpoints). Never enable this in production. |
 
 By default, TamarackDB listens on a unix socket instead of a TCP port. This
 keeps it off the network entirely unless you opt in, the way MySQL's own
@@ -164,7 +164,7 @@ metric names and JSON shape.
 local instance or a controlled troubleshooting session, never a production
 deployment:
 
-- `DELETE /`, which wipes the whole database.
+- `DELETE /events`, which wipes every event; documents are untouched.
 - `/debug/pprof/*`, Go's standard profiling endpoints (CPU, heap, goroutine,
   and so on).
 

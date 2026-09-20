@@ -50,12 +50,13 @@ type Options struct {
 
 	// MaxDocumentsPerWrite caps how many documents a single /write
 	// request may carry; over it, 400. Independent of
-	// dcb.MaxEventsPerWrite — the two are unrelated limits, not a
+	// dcb.MaxEventsPerWrite: the two are unrelated limits, not a
 	// combined one.
 	MaxDocumentsPerWrite int
 
-	// DevMode, when true, registers DELETE /, which wipes the entire
-	// database. Never enable this in production.
+	// DevMode, when true, registers DELETE /events, which wipes every
+	// event (documents are never touched). Never enable this in
+	// production.
 	DevMode bool
 
 	// OnFatalStorageError, if non-nil, is called whenever a handler
@@ -143,23 +144,18 @@ func New(qm *queue.Manager, st *store.Store, opts Options) *Server {
 	// matches). An unknown path gets the stdlib's plain-text 404; a known
 	// path with the wrong method correctly gets 405 + Allow.
 	if opts.DevMode {
-		// "DELETE /" is method-scoped, unlike a bare "/": it only ever
-		// matches DELETE requests, so it doesn't reintroduce the
-		// 405-swallowing problem described above for the other methods.
-		mux.HandleFunc("DELETE /", s.handleReset)
+		// Truncates every event (identifiers, metadata, events itself);
+		// documents are never touched, see Store.Truncate. A different
+		// method on the same path as "QUERY /events" above.
+		mux.HandleFunc("DELETE /events", s.handleReset)
 
 		// Standard net/http/pprof registration, mounted on our own mux
-		// instead of relying on the package's http.DefaultServeMux
-		// side effect. Method-scoped, unlike upstream net/http/pprof's
-		// own method-agnostic registration: a method-agnostic pattern
-		// here would conflict with "DELETE /" above (neither pattern
-		// is strictly more specific than the other, since one wins on
-		// method and the other on path), which ServeMux rejects at
-		// registration time. go tool pprof's client also POSTs to
+		// instead of relying on the package's http.DefaultServeMux side
+		// effect. go tool pprof's client also POSTs to
 		// /debug/pprof/symbol for large symbol lookups, hence the
 		// second registration for that one path.
 		//
-		// DevMode-gated like DELETE / above: CPU/heap profiles and
+		// DevMode-gated like DELETE /events above: CPU/heap profiles and
 		// goroutine dumps can leak information about running queries
 		// and are never meant for a production deployment.
 		mux.HandleFunc("GET /debug/pprof/", pprof.Index)

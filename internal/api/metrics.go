@@ -27,11 +27,11 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	writeMetric(&b, "tamarackdb_writer_active", "gauge",
 		"Whether a writer currently holds exclusive SQLite write access (1) or not (0).", active)
 	writeMetric(&b, "tamarackdb_requests_queued", "gauge",
-		"Number of write requests (POST /write or, in dev mode, DELETE /) currently waiting in the queue.", float64(len(snap.Queued)))
+		"Number of write requests (POST /write or, in dev mode, DELETE /events) currently waiting in the queue.", float64(len(snap.Queued)))
 	writeMetric(&b, "tamarackdb_queue_longest_wait_seconds", "gauge",
 		"Longest current wait time, in seconds, among queued write requests. 0 when the queue is empty.", longestWait)
 	writeMetric(&b, "tamarackdb_writes_admitted_total", "counter",
-		"Total number of writers (POST /write and, in dev mode, DELETE /) admitted to exclusive SQLite write access since startup.", float64(snap.AdmittedTotal))
+		"Total number of writers (POST /write and, in dev mode, DELETE /events) admitted to exclusive SQLite write access since startup.", float64(snap.AdmittedTotal))
 	writeMetric(&b, "tamarackdb_appends_failed_total", "counter",
 		"Total number of writes that failed with a concurrency conflict (409 ConcurrencyException) since startup.", float64(s.failedTotal.Load()))
 	writeMetric(&b, "tamarackdb_documents_payload_write_failures_total", "counter",
