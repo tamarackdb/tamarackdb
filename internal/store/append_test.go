@@ -253,7 +253,7 @@ func TestAppendFailedConditionLeavesNoGapInSequence(t *testing.T) {
 // Append must never emit more bound parameters than that limit allows.
 func TestAppendLargeBatchWithinSQLiteVariableLimit(t *testing.T) {
 	s := openTestStore(t)
-	events := make([]dcb.EventData, dcb.MaxEventsPerAppend)
+	events := make([]dcb.EventData, dcb.MaxEventsPerWrite)
 	for i := range events {
 		ids := make(dcb.IdentifierSet, dcb.MaxIdentifiers)
 		mds := make(dcb.MetadataSet, dcb.MaxMetadata)

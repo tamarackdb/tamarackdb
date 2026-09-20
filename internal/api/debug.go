@@ -15,7 +15,7 @@ type debugResponse struct {
 // debugWrite is the write side's full picture: exclusive-writer admission
 // state (active/queued, from internal/queue) plus the underlying SQLite
 // write pool, which is always InUse<=1, Max=1 (see store.WritePoolStats).
-// HTTPOpen is the number of POST /append and, in dev mode, DELETE /
+// HTTPOpen is the number of POST /write and, in dev mode, DELETE /
 // requests currently in flight; since every one of them is either the
 // active writer or sitting in the queue, it's derived as
 // len(Queued)+1(if Active), not tracked separately.
@@ -27,7 +27,7 @@ type debugWrite struct {
 	SQLiteMax   int           `json:"sqliteMax"`
 }
 
-// debugRead is the read side's picture: HTTPOpen (QUERY /read requests
+// debugRead is the read side's picture: HTTPOpen (QUERY /events requests
 // currently in flight, tracked directly by Server.readHTTPOpen since reads
 // have no FIFO queue to derive it from) alongside the underlying SQLite
 // read pool's usage. HTTPOpen can exceed SQLiteMax when the pool is

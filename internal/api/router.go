@@ -42,6 +42,18 @@ type Options struct {
 	// Default: 65536 (64 KiB).
 	MaxEventSize int
 
+	// MaxDocumentSize is the maximum UTF-8 byte size of one document's
+	// payload in a /write request; over it, 413. Only checked when the
+	// payload is present (a deletion has none to bound). Default: 65536
+	// (64 KiB).
+	MaxDocumentSize int
+
+	// MaxDocumentsPerWrite caps how many documents a single /write
+	// request may carry; over it, 400. Independent of
+	// dcb.MaxEventsPerWrite — the two are unrelated limits, not a
+	// combined one.
+	MaxDocumentsPerWrite int
+
 	// DevMode, when true, registers DELETE /, which wipes the entire
 	// database. Never enable this in production.
 	DevMode bool
@@ -61,17 +73,25 @@ type Server struct {
 	st   *store.Store
 	opts Options
 
-	// failedTotal counts appends that failed with
+	// failedTotal counts writes that failed with
 	// store.ErrConcurrencyConflict, exposed by GET /metrics. It lives
 	// here, not in internal/queue, because that failure is only known
 	// once store.Append runs, after the queue manager already admitted
 	// the writer.
 	failedTotal atomic.Uint64
 
-	// readHTTPOpen counts QUERY /read requests currently in flight,
+	// documentPayloadWriteFailedTotal counts documents whose best-effort
+	// payload write to tamarackdb-documents.sqlite failed, across every
+	// /write call, exposed by GET /metrics. Distinct from failedTotal: a
+	// payload write failure never fails the /write call itself (see
+	// store.Append's doc comment), so it needs its own counter to stay
+	// visible to an operator instead of hiding inside 200 responses.
+	documentPayloadWriteFailedTotal atomic.Uint64
+
+	// readHTTPOpen counts QUERY /events requests currently in flight,
 	// exposed by GET /debug. Unlike writes, reads have no FIFO queue to
 	// derive this from (internal/queue only tracks write admission), so
-	// handleRead increments/decrements it directly around its whole
+	// handleEvents increments/decrements it directly around its whole
 	// lifetime, including NDJSON streaming.
 	readHTTPOpen atomic.Int64
 
@@ -100,13 +120,19 @@ func New(qm *queue.Manager, st *store.Store, opts Options) *Server {
 		panic("api: New: Options.DefaultLimit must not exceed Options.MaxLimit")
 	case opts.MaxEventSize <= 0:
 		panic("api: New: Options.MaxEventSize must be positive")
+	case opts.MaxDocumentSize <= 0:
+		panic("api: New: Options.MaxDocumentSize must be positive")
+	case opts.MaxDocumentsPerWrite <= 0:
+		panic("api: New: Options.MaxDocumentsPerWrite must be positive")
 	}
 
 	s := &Server{qm: qm, st: st, opts: opts}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("QUERY /read", s.handleRead)
-	mux.HandleFunc("POST /append", s.handleAppend)
+	mux.HandleFunc("QUERY /events", s.handleEvents)
+	mux.HandleFunc("POST /write", s.handleWrite)
+	mux.HandleFunc("GET /documents/{type}/{id}", s.handleGetDocument)
+	mux.HandleFunc("DELETE /documents/{type}", s.handleDeleteDocumentsByType)
 	mux.HandleFunc("GET /health", s.handleHealth)
 	mux.HandleFunc("GET /metrics", s.handleMetrics)
 	mux.HandleFunc("GET /debug", s.handleDebug)

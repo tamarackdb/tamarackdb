@@ -8,7 +8,7 @@ import (
 )
 
 // seedHTTPEvents appends n events via HTTP, batching by 100 per call to
-// respect dcb.MaxEventsPerAppend.
+// respect dcb.MaxEventsPerWrite.
 func seedHTTPEvents(t *testing.T, srv *Server, n int) {
 	t.Helper()
 	for n > 0 {
@@ -21,7 +21,7 @@ func seedHTTPEvents(t *testing.T, srv *Server, n int) {
 			events = append(events, `{"type":"seed","identifiers":{},"metadata":{},"payload":""}`)
 		}
 		body := fmt.Sprintf(`{"events":[%s]}`, strings.Join(events, ","))
-		rec := doRequest(t, srv, "POST", "/append", body)
+		rec := doRequest(t, srv, "POST", "/write", body)
 		if rec.Code != 200 {
 			t.Fatalf("seed append status = %d, body = %s", rec.Code, rec.Body.String())
 		}
@@ -33,7 +33,7 @@ func TestReadPaginationOverHTTP(t *testing.T) {
 	srv, _, _ := newTestServer(t)
 	seedHTTPEvents(t, srv, 3)
 
-	rec := doRequest(t, srv, "QUERY", "/read", `{"query":"*","limit":2}`)
+	rec := doRequest(t, srv, "QUERY", "/events", `{"query":"*","limit":2}`)
 	if rec.Code != 200 {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
 	}
@@ -47,7 +47,7 @@ func TestReadPaginationOverHTTP(t *testing.T) {
 
 	// Page 2, using the last sequence seen as afterSequence.
 	last := events[len(events)-1].Sequence
-	rec2 := doRequest(t, srv, "QUERY", "/read", fmt.Sprintf(`{"query":"*","limit":2,"afterSequence":%d}`, last))
+	rec2 := doRequest(t, srv, "QUERY", "/events", fmt.Sprintf(`{"query":"*","limit":2,"afterSequence":%d}`, last))
 	if rec2.Code != 200 {
 		t.Fatalf("page 2 status = %d, body = %s", rec2.Code, rec2.Body.String())
 	}
@@ -67,20 +67,20 @@ func TestReadTimeAndAfterSequenceFilteringOverHTTP(t *testing.T) {
 	srv, _, _ := newTestServer(t)
 	seedHTTPEvents(t, srv, 3)
 
-	all := doRequest(t, srv, "QUERY", "/read", `{"query":"*"}`)
+	all := doRequest(t, srv, "QUERY", "/events", `{"query":"*"}`)
 	_, events := parseNDJSON(t, all.Body.String())
 	if len(events) != 3 {
 		t.Fatalf("got %d events, want 3", len(events))
 	}
 
-	rec := doRequest(t, srv, "QUERY", "/read", fmt.Sprintf(`{"query":"*","afterSequence":%d}`, events[0].Sequence))
+	rec := doRequest(t, srv, "QUERY", "/events", fmt.Sprintf(`{"query":"*","afterSequence":%d}`, events[0].Sequence))
 	_, filtered := parseNDJSON(t, rec.Body.String())
 	if len(filtered) != 2 {
 		t.Fatalf("afterSequence filter: got %d events, want 2", len(filtered))
 	}
 
 	fromTime := events[1].Time.Format("2006-01-02T15:04:05.000000Z07:00")
-	rec2 := doRequest(t, srv, "QUERY", "/read", fmt.Sprintf(`{"query":"*","time":{"from":%q}}`, fromTime))
+	rec2 := doRequest(t, srv, "QUERY", "/events", fmt.Sprintf(`{"query":"*","time":{"from":%q}}`, fromTime))
 	_, filtered2 := parseNDJSON(t, rec2.Body.String())
 	if len(filtered2) != 2 {
 		t.Fatalf("time.from filter: got %d events, want 2", len(filtered2))
@@ -103,7 +103,7 @@ func TestReadValidationFailures(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			srv, _, _ := newTestServer(t)
-			rec := doRequest(t, srv, "QUERY", "/read", tt.body)
+			rec := doRequest(t, srv, "QUERY", "/events", tt.body)
 			if rec.Code != 400 {
 				t.Fatalf("status = %d, want 400, body = %s", rec.Code, rec.Body.String())
 			}

@@ -11,7 +11,7 @@ import (
 	"github.com/tamarackdb/tamarackdb/internal/store"
 )
 
-// readRequest is the exact wire shape of QUERY /read's JSON body.
+// readRequest is the exact wire shape of QUERY /events's JSON body.
 // Query's own UnmarshalJSON (dispatched automatically by encoding/json on
 // this named field) handles "*" vs. an array of QueryItem.
 type readRequest struct {
@@ -26,11 +26,11 @@ type readTimeRange struct {
 	Before *string `json:"before,omitempty"`
 }
 
-// readTrailer is the last NDJSON line of every /read response:
+// readTrailer is the last NDJSON line of every /events response:
 // {"hasMore":true|false}. Defined here, not in internal/ndjson, since
 // hasMore is a TamarackDB wire concept, not something a generic NDJSON
 // writer should know about. Its absence is meaningful: the response is
-// streamed as each event is scanned (see handleRead), so a failure partway
+// streamed as each event is scanned (see handleEvents), so a failure partway
 // through a page simply ends the response with no trailer line, the same
 // signal a client already has to handle for a plain dropped connection
 // (see docs/integration.md's Pagination section).
@@ -53,7 +53,7 @@ type readEventWire struct {
 	Payload     string          `json:"payload"`
 }
 
-func (s *Server) handleRead(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	s.readHTTPOpen.Add(1)
 	defer s.readHTTPOpen.Add(-1)
 

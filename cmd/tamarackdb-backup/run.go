@@ -22,7 +22,7 @@ import (
 // tied to any particular configuration.
 const maxNDJSONLine = 16 * 1024 * 1024
 
-// readTrailer is the last NDJSON line of every QUERY /read response. Its
+// readTrailer is the last NDJSON line of every QUERY /events response. Its
 // absence (the stream ends without one) means the source cut the page
 // short partway through; fetchPage treats that as an error rather than
 // silently returning a partial page as if it were complete.
@@ -65,7 +65,7 @@ func run(ctx context.Context, configPath string) error {
 	return nil
 }
 
-// fetchPage issues one QUERY /read request against the source for every
+// fetchPage issues one QUERY /events request against the source for every
 // event after afterSeq, up to cfg.PageLimit events, and decodes the NDJSON
 // response.
 func fetchPage(ctx context.Context, cfg *config.BackupConfig, afterSeq int64) ([]dcb.Event, bool, error) {
@@ -78,7 +78,7 @@ func fetchPage(ctx context.Context, cfg *config.BackupConfig, afterSeq int64) ([
 		return nil, false, fmt.Errorf("tamarackdb-backup: build read request: %w", err)
 	}
 
-	url := strings.TrimRight(cfg.SourceURL, "/") + "/read"
+	url := strings.TrimRight(cfg.SourceURL, "/") + "/events"
 	req, err := http.NewRequestWithContext(ctx, "QUERY", url, bytes.NewReader(body))
 	if err != nil {
 		return nil, false, fmt.Errorf("tamarackdb-backup: build read request: %w", err)

@@ -34,11 +34,42 @@ func newTestServerWithMaxQueued(t *testing.T, maxQueued int) (*Server, *queue.Ma
 	qm := queue.New(maxQueued)
 	t.Cleanup(qm.Close)
 	srv := New(qm, st, Options{
-		EnableAuth:   true,
-		AuthToken:    testToken,
-		DefaultLimit: 1000,
-		MaxLimit:     10000,
-		MaxEventSize: 65536,
+		EnableAuth:           true,
+		AuthToken:            testToken,
+		DefaultLimit:         1000,
+		MaxLimit:             10000,
+		MaxEventSize:         65536,
+		MaxDocumentSize:      65536,
+		MaxDocumentsPerWrite: 100,
+	})
+	return srv, qm, st
+}
+
+// newTestServerWithDocuments is newTestServer with tamarackdb-documents.sqlite
+// also opened, for tests exercising GetDocument/DeleteDocumentsByType or a
+// /write call that carries documents.
+func newTestServerWithDocuments(t *testing.T) (*Server, *queue.Manager, *store.Store) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "test.db")
+	st, err := store.Open(context.Background(), path, 0)
+	if err != nil {
+		t.Fatalf("store.Open() error = %v", err)
+	}
+	t.Cleanup(func() { st.Close() })
+	docPath := filepath.Join(t.TempDir(), "documents.db")
+	if err := st.OpenDocuments(context.Background(), docPath, 0); err != nil {
+		t.Fatalf("OpenDocuments() error = %v", err)
+	}
+	qm := queue.New(0)
+	t.Cleanup(qm.Close)
+	srv := New(qm, st, Options{
+		EnableAuth:           true,
+		AuthToken:            testToken,
+		DefaultLimit:         1000,
+		MaxLimit:             10000,
+		MaxEventSize:         65536,
+		MaxDocumentSize:      65536,
+		MaxDocumentsPerWrite: 100,
 	})
 	return srv, qm, st
 }

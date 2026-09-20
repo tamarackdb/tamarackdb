@@ -92,7 +92,15 @@ func main() {
 		DefaultLimit: cfg.DefaultLimit,
 		MaxLimit:     cfg.MaxLimit,
 		MaxEventSize: cfg.MaxEventSize,
-		DevMode:      cfg.DevMode,
+		// TODO(section 5): MaxDocumentSize/MaxDocumentsPerWrite become
+		// cfg.MaxDocumentSize/cfg.MaxDocumentsPerWrite once config.go
+		// gains those fields; tamarackdb-documents.sqlite also isn't
+		// opened yet (st.OpenDocuments), so /write's documents field and
+		// GET/DELETE /documents/... all report ErrDocumentsNotOpen for
+		// now.
+		MaxDocumentSize:      65536,
+		MaxDocumentsPerWrite: 100,
+		DevMode:              cfg.DevMode,
 		OnFatalStorageError: func(err error) {
 			select {
 			case fatalCh <- err:

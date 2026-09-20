@@ -29,7 +29,7 @@ const (
 
 	// appendBatchSize is the number of events appended per store.Append
 	// call (and thus per transaction/commit). It bypasses the HTTP API's
-	// dcb.MaxEventsPerAppend cap since the demo writes directly through
+	// dcb.MaxEventsPerWrite cap since the demo writes directly through
 	// the store.
 	appendBatchSize = 1000
 )

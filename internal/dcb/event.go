@@ -11,9 +11,9 @@ import (
 
 // Fixed DCB-domain constants, not configuration.
 const (
-	MaxIdentifiers     = 20  // max identifiers per event
-	MaxMetadata        = 20  // max metadata entries per event
-	MaxEventsPerAppend = 100 // max events in a single POST /append call
+	MaxIdentifiers    = 20  // max identifiers per event
+	MaxMetadata       = 20  // max metadata entries per event
+	MaxEventsPerWrite = 100 // max events in a single POST /write call
 )
 
 // Identifier is a business-identifier {name, value} pair, the primary

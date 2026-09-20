@@ -7,7 +7,7 @@ import (
 )
 
 // joinWriteQueue joins the shared FIFO admission queue for exclusive
-// SQLite write access (internal/queue), used identically by POST /append
+// SQLite write access (internal/queue), used identically by POST /write
 // and DELETE /. On success the caller owns the returned *queue.Ticket and
 // must call Done exactly once (typically via defer). On failure,
 // joinWriteQueue has already written the appropriate error response

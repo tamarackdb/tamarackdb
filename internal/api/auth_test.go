@@ -12,8 +12,8 @@ func TestAuthRejectsEveryRoute(t *testing.T) {
 	routes := []struct {
 		method, path, body string
 	}{
-		{"QUERY", "/read", `{"query":"*"}`},
-		{"POST", "/append", `{"events":[{"type":"t","identifiers":{},"metadata":{},"payload":""}]}`},
+		{"QUERY", "/events", `{"query":"*"}`},
+		{"POST", "/write", `{"events":[{"type":"t","identifiers":{},"metadata":{},"payload":""}]}`},
 		{"GET", "/health", ""},
 		{"GET", "/metrics", ""},
 		{"GET", "/debug", ""},

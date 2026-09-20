@@ -4,7 +4,7 @@ import "net/http"
 
 // handleReset implements DELETE /, wiping every event in the database via
 // store.Truncate. Only registered by New when Options.DevMode is true. It
-// joins the same FIFO write-admission queue as POST /append, so a wipe can
+// joins the same FIFO write-admission queue as POST /write, so a wipe can
 // no longer land mid-append or an append mid-wipe.
 func (s *Server) handleReset(w http.ResponseWriter, r *http.Request) {
 	ticket, ok := s.joinWriteQueue(w, r)

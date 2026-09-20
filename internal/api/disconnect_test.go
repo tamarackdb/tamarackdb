@@ -18,7 +18,7 @@ func TestClientDisconnectMidRead(t *testing.T) {
 	defer ts.Close()
 
 	ctx, cancel := context.WithCancel(context.Background())
-	req, err := http.NewRequestWithContext(ctx, "QUERY", ts.URL+"/read", strings.NewReader(`{"query":"*","limit":200}`))
+	req, err := http.NewRequestWithContext(ctx, "QUERY", ts.URL+"/events", strings.NewReader(`{"query":"*","limit":200}`))
 	if err != nil {
 		t.Fatalf("NewRequestWithContext() error = %v", err)
 	}

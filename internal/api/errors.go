@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/tamarackdb/tamarackdb/internal/dcb"
+	"github.com/tamarackdb/tamarackdb/internal/document"
 	"github.com/tamarackdb/tamarackdb/internal/queue"
 	"github.com/tamarackdb/tamarackdb/internal/store"
 )
@@ -47,14 +48,23 @@ func (s *Server) handleErr(w http.ResponseWriter, r *http.Request, err error) {
 	}
 
 	var ve *dcb.ValidationError
+	var de *document.ValidationError
 	var oe *oversizeError
 	switch {
 	case errors.As(err, &ve):
 		// Covers dcb.EventData.Validate(), dcb.Query.Validate(),
-		// dcb.AppendCondition.Validate(), and request-shape decode
-		// errors (see decodeJSON, which wraps those as
-		// *dcb.ValidationError too, so they land in this same case).
+		// dcb.AppendCondition.Validate(), request-shape decode errors
+		// (see decodeJSON, which wraps those as *dcb.ValidationError
+		// too), and every API-layer-invented rule (limit, event/document
+		// count caps, duplicate document key) that isn't really a dcb
+		// domain rule but reuses this same 400 vehicle.
 		writeError(w, http.StatusBadRequest, "InvalidRequest", ve.Message)
+	case errors.As(err, &de):
+		// document.Data.Validate()'s own domain rules (missing type/id,
+		// invalid version, deletion without a version): same 400
+		// treatment, distinct type since internal/document doesn't
+		// depend on internal/dcb.
+		writeError(w, http.StatusBadRequest, "InvalidRequest", de.Message)
 	case errors.As(err, &oe):
 		writeError(w, http.StatusRequestEntityTooLarge, "PayloadTooLarge", oe.Error())
 	case errors.Is(err, store.ErrConcurrencyConflict):
@@ -96,10 +106,12 @@ func decodeJSON(r *http.Request, v any) error {
 // (limit, event size) or request-shape concerns dcb has no opinion about
 // (an empty events array).
 var (
-	errEmptyAppend      = errors.New("api: append request carries no events")
-	errTooManyEvents    = errors.New("api: append request exceeds the maximum events per append")
-	errNegativeLimit    = errors.New("api: limit must be non-negative")
-	errZeroLimit        = errors.New("api: limit must be greater than zero")
-	errLimitExceedsMax  = errors.New("api: limit exceeds the configured maximum")
-	errInvalidTimeRange = errors.New("api: time.from must be earlier than time.before")
+	errEmptyWrite           = errors.New("api: write request carries no events or documents")
+	errTooManyEvents        = errors.New("api: write request exceeds the maximum events per write")
+	errTooManyDocuments     = errors.New("api: write request exceeds the maximum documents per write")
+	errDuplicateDocumentKey = errors.New("api: write request carries the same document type+id more than once")
+	errNegativeLimit        = errors.New("api: limit must be non-negative")
+	errZeroLimit            = errors.New("api: limit must be greater than zero")
+	errLimitExceedsMax      = errors.New("api: limit exceeds the configured maximum")
+	errInvalidTimeRange     = errors.New("api: time.from must be earlier than time.before")
 )

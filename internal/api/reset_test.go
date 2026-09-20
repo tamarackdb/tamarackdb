@@ -30,12 +30,14 @@ func newDevModeTestServerWithMaxQueued(t *testing.T, maxQueued int) (*Server, *q
 	qm := queue.New(maxQueued)
 	t.Cleanup(qm.Close)
 	srv := New(qm, st, Options{
-		EnableAuth:   true,
-		AuthToken:    testToken,
-		DefaultLimit: 1000,
-		MaxLimit:     10000,
-		MaxEventSize: 65536,
-		DevMode:      true,
+		EnableAuth:           true,
+		AuthToken:            testToken,
+		DefaultLimit:         1000,
+		MaxLimit:             10000,
+		MaxEventSize:         65536,
+		MaxDocumentSize:      65536,
+		MaxDocumentsPerWrite: 100,
+		DevMode:              true,
 	})
 	return srv, qm, st
 }
@@ -43,7 +45,7 @@ func newDevModeTestServerWithMaxQueued(t *testing.T, maxQueued int) (*Server, *q
 func TestResetWipesDatabase(t *testing.T) {
 	srv, _ := newDevModeTestServer(t)
 
-	appendRec := doRequest(t, srv, "POST", "/append", `{"events":[{"type":"t","payload":""}]}`)
+	appendRec := doRequest(t, srv, "POST", "/write", `{"events":[{"type":"t","payload":""}]}`)
 	if appendRec.Code != 200 {
 		t.Fatalf("append status = %d, body = %s", appendRec.Code, appendRec.Body.String())
 	}
@@ -56,7 +58,7 @@ func TestResetWipesDatabase(t *testing.T) {
 		t.Errorf("body = %q, want empty", rec.Body.String())
 	}
 
-	readRec := doRequest(t, srv, "QUERY", "/read", `{"query":"*"}`)
+	readRec := doRequest(t, srv, "QUERY", "/events", `{"query":"*"}`)
 	if readRec.Code != 200 {
 		t.Fatalf("read status = %d, body = %s", readRec.Code, readRec.Body.String())
 	}
