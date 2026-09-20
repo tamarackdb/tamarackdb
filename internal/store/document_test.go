@@ -286,6 +286,22 @@ func TestAppendPayloadWriteFailureDoesNotRollBackMetadata(t *testing.T) {
 	}
 }
 
+func TestGetDocumentRequiresOpenDocuments(t *testing.T) {
+	s := openTestStore(t) // no OpenDocuments call
+	_, _, err := s.GetDocument(context.Background(), "user-profile", "123")
+	if !errors.Is(err, ErrDocumentsNotOpen) {
+		t.Fatalf("GetDocument() error = %v, want ErrDocumentsNotOpen", err)
+	}
+}
+
+func TestDeleteDocumentsByTypeRequiresOpenDocuments(t *testing.T) {
+	s := openTestStore(t) // no OpenDocuments call
+	err := s.DeleteDocumentsByType(context.Background(), "user-profile")
+	if !errors.Is(err, ErrDocumentsNotOpen) {
+		t.Fatalf("DeleteDocumentsByType() error = %v, want ErrDocumentsNotOpen", err)
+	}
+}
+
 func TestAppendDocumentsRequiresOpenDocuments(t *testing.T) {
 	s := openTestStore(t) // no OpenDocuments call
 	_, _, err := s.Append(context.Background(), nil, nil,

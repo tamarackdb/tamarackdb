@@ -82,6 +82,14 @@ func TestGetDocumentNotReady(t *testing.T) {
 	}
 }
 
+func TestDeleteDocumentsByTypeErrorWhenDocumentsNotOpen(t *testing.T) {
+	srv, _, _ := newTestServer(t) // no OpenDocuments call
+	rec := doRequest(t, srv, "DELETE", "/documents/user-profile", "")
+	if rec.Code != 500 {
+		t.Fatalf("status = %d, want 500, body = %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestDeleteDocumentsByType(t *testing.T) {
 	srv, _, _ := newTestServerWithDocuments(t)
 
