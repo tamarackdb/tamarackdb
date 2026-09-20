@@ -13,11 +13,10 @@ using SQLite as the storage engine.
   writes.
 - Full HTTP API to read and write events, with pagination for large
   result sets.
-- Optional document store, for projections that stay in sync with the
+- Optional document store for projections that stay in sync with the
   events that changed them.
-- Single-instance design, so consistency never depends on coordination
-  across a cluster.
-- Single static binary deployment, with no external dependency.
+- Single-instance design with no external dependency.
+- Plain SQLite storage with no opaque format lock-in.
 - Authentication and TLS encryption.
 - Incremental backup and schema migration tooling.
 - Built-in monitoring and troubleshooting endpoints.
