@@ -208,7 +208,7 @@ const defaultConfigTemplate = `[server]
 # maxLimit = %d
 # maxEventSize = %d
 # maxDocumentSize = %d
-# maxDocumentsPerWrite = %d  # Independent of the events-per-write cap.
+# maxDocumentsPerWrite = %d
 # maxQueuedWriters = %d  # Caps the write-admission queue; requests beyond this get 503 when full.
 # readPoolSize = %d
 `
