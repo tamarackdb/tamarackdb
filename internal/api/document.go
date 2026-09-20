@@ -64,3 +64,20 @@ func (s *Server) handleDeleteDocumentsByType(w http.ResponseWriter, r *http.Requ
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
+
+// handleDeleteAllDocuments implements DELETE /documents: the same
+// unversioned bulk clear as handleDeleteDocumentsByType, widened to
+// every type at once, a shortcut for a total rebuild.
+func (s *Server) handleDeleteAllDocuments(w http.ResponseWriter, r *http.Request) {
+	ticket, ok := s.joinWriteQueue(w, r)
+	if !ok {
+		return
+	}
+	defer ticket.Done()
+
+	if err := s.st.DeleteAllDocuments(r.Context()); err != nil {
+		s.handleErr(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}

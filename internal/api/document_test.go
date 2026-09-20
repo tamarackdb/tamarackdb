@@ -118,3 +118,35 @@ func TestDeleteDocumentsByType(t *testing.T) {
 		t.Errorf("GET /documents/user-list/user-list status = %d, want 200", rec.Code)
 	}
 }
+
+func TestDeleteAllDocumentsErrorWhenDocumentsNotOpen(t *testing.T) {
+	srv, _, _ := newTestServer(t) // no OpenDocuments call
+	rec := doRequest(t, srv, "DELETE", "/documents", "")
+	if rec.Code != 500 {
+		t.Fatalf("status = %d, want 500, body = %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestDeleteAllDocuments(t *testing.T) {
+	srv, _, _ := newTestServerWithDocuments(t)
+
+	create := doRequest(t, srv, "POST", "/write", `{"documents":[
+		{"type":"user-profile","id":"1","payload":"a"},
+		{"type":"user-list","id":"user-list","payload":"c"}
+	]}`)
+	if create.Code != 200 {
+		t.Fatalf("create status = %d, body = %s", create.Code, create.Body.String())
+	}
+
+	del := doRequest(t, srv, "DELETE", "/documents", "")
+	if del.Code != 204 {
+		t.Fatalf("delete status = %d, want 204, body = %s", del.Code, del.Body.String())
+	}
+
+	for _, path := range []string{"/documents/user-profile/1", "/documents/user-list/user-list"} {
+		rec := doRequest(t, srv, "GET", path, "")
+		if rec.Code != 404 {
+			t.Errorf("GET %s status = %d, want 404", path, rec.Code)
+		}
+	}
+}

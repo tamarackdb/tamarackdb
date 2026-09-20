@@ -96,6 +96,24 @@ func (s *Store) DeleteDocumentsByType(ctx context.Context, typ string) error {
 	return nil
 }
 
+// DeleteAllDocuments removes every document, of every type, from both
+// files. It's the same rebuild-time operation as DeleteDocumentsByType,
+// widened to the whole store: a shortcut for a total rebuild that
+// touches every projection at once, instead of one DeleteDocumentsByType
+// call per type. Unversioned by design, for the same reason.
+func (s *Store) DeleteAllDocuments(ctx context.Context) error {
+	if s.docWriteDB == nil {
+		return ErrDocumentsNotOpen
+	}
+	if _, err := s.writeDB.ExecContext(ctx, "DELETE FROM documents"); err != nil {
+		return wrapf("delete document metadata", err)
+	}
+	if _, err := s.docWriteDB.ExecContext(ctx, "DELETE FROM documents_payload"); err != nil {
+		return wrapf("delete document payload", err)
+	}
+	return nil
+}
+
 // applyDocumentMetadata runs the one query matching d's shape (create,
 // update, or delete, see document.Data's own doc comment) against the
 // documents table, inside the caller's still-open events-file

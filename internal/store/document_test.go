@@ -258,6 +258,45 @@ func TestDeleteDocumentsByTypeRemovesOnlyThatType(t *testing.T) {
 	}
 }
 
+func TestDeleteAllDocumentsRemovesEveryType(t *testing.T) {
+	s := openTestStoreWithDocuments(t)
+	if _, _, err := s.Append(context.Background(), nil, nil, []document.Data{
+		{Type: "user-profile", ID: "1", Payload: strPtr("a")},
+		{Type: "user-list", ID: "user-list", Payload: strPtr("c")},
+	}); err != nil {
+		t.Fatalf("Append() error = %v", err)
+	}
+
+	if err := s.DeleteAllDocuments(context.Background()); err != nil {
+		t.Fatalf("DeleteAllDocuments() error = %v", err)
+	}
+
+	for _, tc := range []struct{ typ, id string }{
+		{"user-profile", "1"}, {"user-list", "user-list"},
+	} {
+		if _, status, err := s.GetDocument(context.Background(), tc.typ, tc.id); err != nil || status != DocumentNotFound {
+			t.Errorf("GetDocument(%s, %s) = (status=%v, err=%v), want DocumentNotFound, nil", tc.typ, tc.id, status, err)
+		}
+	}
+
+	var orphan int
+	if err := s.docWriteDB.QueryRowContext(context.Background(),
+		"SELECT COUNT(*) FROM documents_payload").Scan(&orphan); err != nil {
+		t.Fatalf("count orphaned payload rows: %v", err)
+	}
+	if orphan != 0 {
+		t.Errorf("documents_payload still has %d row(s) after DeleteAllDocuments", orphan)
+	}
+}
+
+func TestDeleteAllDocumentsRequiresOpenDocuments(t *testing.T) {
+	s := openTestStore(t) // no OpenDocuments call
+	err := s.DeleteAllDocuments(context.Background())
+	if !errors.Is(err, ErrDocumentsNotOpen) {
+		t.Fatalf("DeleteAllDocuments() error = %v, want ErrDocumentsNotOpen", err)
+	}
+}
+
 func TestAppendPayloadWriteFailureDoesNotRollBackMetadata(t *testing.T) {
 	s := openTestStoreWithDocuments(t)
 	// Break the payload connection only; the events-file connection (and

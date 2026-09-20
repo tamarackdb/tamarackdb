@@ -276,6 +276,14 @@ document of that type, unversioned, no `devMode` required:
 curl -X DELETE http://127.0.0.1:8085/documents/user-profile
 ```
 
+**Clearing every type at once**: `DELETE /documents` does the same thing,
+widened to every document, of every type, at once, a shortcut for a total
+rebuild instead of one call per type:
+
+```sh
+curl -X DELETE http://127.0.0.1:8085/documents
+```
+
 ## Resetting between test runs
 
 If the server has `devMode` on, `DELETE /events` wipes every event,

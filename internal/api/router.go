@@ -134,6 +134,7 @@ func New(qm *queue.Manager, st *store.Store, opts Options) *Server {
 	mux.HandleFunc("POST /write", s.handleWrite)
 	mux.HandleFunc("GET /documents/{type}/{id}", s.handleGetDocument)
 	mux.HandleFunc("DELETE /documents/{type}", s.handleDeleteDocumentsByType)
+	mux.HandleFunc("DELETE /documents", s.handleDeleteAllDocuments)
 	mux.HandleFunc("GET /health", s.handleHealth)
 	mux.HandleFunc("GET /metrics", s.handleMetrics)
 	mux.HandleFunc("GET /debug", s.handleDebug)
