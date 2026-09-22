@@ -108,7 +108,7 @@ func scanEvent(rows *sql.Rows) (ReadEvent, error) {
 // EventIterator streams Read's result page one event at a time. Next
 // returns false once Limit events have been returned or the underlying
 // query is exhausted; HasMore is only meaningful after that point (i.e.
-// once Next has returned false) — before then it is always false.
+// once Next has returned false); before then it is always false.
 //
 // internal/api's /read handler drives this with Next()/Event()/Err(),
 // writing each event as it comes out of SQLite; the single underlying

@@ -110,7 +110,7 @@ type Config struct {
 	// DELETE /) may wait in the FIFO write-admission queue at once; a
 	// request arriving when the queue is already at this depth is rejected
 	// with 503 AppendQueueFull. Optional; defaulted by Load when omitted,
-	// like the three fields above — deliberately not "0 means uncapped":
+	// like the three fields above. It is deliberately not "0 means uncapped":
 	// a queue with no cap at all would let a burst (or a misbehaving
 	// client) accumulate an unbounded number of blocked HTTP connections,
 	// so every deployment gets a bound whether it configures one or not.
@@ -341,7 +341,7 @@ func applyEnv(cfg *Config) error {
 
 // Validate checks structural sanity only: required fields present, numeric
 // values in range. It does not probe whether the TLS files or database
-// path are actually accessible — that's left to the components that use
+// path are actually accessible; that's left to the components that use
 // them (http.ListenAndServeTLS, store.Open), which will report their own
 // failures.
 func (c *Config) Validate() error {

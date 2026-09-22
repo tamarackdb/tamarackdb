@@ -129,8 +129,8 @@ func (m *Manager) Join(ctx context.Context) (*Ticket, error) {
 }
 
 // leave removes w from the queue and returns err, unless w was promoted to
-// active in the moment between the select above firing and this running —
-// a race against done's promotion — in which case the promotion is
+// active in the moment between the select above firing and this running
+// (a race against done's promotion), in which case the promotion is
 // honored rather than leaked: nothing else would ever call Done on its
 // behalf.
 func (m *Manager) leave(w *waiter, err error) (*Ticket, error) {

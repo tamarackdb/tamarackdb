@@ -10,7 +10,7 @@ import (
 )
 
 // timeLayout mirrors dcb.Event's own wire format exactly (ATOM/RFC3339,
-// fixed microsecond precision, UTC) — duplicated here because dcb keeps
+// fixed microsecond precision, UTC). It is duplicated here because dcb keeps
 // its layout unexported and appendedEvent is intentionally its own,
 // smaller shape (sequence+time only), not a reuse of dcb.Event's
 // MarshalJSON.

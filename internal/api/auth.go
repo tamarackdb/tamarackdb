@@ -13,7 +13,7 @@ const bearerPrefix = "Bearer "
 // ever runs: a request without a valid token is rejected with 401
 // Unauthorized before reaching any handler logic. Wrapping the entire mux,
 // rather than each route individually,
-// means routing itself counts as "handler logic" too — auth runs strictly
+// means routing itself counts as "handler logic" too: auth runs strictly
 // before it, with no per-route exception.
 func (s *Server) withAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

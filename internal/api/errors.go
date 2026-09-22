@@ -22,7 +22,7 @@ type errorEnvelope struct {
 }
 
 // writeError writes the standard error envelope. Every handler funnels
-// every error response through this (directly, or via handleErr) — no
+// every error response through this (directly, or via handleErr). No
 // handler builds error JSON by hand.
 func writeError(w http.ResponseWriter, status int, code, message string) {
 	if sw, ok := w.(*statusWriter); ok {
@@ -88,12 +88,12 @@ func (s *Server) handleErr(w http.ResponseWriter, r *http.Request, err error) {
 	}
 }
 
-// decodeJSON decodes r's JSON body into v, wrapping any failure — invalid
-// JSON syntax, wrong top-level shape, or a failure from v's own
-// UnmarshalJSON (e.g. dcb.Query's or dcb.IdentifierSet's, which return
-// plain errors, not *dcb.ValidationError, since shape parsing is
-// encoding/json plumbing, not a dcb domain rule) — as a
-// *dcb.ValidationError. This lets handleErr's single case handle
+// decodeJSON decodes r's JSON body into v and wraps any failure as a
+// *dcb.ValidationError. A failure can be invalid JSON syntax, a wrong
+// top-level shape, or an error from v's own UnmarshalJSON (e.g.
+// dcb.Query's or dcb.IdentifierSet's, which return plain errors, not
+// *dcb.ValidationError, since shape parsing is encoding/json plumbing,
+// not a dcb domain rule). This lets handleErr's single case handle
 // "malformed body" and "domain validation failure" identically, both as
 // 400 InvalidRequest.
 func decodeJSON(r *http.Request, v any) error {

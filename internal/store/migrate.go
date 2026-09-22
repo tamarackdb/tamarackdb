@@ -8,7 +8,7 @@ import (
 	"os"
 )
 
-// SchemaVersion is the schema version this binary expects — the same
+// SchemaVersion is the schema version this binary expects: the same
 // constant ensureSchema checks a database file against, exported so
 // cmd/tamarackdb-migrate can report progress without duplicating it.
 const SchemaVersion = schemaVersion
@@ -20,7 +20,7 @@ type migration struct {
 }
 
 // migrations is the ordered history of schema changes. A schema change
-// adds one entry here and bumps schemaVersion in schema.go — those two
+// adds one entry here and bumps schemaVersion in schema.go; those two
 // edits are the only thing a schema change touches.
 var migrations = []migration{
 	{FromVersion: 1, SQL: `
@@ -46,7 +46,7 @@ var ErrNoSuchDatabase = errors.New("store: no database file at the given path")
 //
 // Migrate only operates on an existing, already-initialized database: a
 // missing file is ErrNoSuchDatabase, and a file at version 0 (never
-// opened by store.Open) is an error pointing there instead — this tool
+// opened by store.Open) is an error pointing there instead. This tool
 // never creates a schema, symmetric with store.Open never migrating one.
 // A file whose version is newer than SchemaVersion (a downgraded binary)
 // is a *SchemaVersionError.

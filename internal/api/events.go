@@ -153,7 +153,7 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 // parseTimeRange parses time.from/time.before (RFC3339Nano, matching
 // dcb.Event's own parsing) and enforces the one additional semantic rule
 // that calls for hand-written validation: a consistent
-// time.from/time.before range — from must be earlier than before when
+// time.from/time.before range: from must be earlier than before when
 // both are present.
 func parseTimeRange(tr *readTimeRange) (from, before *time.Time, err error) {
 	if tr.From != nil {

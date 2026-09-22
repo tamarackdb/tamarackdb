@@ -14,7 +14,7 @@ import (
 )
 
 // Options configures a Server with values internal/config will have
-// already resolved (defaults applied) by the time they reach here —
+// already resolved (defaults applied) by the time they reach here;
 // internal/api applies no further defaulting of its own.
 type Options struct {
 	// Version is the running build's version string, reported as-is by
@@ -113,7 +113,7 @@ type Server struct {
 }
 
 // New builds a Server ready to serve traffic. qm and st must already be
-// constructed and are not owned by the returned Server — the caller
+// constructed and are not owned by the returned Server; the caller
 // remains responsible for closing both.
 //
 // New panics on invalid static configuration (empty token, non-positive

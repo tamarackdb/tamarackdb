@@ -251,7 +251,7 @@ func TestJoinUncappedWhenMaxQueuedZero(t *testing.T) {
 
 	// Real admission order depends on goroutine scheduling, not spawn
 	// order, so every waiter reports into one shared channel rather than
-	// each having its own — the test only needs all of them eventually
+	// each having its own. The test only needs all of them eventually
 	// admitted, not in any particular order (FIFO ordering itself is
 	// covered by TestStrictFIFOOrderAcrossMultipleWaiters).
 	const waiters = 50

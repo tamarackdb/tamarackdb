@@ -127,7 +127,7 @@ func (s *Store) peekLastAssigned() int64 {
 
 // reserveSequences advances the counter by n and returns the first of the
 // n sequence numbers reserved. Callers must only call this once the write
-// is confirmed to actually happen — never speculatively.
+// is confirmed to actually happen, never speculatively.
 func (s *Store) reserveSequences(n int) int64 {
 	s.seqMu.Lock()
 	defer s.seqMu.Unlock()
@@ -145,7 +145,7 @@ func (s *Store) reserveSequences(n int) int64 {
 func resolveWithoutQuery(failIfEventsMatch *dcb.Query, after, lastAssigned int64) (holds, decided bool) {
 	if failIfEventsMatch == nil {
 		// A bare afterSequence condition means "does any event exist
-		// after `after` at all" — always answerable from the counter
+		// after `after` at all". It is always answerable from the counter
 		// alone, no SELECT ever needed for this case.
 		return lastAssigned <= after, true
 	}
