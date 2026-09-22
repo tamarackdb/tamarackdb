@@ -1,13 +1,16 @@
-// Command demo seeds a TamarackDB events database with a large synthetic,
-// schema-agnostic event stream: each event has a random type, 1 or 2
-// identifiers, a tenantId metadata entry, and a garbage-text payload. It
-// exists to exercise /events and storage at scale rather than to model any
-// particular domain; it never touches documents. Build it via `make demo`,
-// producing bin/tamarackdb-demo.
+// Command tamarackdb-demo seeds a TamarackDB data directory with a large
+// synthetic, schema-agnostic dataset. Each event has a random type, 1 or 2
+// identifiers, a tenantId metadata entry, and a garbage-text payload. Each
+// document has a random type, a numeric id, and a longer garbage-text
+// payload, and is created at version 1. It exists to exercise /events,
+// /documents and storage at scale rather than to model any particular
+// domain. Build it via `make tamarackdb-demo`, producing
+// bin/tamarackdb-demo.
 package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -18,21 +21,24 @@ import (
 	"github.com/tamarackdb/tamarackdb/internal/buildinfo"
 	"github.com/tamarackdb/tamarackdb/internal/config"
 	"github.com/tamarackdb/tamarackdb/internal/dcb"
+	"github.com/tamarackdb/tamarackdb/internal/document"
 	"github.com/tamarackdb/tamarackdb/internal/store"
 )
 
 const (
-	identifierValueMin = 1
-	identifierValueMax = 10
-	tenantIDMin        = 1
-	tenantIDMax        = 5
-	payloadLenMin      = 0
-	payloadLenMax      = 100
+	identifierValueMin    = 1
+	identifierValueMax    = 10
+	tenantIDMin           = 1
+	tenantIDMax           = 5
+	eventPayloadLenMin    = 0
+	eventPayloadLenMax    = 100
+	documentPayloadLenMin = 100
+	documentPayloadLenMax = 1000
 
-	// appendBatchSize is the number of events appended per store.Append
-	// call (and thus per transaction/commit). It bypasses the HTTP API's
-	// dcb.MaxEventsPerWrite cap since the demo writes directly through
-	// the store.
+	// appendBatchSize is the number of events, or documents, appended per
+	// store.Append call (and thus per transaction/commit). It bypasses the
+	// HTTP API's dcb.MaxEventsPerWrite cap since the demo writes directly
+	// through the store.
 	appendBatchSize = 1000
 )
 
@@ -43,11 +49,16 @@ var eventTypes = []string{
 
 var identifierNames = []string{"foo", "bar", "baz", "qux", "quux"}
 
+var documentTypes = []string{
+	"DocumentType1", "DocumentType2", "DocumentType3", "DocumentType4", "DocumentType5",
+}
+
 const garbageAlphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
 func main() {
 	dataDir := flag.String("dataDir", "", "directory holding the SQLite database files to seed")
-	n := flag.Int("n", 1_000_000, "target number of events to append")
+	events := flag.Int("events", 1_000_000, "number of events to append")
+	documents := flag.Int("documents", 0, "number of documents to create")
 	seed := flag.Int64("seed", 1, "random seed, for reproducible datasets")
 	showVersion := flag.Bool("version", false, "print the version and exit")
 	flag.Parse()
@@ -60,8 +71,11 @@ func main() {
 	if *dataDir == "" {
 		log.Fatal("tamarackdb-demo: -dataDir is required")
 	}
-	if *n <= 0 {
-		log.Fatal("tamarackdb-demo: -n must be positive")
+	if *events < 0 || *documents < 0 {
+		log.Fatal("tamarackdb-demo: -events and -documents must not be negative")
+	}
+	if *events == 0 && *documents == 0 {
+		log.Fatal("tamarackdb-demo: at least one of -events or -documents must be positive")
 	}
 
 	rng := rand.New(rand.NewSource(*seed))
@@ -69,20 +83,33 @@ func main() {
 	if err := os.MkdirAll(*dataDir, 0o755); err != nil {
 		log.Fatalf("tamarackdb-demo: %v", err)
 	}
+	ctx := context.Background()
 	cfg := config.Config{DataDir: *dataDir}
-	st, err := store.Open(context.Background(), cfg.EventsDatabasePath(), 0)
+	st, err := store.Open(ctx, cfg.EventsDatabasePath(), 0)
 	if err != nil {
 		log.Fatalf("tamarackdb-demo: %v", err)
 	}
 	defer st.Close()
-
-	ctx := context.Background()
-	total := *n
-	for appended := 0; appended < total; {
-		batchSize := appendBatchSize
-		if remaining := total - appended; batchSize > remaining {
-			batchSize = remaining
+	if *documents > 0 {
+		if err := st.OpenDocuments(ctx, cfg.DocumentsDatabasePath(), 0); err != nil {
+			log.Fatalf("tamarackdb-demo: %v", err)
 		}
+	}
+
+	appendEvents(ctx, st, rng, *events)
+	appendDocuments(ctx, st, rng, *documents)
+
+	log.Printf("tamarackdb-demo: done, %d events in %s", *events, cfg.EventsDatabasePath())
+	if *documents > 0 {
+		log.Printf("tamarackdb-demo: done, %d documents in %s", *documents, cfg.DocumentsDatabasePath())
+	}
+}
+
+// appendEvents appends total random events, appendBatchSize per
+// store.Append call.
+func appendEvents(ctx context.Context, st *store.Store, rng *rand.Rand, total int) {
+	for appended := 0; appended < total; {
+		batchSize := min(appendBatchSize, total-appended)
 		batch := make([]dcb.EventData, batchSize)
 		for i := range batch {
 			batch[i] = generateEvent(rng)
@@ -93,8 +120,33 @@ func main() {
 		appended += batchSize
 		log.Printf("tamarackdb-demo: appended %d/%d events", appended, total)
 	}
+}
 
-	log.Printf("tamarackdb-demo: done, %d events in %s", total, cfg.EventsDatabasePath())
+// appendDocuments creates total random documents, appendBatchSize per
+// store.Append call. Ids run from 1 to total, so a run never collides
+// with itself, but a second run on the same data directory does.
+func appendDocuments(ctx context.Context, st *store.Store, rng *rand.Rand, total int) {
+	for appended := 0; appended < total; {
+		batchSize := min(appendBatchSize, total-appended)
+		batch := make([]document.Data, batchSize)
+		for i := range batch {
+			batch[i] = generateDocument(rng, appended+i+1)
+		}
+		_, results, err := st.Append(ctx, nil, nil, batch)
+		if errors.Is(err, store.ErrConcurrencyConflict) {
+			log.Fatal("tamarackdb-demo: demo documents already exist in this data directory; use an empty -dataDir to create documents")
+		}
+		if err != nil {
+			log.Fatalf("tamarackdb-demo: %v", err)
+		}
+		for _, r := range results {
+			if !r.PayloadWritten {
+				log.Fatalf("tamarackdb-demo: payload write failed for document %s/%s", r.Type, r.ID)
+			}
+		}
+		appended += batchSize
+		log.Printf("tamarackdb-demo: appended %d/%d documents", appended, total)
+	}
 }
 
 // generateEvent builds a single random, schema-agnostic event: a type out
@@ -121,14 +173,26 @@ func generateEvent(rng *rand.Rand) dcb.EventData {
 		Metadata: dcb.MetadataSet{
 			{Name: "tenant", Value: strconv.Itoa(tenantIDMin + rng.Intn(tenantIDMax-tenantIDMin+1))},
 		},
-		Payload: garbageText(rng),
+		Payload: garbageText(rng, eventPayloadLenMin, eventPayloadLenMax),
+	}
+}
+
+// generateDocument builds a single random document to create at version
+// 1: a type out of 5 choices, id as its numeric id, and a garbage-text
+// payload.
+func generateDocument(rng *rand.Rand, id int) document.Data {
+	payload := garbageText(rng, documentPayloadLenMin, documentPayloadLenMax)
+	return document.Data{
+		Type:    documentTypes[rng.Intn(len(documentTypes))],
+		ID:      strconv.Itoa(id),
+		Payload: &payload,
 	}
 }
 
 // garbageText returns a random alphanumeric string of a random length
-// between payloadLenMin and payloadLenMax characters.
-func garbageText(rng *rand.Rand) string {
-	n := payloadLenMin + rng.Intn(payloadLenMax-payloadLenMin+1)
+// between minLen and maxLen characters.
+func garbageText(rng *rand.Rand, minLen, maxLen int) string {
+	n := minLen + rng.Intn(maxLen-minLen+1)
 	b := make([]byte, n)
 	for i := range b {
 		b[i] = garbageAlphabet[rng.Intn(len(garbageAlphabet))]

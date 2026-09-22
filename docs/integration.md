@@ -299,19 +299,24 @@ test run, from a clean event log instead of tracking what earlier tests left
 behind. It responds `204 No Content` and only exists when `devMode` is on; see
 [deploy.md](deploy.md#configure). Never rely on it against a production instance.
 
-## Generating test events
+## Generating test data
 
-`tamarackdb-demo` fills an events database with a large set of made-up events,
-useful for testing a client library against realistic volume instead of one
-or two hand-written events:
+`tamarackdb-demo` fills a data directory with a large set of made-up events and
+documents. It is useful for testing a client library against realistic volume
+instead of one or two hand-written events:
 
 ```sh
-./bin/tamarackdb-demo --dataDir /path/to/data --n 100000 --seed 1
+./bin/tamarackdb-demo --dataDir /path/to/data --events 100000 --documents 10000 --seed 1
 ```
 
-It writes straight to the database file, not through the running server, so run
-it before starting `tamarackdb-server`, or against a separate data directory. See
-[build.md](build.md#demo-dataset) for how to build it and what its flags do.
+Documents have types `DocumentType1` to `DocumentType5` and numeric ids from 1
+to `--documents`. Each id exists under only one of those types, picked at
+random.
+
+It writes straight to the database files, not through the running server, so
+run it before starting `tamarackdb-server`, or against a separate data
+directory. See [build.md](build.md#demo-dataset) for how to build it and what
+its flags do.
 
 ## Error responses
 

@@ -37,17 +37,25 @@ make test
 
 ## Demo dataset
 
-`cmd/tamarackdb-demo` fills an events database with a large set of made-up events:
-random types, one or two identifiers, one metadata tag, and filler text as
-payload. It writes straight to the store, not through the HTTP server, so it
-can seed a large database fast. Use it to try `QUERY /events` at scale.
+`cmd/tamarackdb-demo` fills a data directory with a large set of made-up data.
+Events get random types, one or two identifiers, one metadata tag, and filler
+text as payload. Documents get a random type, a numeric id, and longer filler
+text as payload; each is created at version 1. The tool writes straight to the
+store, not through the HTTP server, so it can seed a large database fast. Use it
+to try `QUERY /events` and `GET /documents/{type}/{id}` at scale.
 
 ```sh
 make tamarackdb-demo
-./bin/tamarackdb-demo --dataDir /path/to/data --n 1000000 --seed 1
+./bin/tamarackdb-demo --dataDir /path/to/data --events 1000000 --documents 100000 --seed 1
 ```
 
-`--n` sets how many events to write, `--seed` makes the run repeatable.
+`--events` sets how many events to write (default 1000000). `--documents` sets
+how many documents to create (default 0). Set one of them to 0 to seed only the
+other. `--seed` makes the run repeatable.
+
+Document ids always run from 1 to `--documents`. A second run that creates
+documents on the same data directory fails with a conflict, so start from an
+empty directory when you need fresh documents.
 
 ## Other Makefile targets
 
