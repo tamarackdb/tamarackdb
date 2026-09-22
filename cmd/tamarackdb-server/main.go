@@ -134,7 +134,16 @@ func main() {
 	if cfg.SocketPath != "" {
 		log.Printf("tamarackdb-server: listening on %s (auth=%t)", cfg.SocketPath, cfg.EnableAuth)
 	} else {
-		log.Printf("tamarackdb-server: listening on %s (tls=%t, auth=%t)", listener.Addr(), cfg.EnableTLS, cfg.EnableAuth)
+		scheme := "http"
+		if cfg.EnableTLS {
+			scheme = "https"
+		}
+		addr := listener.Addr().(*net.TCPAddr)
+		host := addr.IP.String()
+		if addr.IP.IsUnspecified() {
+			host = "localhost" // 0.0.0.0 or :: is not a useful link target
+		}
+		log.Printf("tamarackdb-server: listening on %s://%s (auth=%t)", scheme, net.JoinHostPort(host, strconv.Itoa(addr.Port)), cfg.EnableAuth)
 	}
 
 	serveErrCh := make(chan error, 1)
