@@ -63,7 +63,7 @@ variables cover a deployment with no file at all.
 ## Run
 
 ```sh
-./bin/tamarackdb-init --dataDir /path/to/data
+./bin/tamarackdb-init --data-dir /path/to/data
 ./bin/tamarackdb-server --config /path/to/config.toml
 ```
 
@@ -121,7 +121,7 @@ volume for the socket path so the other container can reach it.
 against the mounted volume:
 
 ```sh
-docker exec <container> ./tamarackdb-init --dataDir /data
+docker exec <container> ./tamarackdb-init --data-dir /data
 ```
 
 ## Health check

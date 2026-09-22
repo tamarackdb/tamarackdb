@@ -56,7 +56,7 @@ var documentTypes = []string{
 const garbageAlphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
 func main() {
-	dataDir := flag.String("dataDir", "", "directory holding the SQLite database files to seed")
+	dataDir := flag.String("data-dir", "", "directory holding the SQLite database files to seed")
 	events := flag.Int("events", 1_000_000, "number of events to append")
 	documents := flag.Int("documents", 0, "number of documents to create")
 	seed := flag.Int64("seed", 1, "random seed, for reproducible datasets")
@@ -69,7 +69,7 @@ func main() {
 	}
 
 	if *dataDir == "" {
-		log.Fatal("tamarackdb-demo: -dataDir is required")
+		log.Fatal("tamarackdb-demo: -data-dir is required")
 	}
 	if *events < 0 || *documents < 0 {
 		log.Fatal("tamarackdb-demo: -events and -documents must not be negative")
@@ -134,7 +134,7 @@ func appendDocuments(ctx context.Context, st *store.Store, rng *rand.Rand, total
 		}
 		_, results, err := st.Append(ctx, nil, nil, batch)
 		if errors.Is(err, store.ErrConcurrencyConflict) {
-			log.Fatal("tamarackdb-demo: demo documents already exist in this data directory; use an empty -dataDir to create documents")
+			log.Fatal("tamarackdb-demo: demo documents already exist in this data directory; use an empty -data-dir to create documents")
 		}
 		if err != nil {
 			log.Fatalf("tamarackdb-demo: %v", err)

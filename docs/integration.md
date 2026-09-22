@@ -306,7 +306,7 @@ documents. It is useful for testing a client library against realistic volume
 instead of one or two hand-written events:
 
 ```sh
-./bin/tamarackdb-demo --dataDir /path/to/data --events 100000 --documents 10000 --seed 1
+./bin/tamarackdb-demo --data-dir /path/to/data --events 100000 --documents 10000 --seed 1
 ```
 
 Documents have types `DocumentType1` to `DocumentType5` and numeric ids from 1

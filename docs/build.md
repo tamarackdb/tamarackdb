@@ -46,7 +46,7 @@ to try `QUERY /events` and `GET /documents/{type}/{id}` at scale.
 
 ```sh
 make tamarackdb-demo
-./bin/tamarackdb-demo --dataDir /path/to/data --events 1000000 --documents 100000 --seed 1
+./bin/tamarackdb-demo --data-dir /path/to/data --events 1000000 --documents 100000 --seed 1
 ```
 
 `--events` sets how many events to write (default 1000000). `--documents` sets

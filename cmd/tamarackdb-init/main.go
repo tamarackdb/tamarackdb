@@ -18,7 +18,7 @@ import (
 )
 
 func main() {
-	dataDir := flag.String("dataDir", "", "directory to create the SQLite database files in")
+	dataDir := flag.String("data-dir", "", "directory to create the SQLite database files in")
 	showVersion := flag.Bool("version", false, "print the version and exit")
 	flag.Parse()
 
@@ -29,7 +29,7 @@ func main() {
 
 	if *dataDir == "" {
 		flag.Usage()
-		log.Fatal("tamarackdb-init: -dataDir is required")
+		log.Fatal("tamarackdb-init: -data-dir is required")
 	}
 
 	cfg := config.Config{DataDir: *dataDir}
