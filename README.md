@@ -6,6 +6,7 @@ using SQLite as the storage engine.
 
 [![release](https://img.shields.io/github/v/release/tamarackdb/tamarackdb)](https://github.com/tamarackdb/tamarackdb/releases/latest)
 [![ci](https://github.com/tamarackdb/tamarackdb/actions/workflows/ci.yml/badge.svg)](https://github.com/tamarackdb/tamarackdb/actions/workflows/ci.yml)
+[![license](https://img.shields.io/github/license/tamarackdb/tamarackdb)](LICENSE)
 
 ## Features
 
@@ -30,8 +31,8 @@ using SQLite as the storage engine.
 - [Backup](docs/backup.md): how to keep a local copy of an instance's events.
 - [Design](docs/design.md): how TamarackDB is built inside.
 
-## Project status
+## Contributing
 
-TamarackDB is under active development. Governance is private, and the
-project does not accept external contributions at this time. No support
-is offered, and the code is available as-is, at your own risk.
+TamarackDB is under active development. Issues and pull requests are
+welcome for bug reports and feature ideas; see
+[CONTRIBUTING.md](CONTRIBUTING.md).
