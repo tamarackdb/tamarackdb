@@ -1,6 +1,6 @@
-![](docs/tamarackdb-logo.png)
+![](docs/static/tamarackdb-logo.png)
 
-TamarackDB is an event store in pure Go, compliant with the [DCB (Dynamic Consistency
+TamarackDB is an open source event store in pure Go, compliant with the [DCB (Dynamic Consistency
 Boundaries) specification](https://dcb.events/specification/), accessible via HTTP,
 using SQLite as the storage engine.
 
@@ -19,17 +19,12 @@ using SQLite as the storage engine.
 - Single-instance design with no external dependency.
 - Plain SQLite storage with no opaque format lock-in.
 - Authentication and TLS encryption.
-- Incremental backup and schema migration tooling.
+- Incremental backup tooling.
 - Built-in monitoring and troubleshooting endpoints.
 
 ## Documentation
 
-- [Build](docs/build.md): how to build and test TamarackDB from source.
-- [Deployment](docs/deploy.md): how to configure, run, and deploy an instance.
-- [Integration](docs/integration.md): how to read and write events and
-  documents over HTTP, for apps and client libraries.
-- [Backup](docs/backup.md): how to keep a local copy of an instance's events.
-- [Design](docs/design.md): how TamarackDB is built inside.
+The full documentation is at <https://tamarackdb.github.io/>.
 
 ## Contributing
 

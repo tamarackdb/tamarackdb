@@ -1,8 +1,9 @@
 # Documentation writing guidelines
 
 These rules apply to all documentation in this repo: `README.md`, every
-`docs/*.md` file (including the technical `docs/design.md`), and prose in
-Go doc comments.
+page under `docs/content/` (including the technical
+`docs/content/docs/architecture.md`), the home page template
+`docs/layouts/home.html`, and prose in Go doc comments.
 
 ## Style
 
@@ -26,29 +27,48 @@ PR description, not in the doc or comment itself.
 
 ## Documentation structure
 
-Docs are split by audience, not by topic:
+Docs are split by audience, not by topic. Paths below are relative to
+`docs/content/docs/`:
 
-- `docs/design.md`: internal design, code architecture, logic rules,
+- `architecture.md`: internal design, code architecture, logic rules,
   technical detail. Audience: anyone changing TamarackDB itself.
-- `docs/integration.md`: reading/appending events over HTTP, optimistic
+- `guides/integration.md`: reading/appending events over HTTP, optimistic
   concurrency, error responses. Audience: people writing a client library
   or application integration against TamarackDB's HTTP API. Excludes
   anything operational.
-- `docs/deploy.md`: configuration, running the binary, Docker,
+- `guides/deploy.md`: configuration, running the binary, Docker,
   provisioning/migration tool usage, health check, observability
   (`/metrics`, `/debug`), logs. Audience: whoever runs an instance.
-- `docs/build.md`: compiling, testing, Makefile targets, the demo/seed
+- `contributing/build.md`: compiling, testing, Makefile targets, the demo/seed
   tool (`cmd/demo`). Audience: contributors building TamarackDB from
   source.
-- `docs/backup.md`: `tamarackdb-backup` usage, how it works, scheduling
+- `guides/backup.md`: `tamarackdb-backup` usage, how it works, scheduling
   with cron/systemd. Audience: whoever needs a standing backup copy of an
   instance's events.
 - `README.md`: kept to the strict minimum: logo, one-paragraph intro, and
-  a links section pointing to the docs above. No config tables, no Docker
-  examples, no build instructions live in the README itself.
+  a single link to the documentation site at
+  <https://tamarackdb.github.io/>, without listing its pages. No config
+  tables, no Docker examples, no build instructions live in the README
+  itself.
 
 When adding new documentation content, place it by asking "who reads this
 to do their job," not by topic proximity.
+
+## Documentation site
+
+`docs/` is a Hugo site using the Doks theme, published to
+<https://tamarackdb.github.io/> by `.github/workflows/docs.yml` on each
+`v*` tag.
+
+- Every page starts with front matter: `title`, `slug`, `weight`. The
+  page title comes from `title`; don't add a `#` heading.
+- Link between pages with absolute site paths, e.g.
+  `[Deployment](/docs/guides/deployment/#configure)`, never with `.md`
+  file paths.
+- Top-level sidebar entries are listed in
+  `docs/config/_default/menus/menus.en.toml` (`sidebar_docs`). A new
+  section or top-level page must be added there.
+- Build locally from `docs/` with `npm ci` then `npm run dev`.
 
 ## Versioning context
 

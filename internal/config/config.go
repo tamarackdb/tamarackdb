@@ -71,9 +71,9 @@ type Config struct {
 
 	// DataDir is the directory holding both SQLite files: the events
 	// database (EventsDatabasePath) and the documents database
-	// (DocumentsDatabasePath, see docs/design.md's I/O isolation
-	// rationale for why it's a second file rather than a table in the
-	// events database). Only the directory is configurable; the two
+	// (DocumentsDatabasePath, see docs/content/docs/architecture.md's
+	// I/O isolation rationale for why it's a second file rather than a
+	// table in the events database). Only the directory is configurable; the two
 	// filenames within it are fixed.
 	DataDir string `toml:"dataDir"` // default: data
 

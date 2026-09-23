@@ -1,0 +1,53 @@
+// Put your custom SCSS code here
+
+.home-logo {
+  width: 32rem;
+  max-width: 100%;
+  height: auto;
+}
+
+.home-logo + .lead {
+  text-wrap: balance;
+}
+
+// A top-level sidebar entry that is a single page (Architecture) matches
+// the section headings around it.
+.section-nav > ul > li > a {
+  font-weight: 700;
+}
+
+// Reference tables (config keys, env vars) are dense; a smaller font lets
+// most of them fit the content column. Wider ones scroll inside it (see
+// layouts/_markup/render-table.html).
+.table-responsive {
+  margin: 3rem 0;
+
+  table {
+    margin: 0;
+    font-size: 0.875rem;
+  }
+}
+
+// Config reference lists: the key, its description, then a quieter line
+// with the environment variable and default value.
+.docs-content dl {
+  margin: 2rem 0;
+
+  dt {
+    margin-top: 1.5rem;
+  }
+
+  dd {
+    margin-left: 1.5rem;
+    margin-bottom: 0.25rem;
+  }
+
+  dd + dd {
+    font-size: 0.875rem;
+    color: var(--bs-secondary-color);
+
+    code {
+      font-size: inherit;
+    }
+  }
+}

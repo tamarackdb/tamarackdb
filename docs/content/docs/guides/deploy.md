@@ -1,9 +1,13 @@
-# Deploying TamarackDB
+---
+title: "Deployment"
+slug: "deployment"
+weight: 1
+---
 
 This is for whoever runs a TamarackDB instance: configuring it, starting it, and
-watching it run. For how to build it, see [build.md](build.md). For how to call its
-HTTP API, see [integration.md](integration.md). For backing up an instance, see
-[backup.md](backup.md).
+watching it run. For how to build it, see [Building from source](/docs/contributing/building-from-source/). For how to call its
+HTTP API, see [Integration](/docs/guides/integration/). For backing up an instance, see
+[Backup](/docs/guides/backup/).
 
 ## Configure
 
@@ -15,7 +19,7 @@ Generate a starter `config.toml` and adjust it as needed:
 
 The file uses TOML, so lines can be commented out with `#`. Configuration
 lives under a `[server]` section, so the same file can also hold
-`tamarackdb-backup`'s `[backup]` section (see [backup.md](backup.md)):
+`tamarackdb-backup`'s `[backup]` section (see [Backup](/docs/guides/backup/)):
 
 ```sh
 ./bin/tamarackdb-backup --default-config >> config.toml
@@ -24,21 +28,70 @@ lives under a `[server]` section, so the same file can also hold
 Each binary reads only its own section and ignores the rest, so a shared
 file works whether you run one binary or both.
 
-| Key | Environment variable | Default | Description |
-|---|---|---|---|
-| `socketPath` | `TAMARACKDB_SOCKET_PATH` | `/var/run/tamarackdb-server.sock` | Unix socket the server listens on |
-| `bindAddress` / `port` | `TAMARACKDB_BIND_ADDRESS` / `TAMARACKDB_PORT` | none / none | Address and port the server listens on instead of a unix socket |
-| `enableTls` / `tlsCertFile` / `tlsKeyFile` | `TAMARACKDB_ENABLE_TLS` / `TAMARACKDB_TLS_CERT_FILE` / `TAMARACKDB_TLS_KEY_FILE` | `false` / none / none | TLS termination (Go's own `ListenAndServeTLS`, no reverse proxy) |
-| `enableAuth` / `authToken` | `TAMARACKDB_ENABLE_AUTH` / `TAMARACKDB_AUTH_TOKEN` | `false` / none | Bearer token check on every endpoint |
-| `dataDir` | `TAMARACKDB_DATA_DIR` | `data` | Directory holding all of TamarackDB's data. Its internal layout is managed by TamarackDB and may change between versions: don't rely on it, and don't edit its contents directly |
-| `defaultLimit` / `maxLimit` | `TAMARACKDB_DEFAULT_LIMIT` / `TAMARACKDB_MAX_LIMIT` | `1000` / `10000` | Default and maximum page size for `QUERY /events` |
-| `maxEventSize` | `TAMARACKDB_MAX_EVENT_SIZE` | `65536` (64 KiB) | Maximum size in bytes of a single event |
-| `maxDocumentSize` | `TAMARACKDB_MAX_DOCUMENT_SIZE` | `65536` (64 KiB) | Maximum size in bytes of a single document's payload |
-| `maxDocumentsPerWrite` | `TAMARACKDB_MAX_DOCUMENTS_PER_WRITE` | `100` | Maximum documents in a single `POST /write` call |
-| `maxQueuedWriters` | `TAMARACKDB_MAX_QUEUED_WRITERS` | `100` | Maximum writers waiting to write at once |
-| `readPoolSize` | `TAMARACKDB_READ_POOL_SIZE` | `8` | SQLite connections available for `/events`, and so how many can run at once |
-| `devMode` | `TAMARACKDB_DEV_MODE` | `false` | Turns on `DELETE /events` (wipes every event) and `/debug/pprof/*` (profiling endpoints). Never enable this in production. |
-| `logLevel` | `TAMARACKDB_LOG_LEVEL` | `warning` | Minimum severity for the per-request access log line: `debug`, `info`, `warning`, or `error` |
+`socketPath`
+: Unix socket the server listens on.
+: Env: `TAMARACKDB_SOCKET_PATH`
+: Default: `/var/run/tamarackdb-server.sock`
+
+`bindAddress` / `port`
+: Address and port the server listens on instead of a unix socket.
+: Env: `TAMARACKDB_BIND_ADDRESS` / `TAMARACKDB_PORT`
+: Default: none / none
+
+`enableTls` / `tlsCertFile` / `tlsKeyFile`
+: TLS termination (Go's own `ListenAndServeTLS`, no reverse proxy).
+: Env: `TAMARACKDB_ENABLE_TLS` / `TAMARACKDB_TLS_CERT_FILE` / `TAMARACKDB_TLS_KEY_FILE`
+: Default: `false` / none / none
+
+`enableAuth` / `authToken`
+: Bearer token check on every endpoint.
+: Env: `TAMARACKDB_ENABLE_AUTH` / `TAMARACKDB_AUTH_TOKEN`
+: Default: `false` / none
+
+`dataDir`
+: Directory holding all of TamarackDB's data. Its internal layout is managed by TamarackDB and may change between versions: don't rely on it, and don't edit its contents directly.
+: Env: `TAMARACKDB_DATA_DIR`
+: Default: `data`
+
+`defaultLimit` / `maxLimit`
+: Default and maximum page size for `QUERY /events`.
+: Env: `TAMARACKDB_DEFAULT_LIMIT` / `TAMARACKDB_MAX_LIMIT`
+: Default: `1000` / `10000`
+
+`maxEventSize`
+: Maximum size in bytes of a single event.
+: Env: `TAMARACKDB_MAX_EVENT_SIZE`
+: Default: `65536` (64 KiB)
+
+`maxDocumentSize`
+: Maximum size in bytes of a single document's payload.
+: Env: `TAMARACKDB_MAX_DOCUMENT_SIZE`
+: Default: `65536` (64 KiB)
+
+`maxDocumentsPerWrite`
+: Maximum documents in a single `POST /write` call.
+: Env: `TAMARACKDB_MAX_DOCUMENTS_PER_WRITE`
+: Default: `100`
+
+`maxQueuedWriters`
+: Maximum writers waiting to write at once.
+: Env: `TAMARACKDB_MAX_QUEUED_WRITERS`
+: Default: `100`
+
+`readPoolSize`
+: SQLite connections available for `/events`, and so how many can run at once.
+: Env: `TAMARACKDB_READ_POOL_SIZE`
+: Default: `8`
+
+`devMode`
+: Turns on `DELETE /events` (wipes every event) and `/debug/pprof/*` (profiling endpoints). Never enable this in production.
+: Env: `TAMARACKDB_DEV_MODE`
+: Default: `false`
+
+`logLevel`
+: Minimum severity for the per-request access log line: `debug`, `info`, `warning`, or `error`.
+: Env: `TAMARACKDB_LOG_LEVEL`
+: Default: `warning`
 
 By default, TamarackDB listens on a unix socket instead of a TCP port. This
 keeps it off the network entirely unless you opt in, the way MySQL's own
@@ -75,7 +128,7 @@ successful request or an expected rejection like a concurrency conflict
 stays quiet, and only capacity issues and real failures show up. See
 [Logs](#logs) for the full list of severities. It opens everything it needs
 under `dataDir` (creating it, with its schema, if it doesn't exist yet), so
-the documents mechanism (see [design.md](design.md#documents)) is ready
+the documents mechanism (see [Architecture](/docs/architecture/#documents)) is ready
 without a separate provisioning step.
 
 ## Provisioning and migration
@@ -90,7 +143,7 @@ directory:
 ```
 
 The server itself never changes the schema on its own. See
-[design.md](design.md#schema) for why migration is a separate tool.
+[Architecture](/docs/architecture/#schema) for why migration is a separate tool.
 
 `tamarackdb-migrate` only ever touches the events database file
 (`tamarackdb.sqlite`). The documents database file
@@ -153,13 +206,13 @@ not during normal `events`/`write` use.
 - `GET /metrics`: Prometheus text format. Shows whether a writer is active right
   now, how many writes are queued, the longest current wait, write/failure
   counts, and how many documents have had a best-effort payload write fail
-  (see [design.md](design.md#documents)).
+  (see [Architecture](/docs/architecture/#documents)).
 - `GET /debug`: a JSON snapshot with a `write` object (the current active writer,
   if any, every queued writer with its wait time, and the write SQLite pool's
   usage) and a `read` object (in-flight `/events` requests and the read SQLite
   pool's usage, sized by `readPoolSize` below).
 
-See [design.md](design.md#queue-and-connection-pool-observability) for the exact
+See [Architecture](/docs/architecture/#queue-and-connection-pool-observability) for the exact
 metric names and JSON shape.
 
 ## Developer mode

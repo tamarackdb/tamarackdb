@@ -1,15 +1,19 @@
-# Integrating with TamarackDB
+---
+title: "Integration"
+slug: "integration"
+weight: 2
+---
 
 This is for anyone writing an application or client library that talks to a
 running TamarackDB instance over HTTP. For how to run that instance, see
-[deploy.md](deploy.md). For how the server works inside, see [design.md](design.md).
+[Deployment](/docs/guides/deployment/). For how the server works inside, see [Architecture](/docs/architecture/).
 
 Examples below assume a server running locally on `127.0.0.1:8085`, with
 authentication off. TamarackDB listens on a unix socket by default; the
 examples apply the same way once you point curl at it with
 `--unix-socket <path> http://localhost/...` instead of a host and port (see
-[deploy.md](deploy.md#configure)). Add `-H "Authorization: Bearer <token>"` to
-every request when `enableAuth` is on (see [deploy.md](deploy.md#configure)).
+[Deployment](/docs/guides/deployment/#configure)). Add `-H "Authorization: Bearer <token>"` to
+every request when `enableAuth` is on (see [Deployment](/docs/guides/deployment/#configure)).
 
 ## Reading events
 
@@ -106,7 +110,7 @@ the last full line you received, with no events skipped or repeated.
 The same loop that pages through history can also follow new events live: keep
 polling with `afterSequence` set to the last Sequence Position you saw. Once
 `hasMore` reads `false`, you have caught up, and further polling picks up new
-events as they arrive. `tamarackdb-backup` (see [backup.md](backup.md)) is a
+events as they arrive. `tamarackdb-backup` (see [Backup](/docs/guides/backup/)) is a
 real example of this loop: it pages through `/events` with `afterSequence` set
 to the last sequence it saved locally, and stops once `hasMore` reads
 `false`.
@@ -190,7 +194,7 @@ Sequence Position as `afterSequence` and the same query as `failIfEventsMatch`.
 
 Alongside events, `/write` can carry `documents`: an optional list of projections
 to create, update, or delete, atomically with the events in the same call (see
-[design.md](design.md#documents) for the full mechanism, including why a
+[Architecture](/docs/architecture/#documents) for the full mechanism, including why a
 document's payload can, rarely, fail to persist without the whole call
 failing). A document is identified by `type` + `id`, holds one opaque `payload`,
 and carries a `version` for optimistic concurrency.
@@ -241,7 +245,7 @@ The response reports each document's outcome, in the order you sent them:
 
 `status` is `"ok"`, or `"payloadWriteFailed"` if the document's identity and
 version were committed but its payload failed to persist (rare; see
-[design.md](design.md#documents)). Either way the call as a whole still
+[Architecture](/docs/architecture/#documents)). Either way the call as a whole still
 succeeds (`200 OK`): only retry the specific document that failed, not the
 whole request.
 
@@ -297,7 +301,7 @@ curl -X DELETE http://127.0.0.1:8085/events
 This is useful for a client library's own test suite: start each test, or each
 test run, from a clean event log instead of tracking what earlier tests left
 behind. It responds `204 No Content` and only exists when `devMode` is on; see
-[deploy.md](deploy.md#configure). Never rely on it against a production instance.
+[Deployment](/docs/guides/deployment/#configure). Never rely on it against a production instance.
 
 ## Generating test data
 
@@ -315,7 +319,7 @@ random.
 
 It writes straight to the database files, not through the running server, so
 run it before starting `tamarackdb-server`, or against a separate data
-directory. See [build.md](build.md#demo-dataset) for how to build it and what
+directory. See [Building from source](/docs/contributing/building-from-source/#demo-dataset) for how to build it and what
 its flags do.
 
 ## Error responses

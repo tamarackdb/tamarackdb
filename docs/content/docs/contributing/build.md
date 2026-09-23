@@ -1,8 +1,12 @@
-# Building TamarackDB
+---
+title: "Building from source"
+slug: "building-from-source"
+weight: 1
+---
 
 This is for anyone building TamarackDB from source: contributors and packagers.
-For how to run it, see [deploy.md](deploy.md). For how it works inside, see
-[design.md](design.md).
+For how to run it, see [Deployment](/docs/guides/deployment/). For how it works inside, see
+[Architecture](/docs/architecture/).
 
 ## Build
 
@@ -24,7 +28,7 @@ builds only that one.
 
 The running build's version comes from `git describe --tags --always --dirty`,
 evaluated at build time. It is baked into every binary at build time, not read at
-runtime. See [design.md](design.md#versioning) for how that works.
+runtime. See [Architecture](/docs/architecture/#versioning) for how that works.
 
 `--version` prints the running build's version and exits, without loading a config
 file or opening the database. Every TamarackDB binary accepts it.
@@ -62,3 +66,20 @@ empty directory when you need fresh documents.
 - `make run`: build, then start the server with the default config
 - `make fmt` / `make vet` / `make tidy`: standard Go housekeeping
 - `make clean`: removes `bin/`
+
+## Documentation site
+
+The documentation is a [Hugo](https://gohugo.io/) site in `docs/`, using the
+[Doks](https://getdoks.org/) theme. You need Hugo extended and Node.js 20 or
+later. From `docs/`:
+
+```sh
+npm ci
+npm run dev
+```
+
+`npm run dev` serves the site at `http://localhost:1313/` and reloads on every
+change. `npm run build` writes the static site to `docs/public/`.
+
+The site is published to <https://tamarackdb.github.io/> each time a `v*` tag
+is pushed.

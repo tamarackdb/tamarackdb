@@ -1,42 +1,8 @@
-# TamarackDB Design
-
-## Table of contents
-
-- [Context](#context)
-  - [Name](#name)
-  - [Scope](#scope)
-- [Data model](#data-model)
-  - [Identifiers](#identifiers)
-  - [Metadata](#metadata)
-  - [Two categories of data associated with an event](#two-categories-of-data-associated-with-an-event)
-  - [Volume context](#volume-context)
-- [Query grammar (per the DCB spec)](#query-grammar-per-the-dcb-spec)
-- [HTTP API](#http-api)
-  - [Reading events](#reading-events)
-  - [Pagination](#pagination)
-  - [Projection rebuilds](#projection-rebuilds)
-  - [Response format](#response-format)
-  - [Writing events and documents](#writing-events-and-documents)
-  - [Documents](#documents)
-  - [Event size limit](#event-size-limit)
-  - [Error responses](#error-responses)
-- [Append Condition and concurrency](#append-condition-and-concurrency)
-- [Concurrency handling in Go](#concurrency-handling-in-go)
-  - [Principle: the queue manager](#principle-the-queue-manager)
-  - [Application-controlled Sequence Position](#application-controlled-sequence-position)
-  - [Reads](#reads)
-  - [Startup, shutdown, and crash behavior](#startup-shutdown-and-crash-behavior)
-- [Storage: SQLite](#storage-sqlite)
-  - [Schema](#schema)
-- [Configuration](#configuration)
-- [Security](#security)
-  - [Dev mode](#dev-mode)
-- [Management / observability features](#management--observability-features)
-  - [Health check](#health-check)
-  - [Versioning](#versioning)
-  - [Request logging](#request-logging)
-  - [Queue and connection pool observability](#queue-and-connection-pool-observability)
-- [Implementation](#implementation)
+---
+title: "Architecture"
+slug: "architecture"
+weight: 2
+---
 
 ## Context
 
@@ -481,7 +447,7 @@ SQLite is used as the storage engine, for these reasons:
 - WAL mode allows reads to happen at the same time as writes, without blocking
 - A plain, inspectable file format: the database can be opened and queried with ordinary SQLite tools, not some closed format, and backed up the same way, through SQLite's own backup tools (for example `.backup`, `VACUUM INTO`) instead of a raw copy of the file, which can miss commits still sitting in the WAL
 
-Document payloads live in a second SQLite file, `tamarackdb-documents.sqlite`, separate from `events`. See Documents for why: I/O isolation between events (compact, append-only) and document payloads (potentially large, rewritten in place), not a technical limit of SQLite itself. `tamarackdb-backup` only ever covers the events file (see [backup.md](backup.md)): a document's payload is reproducible from events, so it doesn't need its own backup copy.
+Document payloads live in a second SQLite file, `tamarackdb-documents.sqlite`, separate from `events`. See Documents for why: I/O isolation between events (compact, append-only) and document payloads (potentially large, rewritten in place), not a technical limit of SQLite itself. `tamarackdb-backup` only ever covers the events file (see [Backup](/docs/guides/backup/)): a document's payload is reproducible from events, so it doesn't need its own backup copy.
 
 A file-level copy is not the only way to back up an instance. `tamarackdb-backup`
 reads events over `QUERY /events` from a live source and writes them into a local
@@ -581,7 +547,7 @@ Moving an existing database from one schema version to the next is the job of a 
 
 TamarackDB's startup configuration (socket path or bind address/port, TLS settings, auth token, data directory, pagination/event-size limits, and the write queue depth) comes from three sources, in this order:
 
-1. A TOML configuration file, passed via `--config` (defaults to `config.toml` in the working directory). Keys live under a `[server]` section, so the same file can also hold `tamarackdb-backup`'s `[backup]` section (see [backup.md](backup.md)); each binary reads only its own section.
+1. A TOML configuration file, passed via `--config` (defaults to `config.toml` in the working directory). Keys live under a `[server]` section, so the same file can also hold `tamarackdb-backup`'s `[backup]` section (see [Backup](/docs/guides/backup/)); each binary reads only its own section.
 2. `TAMARACKDB_*` environment variables, one per configuration key.
 3. Built-in defaults, for the handful of keys that have one (`socketPath`, `dataDir`, `defaultLimit`, `maxLimit`, `maxEventSize`, `maxDocumentSize`, `maxDocumentsPerWrite`, `maxQueuedWriters`, `readPoolSize`).
 
@@ -688,7 +654,7 @@ Event and row counts, per-type breakdowns, and database file size (anything you 
 
 `write.active` describes the current active writer, if any (`null` when the queue manager is idle). `write.queued` lists every writer still waiting, oldest first, with `waitSeconds` instead of `ageSeconds`. Neither one carries the writer's Append Condition or events: the queue manager never knows either (see Principle: the queue manager). `write.queued` is always present, never `null`, even when empty.
 
-`httpOpen` is how many `POST /write`/`QUERY /events` requests (and, in dev mode, `DELETE /events`) are currently in flight; `sqliteInUse` and `sqliteMax` are the underlying SQLite connection pool's usage against its configured ceiling (`database/sql`'s own `DBStats.InUse`/`MaxOpenConnections`, read straight off the read and write `*sql.DB` pools). `write.sqliteMax` is always `1`: the write pool is deliberately capped at one connection so SQLite's own driver enforces the same exclusive-writer guarantee the queue manager already provides at the HTTP layer. On the write side, `httpOpen` is always exactly `write.queued`'s length plus one if `write.active` is non-null, since every in-flight write request is either the active writer or waiting in that same queue. On the read side there is no FIFO to derive it from, so `read.httpOpen` is tracked directly; it can run higher than `read.sqliteMax` when the read pool is saturated and the extra requests are waiting inside `database/sql` for a free connection. A sustained gap between the two there is a sign that `readPoolSize` (see [deploy.md](deploy.md)) is too small for the traffic.
+`httpOpen` is how many `POST /write`/`QUERY /events` requests (and, in dev mode, `DELETE /events`) are currently in flight; `sqliteInUse` and `sqliteMax` are the underlying SQLite connection pool's usage against its configured ceiling (`database/sql`'s own `DBStats.InUse`/`MaxOpenConnections`, read straight off the read and write `*sql.DB` pools). `write.sqliteMax` is always `1`: the write pool is deliberately capped at one connection so SQLite's own driver enforces the same exclusive-writer guarantee the queue manager already provides at the HTTP layer. On the write side, `httpOpen` is always exactly `write.queued`'s length plus one if `write.active` is non-null, since every in-flight write request is either the active writer or waiting in that same queue. On the read side there is no FIFO to derive it from, so `read.httpOpen` is tracked directly; it can run higher than `read.sqliteMax` when the read pool is saturated and the extra requests are waiting inside `database/sql` for a free connection. A sustained gap between the two there is a sign that `readPoolSize` (see [Deployment](/docs/guides/deployment/)) is too small for the traffic.
 
 Since the queue manager already serializes access to its own state behind a mutex, and the SQLite pool stats come straight from `database/sql`'s own counters, answering a `GET /debug` request is always a quick, non-blocking read: never stuck behind a queued or in-flight write or read. The endpoint is read-only: nothing about it lets you force-finish a writer's turn, cancel a read, or otherwise change either pool's state.
 

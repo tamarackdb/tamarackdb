@@ -1,0 +1,52 @@
+title = "TamarackDB"
+baseurl = "http://localhost/"
+disableAliases = true
+disableHugoGeneratorInject = true
+disableKinds = ["taxonomy", "term"]
+enableEmoji = true
+enableGitInfo = false
+enableRobotsTXT = true
+languageCode = "en-US"
+defaultContentLanguage = "en"
+summarylength = 20
+
+copyRight = "Copyright (c) 2026 Maxime Gosselin"
+
+[build.buildStats]
+  enable = true
+
+[outputs]
+  home = ["HTML", "searchIndex"]
+  section = ["HTML", "SITEMAP"]
+
+[outputFormats.searchIndex]
+  mediaType = "application/json"
+  baseName = "search-index"
+  isPlainText = true
+  notAlternative = true
+
+[outputFormats.SITEMAP]
+  mediaType = "application/xml"
+  baseName = "sitemap"
+  isHTML = false
+  isPlainText = true
+  noUgly = true
+  rel  = "sitemap"
+
+[sitemap]
+  changefreq = "monthly"
+  filename = "sitemap.xml"
+  priority = 0.5
+
+[permalinks]
+  docs = "/docs/:sections[1:]/:slug/"
+
+[minify.tdewolff.html]
+  keepWhitespace = false
+
+[imaging]
+  anchor = "Center"
+  bgColor = "#ffffff"
+  hint = "photo"
+  quality = 85
+  resampleFilter = "Lanczos"

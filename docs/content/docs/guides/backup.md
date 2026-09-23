@@ -1,8 +1,12 @@
-# Backing up TamarackDB
+---
+title: "Backup"
+slug: "backup"
+weight: 3
+---
 
 This is for whoever needs a standing backup copy of an instance's events: an
 off-site copy, a warm standby, or a database to test against without touching
-production. For how to run the server itself, see [deploy.md](deploy.md).
+production. For how to run the server itself, see [Deployment](/docs/guides/deployment/).
 
 `tamarackdb-backup` copies new events from a remote TamarackDB instance into a
 local SQLite file. It does one catch-up run and exits: schedule it with cron
@@ -20,22 +24,35 @@ Generate a starter config and adjust it as needed:
 ./bin/tamarackdb-backup --config /path/to/backup-config.toml
 ```
 
-| Key | Environment variable | Default | Description |
-|---|---|---|---|
-| `sourceUrl` | `TAMARACKDB_BACKUP_SOURCE_URL` | none, required | Base URL of the instance to copy events from |
-| `sourceToken` | `TAMARACKDB_BACKUP_SOURCE_TOKEN` | none | Bearer token for the source instance, when it has `enableAuth` on |
-| `databasePath` | `TAMARACKDB_BACKUP_DATABASE_PATH` | `data/tamarackdb-backup.sqlite` | Path to the local SQLite file the backup is written to |
-| `pageLimit` | `TAMARACKDB_BACKUP_PAGE_LIMIT` | `1000` | Page size used when reading from the source |
+`sourceUrl`
+: Base URL of the instance to copy events from.
+: Env: `TAMARACKDB_BACKUP_SOURCE_URL`
+: Default: none, required
+
+`sourceToken`
+: Bearer token for the source instance, when it has `enableAuth` on.
+: Env: `TAMARACKDB_BACKUP_SOURCE_TOKEN`
+: Default: none
+
+`databasePath`
+: Path to the local SQLite file the backup is written to.
+: Env: `TAMARACKDB_BACKUP_DATABASE_PATH`
+: Default: `data/tamarackdb-backup.sqlite`
+
+`pageLimit`
+: Page size used when reading from the source.
+: Env: `TAMARACKDB_BACKUP_PAGE_LIMIT`
+: Default: `1000`
 
 The config file is TOML, with these keys under a `[backup]` section. That
 section can live in its own file, as shown above, or share one file with the
-server's `[server]` section (see [deploy.md](deploy.md#configure)); either
+server's `[server]` section (see [Deployment](/docs/guides/deployment/#configure)); either
 way `tamarackdb-backup` reads only `[backup]`.
 
 `sourceUrl` must be an `http://` or `https://` address, so the source instance
 needs `bindAddress`/`port` set: `tamarackdb-backup` has no way to reach a
 source running only on its default unix socket (see
-[deploy.md](deploy.md#configure)).
+[Deployment](/docs/guides/deployment/#configure)).
 
 ## How it works
 
@@ -44,7 +61,7 @@ pages through the source's `QUERY /events` with `afterSequence` set to that
 value, writing every event it gets straight into local storage: not through
 `POST /write`, but through the same code path `store.Open` always uses to
 build a database file, so the schema comes out identical. See
-[design.md](design.md#storage-sqlite) for why that matters: the backup file
+[Architecture](/docs/architecture/#storage-sqlite) for why that matters: the backup file
 can be pointed at directly with `tamarackdb-server --config ...` if the source ever
 needs replacing.
 
@@ -52,7 +69,7 @@ needs replacing.
 It has no notion of documents at all, and never touches (or even needs to
 know the path of) a source's `tamarackdb-documents.sqlite`. This is
 deliberate, not a gap: a document's payload is reproducible from events (see
-[design.md](design.md#documents)). If you ever point `tamarackdb-server` at a
+[Architecture](/docs/architecture/#documents)). If you ever point `tamarackdb-server` at a
 restored backup file, the documents database starts empty: any document an
 application writes again shows up as usual, but a full catch-up for the rest
 means rebuilding, the normal `DELETE /documents/{type}` plus a fresh write of

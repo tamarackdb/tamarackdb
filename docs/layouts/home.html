@@ -1,0 +1,51 @@
+{{ define "main" }}
+<section class="section container-fluid mt-n3 pb-3">
+  <div class="row justify-content-center">
+    <div class="col-lg-9 col-xl-8 text-center">
+      <img class="home-logo my-4" src="{{ "tamarackdb-logo.png" | relURL }}" alt="{{ .Title }}">
+      <div class="lead">{{ .Content }}</div>
+      <a class="btn btn-primary btn-cta rounded-pill btn-lg my-3" href="{{ "docs/guides/deployment/" | relURL }}" role="button">Get Started</a>
+    </div>
+  </div>
+</section>
+{{ end }}
+
+{{ define "sidebar-prefooter" }}
+  {{ if site.Params.doks.backgroundDots -}}
+  <div class="d-flex justify-content-start">
+    <div class="bg-dots"></div>
+  </div>
+  {{ end -}}
+  <section class="section section-md section-features">
+    <div class="container">
+      <div class="row justify-content-center text-center">
+        <div class="col-lg-5">
+          <h2 class="h4">DCB compliant</h2>
+          <p>Follows the DCB specification, with optimistic concurrency on writes.</p>
+        </div>
+        <div class="col-lg-5">
+          <h2 class="h4">HTTP API</h2>
+          <p>Read and write events over HTTP, with pagination for large result sets.</p>
+        </div>
+        <div class="col-lg-5">
+          <h2 class="h4">Document store</h2>
+          <p>Optional documents for projections that stay in sync with the events that changed them.</p>
+        </div>
+        <div class="col-lg-5">
+          <h2 class="h4">Single instance</h2>
+          <p>Runs as a single server, with no external dependency.</p>
+        </div>
+        <div class="col-lg-5">
+          <h2 class="h4">Plain SQLite</h2>
+          <p>Events live in a standard SQLite file, with no opaque format lock-in.</p>
+        </div>
+        <div class="col-lg-5">
+          <h2 class="h4">Incremental backup</h2>
+          <p>Keep a local copy of an instance's events, updated from cron or a systemd timer.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+{{ end }}
+
+{{ define "sidebar-footer" }}{{ end }}

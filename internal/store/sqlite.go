@@ -151,8 +151,8 @@ func (s *Store) Close() error {
 // OpenDocuments opens (or creates) tamarackdb-documents.sqlite at path,
 // with its own read/write connection pools, schema, and file lock,
 // entirely independent of the events file: the two are never meant to
-// share a WAL or a writer lock (see docs/design.md's I/O isolation
-// rationale). Callers that never pass documents to Append and never call
+// share a WAL or a writer lock (see docs/content/docs/architecture.md's
+// I/O isolation rationale). Callers that never pass documents to Append and never call
 // GetDocument/DeleteDocumentsByType don't need to call this at all.
 //
 // Any non-nil error is fatal at startup, the same treatment Open's own

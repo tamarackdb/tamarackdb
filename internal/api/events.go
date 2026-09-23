@@ -33,7 +33,7 @@ type readTimeRange struct {
 // streamed as each event is scanned (see handleEvents), so a failure partway
 // through a page simply ends the response with no trailer line, the same
 // signal a client already has to handle for a plain dropped connection
-// (see docs/integration.md's Pagination section).
+// (see docs/content/docs/guides/integration.md's Pagination section).
 type readTrailer struct {
 	HasMore bool `json:"hasMore"`
 }
