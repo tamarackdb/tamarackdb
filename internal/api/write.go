@@ -12,7 +12,7 @@ import (
 // timeLayout mirrors dcb.Event's own wire format exactly (ATOM/RFC3339,
 // fixed microsecond precision, UTC). It is duplicated here because dcb keeps
 // its layout unexported and appendedEvent is intentionally its own,
-// smaller shape (sequence+time only), not a reuse of dcb.Event's
+// smaller shape (sequence+writeTime only), not a reuse of dcb.Event's
 // MarshalJSON.
 const timeLayout = "2006-01-02T15:04:05.000000Z07:00"
 
@@ -36,8 +36,8 @@ type writeResponse struct {
 }
 
 type appendedEvent struct {
-	Sequence int64  `json:"sequence"`
-	Time     string `json:"time"`
+	Sequence  int64  `json:"sequence"`
+	WriteTime string `json:"writeTime"`
 }
 
 // writtenDocument reports what happened to one document.Data from the
@@ -91,7 +91,7 @@ func (s *Server) handleWrite(w http.ResponseWriter, r *http.Request) {
 
 	resp := writeResponse{Events: make([]appendedEvent, len(events))}
 	for i, ev := range events {
-		resp.Events[i] = appendedEvent{Sequence: ev.Sequence, Time: ev.Time.UTC().Format(timeLayout)}
+		resp.Events[i] = appendedEvent{Sequence: ev.Sequence, WriteTime: ev.WriteTime.UTC().Format(timeLayout)}
 	}
 	if len(docResults) > 0 {
 		resp.Documents = make([]writtenDocument, len(docResults))

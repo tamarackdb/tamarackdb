@@ -72,12 +72,16 @@ func (s *Store) Append(ctx context.Context, events []dcb.EventData, condition *d
 	// condition (if any) has been confirmed to hold: a failed condition
 	// must leave no gap in the sequence.
 	start := s.reserveSequences(len(events))
-	base := time.Now().UTC()
+	// One writeTime for the whole write: every event in it is written at
+	// the same moment. Order within the write comes from Sequence.
+	// Truncated to the stored microsecond precision, so the value returned
+	// here is exactly the one a read returns later.
+	writeTime := time.Now().UTC().Truncate(time.Microsecond)
 	result := make([]dcb.Event, len(events))
 	for i, ed := range events {
 		result[i] = dcb.Event{
 			Sequence:  start + int64(i),
-			Time:      base.Add(time.Duration(i) * time.Microsecond),
+			WriteTime: writeTime,
 			EventData: ed,
 		}
 	}
@@ -236,10 +240,10 @@ func insertEventsBatch(ctx context.Context, tx *sql.Tx, rows []dcb.Event) error 
 		if err != nil {
 			return wrapf("marshal metadata", err)
 		}
-		args[i] = []any{ev.Sequence, ev.Time.Format(timeLayout), ev.Type, ev.Payload, string(idsJSON), string(mdJSON)}
+		args[i] = []any{ev.Sequence, ev.ClientTime, ev.WriteTime.UTC().Format(timeLayout), ev.Type, ev.Payload, string(idsJSON), string(mdJSON)}
 	}
 	err := execBatchInsert(ctx, tx,
-		"INSERT INTO events (sequence, time, type, payload, identifiers, metadata) VALUES ", 6, args)
+		"INSERT INTO events (sequence, client_time, write_time, type, payload, identifiers, metadata) VALUES ", 7, args)
 	return wrapf("insert events", err)
 }
 

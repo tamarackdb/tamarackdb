@@ -2,6 +2,7 @@ package store
 
 import (
 	"testing"
+	"time"
 
 	"github.com/tamarackdb/tamarackdb/internal/dcb"
 )
@@ -58,23 +59,41 @@ func TestReadAfterSequenceFiltering(t *testing.T) {
 	}
 }
 
-func TestReadTimeFiltering(t *testing.T) {
+// TestReadClientTimeFiltering gives events clientTimes out of sequence
+// order, all far from their shared writeTime, so a filter that matched on
+// write_time instead of client_time would return the wrong events.
+func TestReadClientTimeFiltering(t *testing.T) {
 	s := openTestStore(t)
-	appended := mustAppend(t, s, []dcb.EventData{{Type: "a"}, {Type: "b"}, {Type: "c"}}, nil)
-
-	events, _ := mustReadAll(t, s, ReadFilter{Query: dcb.QueryAll(), TimeFrom: &appended[1].Time, Limit: 10})
-	if len(events) != 2 {
-		t.Fatalf("TimeFrom: got %d events, want 2 (b, c)", len(events))
+	mustAppend(t, s, []dcb.EventData{
+		{Type: "b", ClientTime: "2020-01-02T00:00:00.000000Z"},
+		{Type: "a", ClientTime: "2020-01-01T00:00:00.000000Z"},
+		{Type: "c", ClientTime: "2020-01-03T00:00:00.000000Z"},
+	}, nil)
+	day := func(d int) *time.Time {
+		tm := time.Date(2020, 1, d, 0, 0, 0, 0, time.UTC)
+		return &tm
+	}
+	types := func(events []dcb.Event) string {
+		var out string
+		for _, e := range events {
+			out += e.Type
+		}
+		return out
 	}
 
-	events, _ = mustReadAll(t, s, ReadFilter{Query: dcb.QueryAll(), TimeBefore: &appended[1].Time, Limit: 10})
-	if len(events) != 1 {
-		t.Fatalf("TimeBefore: got %d events, want 1 (a)", len(events))
+	events, _ := mustReadAll(t, s, ReadFilter{Query: dcb.QueryAll(), ClientTimeFrom: day(2), Limit: 10})
+	if got := types(events); got != "bc" {
+		t.Errorf("ClientTimeFrom: got %q, want %q", got, "bc")
 	}
 
-	events, _ = mustReadAll(t, s, ReadFilter{Query: dcb.QueryAll(), TimeFrom: &appended[0].Time, TimeBefore: &appended[2].Time, Limit: 10})
-	if len(events) != 2 {
-		t.Fatalf("combined: got %d events, want 2 (a, b)", len(events))
+	events, _ = mustReadAll(t, s, ReadFilter{Query: dcb.QueryAll(), ClientTimeBefore: day(2), Limit: 10})
+	if got := types(events); got != "a" {
+		t.Errorf("ClientTimeBefore: got %q, want %q", got, "a")
+	}
+
+	events, _ = mustReadAll(t, s, ReadFilter{Query: dcb.QueryAll(), ClientTimeFrom: day(1), ClientTimeBefore: day(3), Limit: 10})
+	if got := types(events); got != "ba" {
+		t.Errorf("combined: got %q, want %q (sequence order)", got, "ba")
 	}
 }
 

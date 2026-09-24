@@ -46,7 +46,7 @@ func newDevModeTestServerWithMaxQueued(t *testing.T, maxQueued int) (*Server, *q
 func TestResetWipesDatabase(t *testing.T) {
 	srv, _ := newDevModeTestServer(t)
 
-	appendRec := doRequest(t, srv, "POST", "/write", `{"events":[{"type":"t","payload":""}]}`)
+	appendRec := doRequest(t, srv, "POST", "/write", `{"events":[{"type":"t","clientTime":"2026-09-01T14:23:05.123456Z","payload":""}]}`)
 	if appendRec.Code != 200 {
 		t.Fatalf("append status = %d, body = %s", appendRec.Code, appendRec.Body.String())
 	}

@@ -44,9 +44,12 @@ matching event is found. Every line but the last is one event, oldest first; the
 last line is always a trailer with `hasMore`:
 
 ```
-{"sequence":12346,"time":"2026-09-01T14:23:05.123456Z","type":"user-created","identifiers":{"userId":"123"},"metadata":{"tenantId":"acme"},"payload":"..."}
+{"sequence":12346,"clientTime":"2026-09-01T14:23:05.120000Z","writeTime":"2026-09-01T14:23:05.123456Z","type":"user-created","identifiers":{"userId":"123"},"metadata":{"tenantId":"acme"},"payload":"..."}
 {"hasMore":false}
 ```
+
+Each event carries two dates: `clientTime`, the date your application gave the
+event, and `writeTime`, when TamarackDB wrote it (see Event dates below).
 
 Parse it line by line, not as one JSON document. That way, a response can safely
 resume if the connection drops mid-transfer (see Pagination below). Tell the
@@ -85,12 +88,13 @@ Two more, optional, top-level keys narrow a query further:
 
 - `afterSequence`: only events with a Sequence Position strictly greater than this
   value
-- `time: { "from": "...", "before": "..." }`: only events whose `time` falls in
-  this range (`from` inclusive, `before` exclusive). Either key, or `time` itself,
-  can be left out.
+- `clientTime: { "from": "...", "before": "..." }`: only events whose
+  `clientTime` falls in this range (`from` inclusive, `before` exclusive). Either
+  key, or `clientTime` itself, can be left out. A bound may use any RFC 3339
+  offset: it's converted to UTC before comparing.
 
 ```json
-{ "query": "*", "afterSequence": 12345, "time": { "from": "2026-01-01T00:00:00.000000Z" } }
+{ "query": "*", "afterSequence": 12345, "clientTime": { "from": "2026-01-01T00:00:00.000000Z" } }
 ```
 
 ### Pagination
@@ -128,6 +132,7 @@ curl -X POST http://127.0.0.1:8085/write \
     "events": [
       {
         "type": "user-created",
+        "clientTime": "2026-09-01T14:24:59.997000Z",
         "identifiers": { "userId": "123" },
         "metadata": { "tenantId": "acme" },
         "payload": "{\"name\":\"Ada\"}"
@@ -141,13 +146,13 @@ strings: an array gives one tag per value, all on the same event. `payload` is a
 opaque string. TamarackDB never parses it, so its format (JSON, XML, or anything
 else) is entirely up to the calling application.
 
-On success (`200 OK`), the response confirms the Sequence Position and time
-assigned to each event, in the order you sent them:
+On success (`200 OK`), the response confirms the Sequence Position and
+`writeTime` assigned to each event, in the order you sent them:
 
 ```json
 {
   "events": [
-    { "sequence": 12348, "time": "2026-09-01T14:25:00.000000Z" }
+    { "sequence": 12348, "writeTime": "2026-09-01T14:25:00.000000Z" }
   ]
 }
 ```
@@ -156,6 +161,37 @@ A single request may carry up to 100 events, each up to 64 KiB (the combined siz
 of its `type`, `identifiers`, `metadata`, and `payload`). Put larger content
 (files, documents) in external storage, and reference it from the event instead of
 embedding it.
+
+### Event dates
+
+Every event you write needs a `clientTime`: the event's date, set by your
+application. It can be any date. Use the moment the fact happened: now, an
+earlier date for an import, or the moment a user acted while offline.
+
+Its format is strict: UTC, with exactly 6 fractional digits.
+
+```
+2026-09-01T14:23:05.123456Z
+```
+
+Anything else gets `400 Bad Request`, including an offset (`-04:00`, even
+`+00:00`) or a different number of fractional digits. The server never
+converts the value, so a read returns exactly the string you sent. The strict
+format is what lets the server sort and filter dates as plain text.
+
+In JavaScript, `toISOString()` gives UTC with 3 fractional digits, so pad it:
+
+```js
+const clientTime = new Date().toISOString().replace("Z", "000Z");
+// "2026-09-01T14:23:05.123000Z"
+```
+
+If your application needs the user's local time zone, put it in the payload.
+
+TamarackDB adds a second date when it writes the event: `writeTime`. It's the
+same for every event of one `write` call. It's there for inspection (for
+example, to spot events imported long after they happened). Don't use it in
+projections: see [What a projection may use](#what-a-projection-may-use).
 
 ### Optimistic concurrency
 
@@ -166,7 +202,7 @@ you last read:
 curl -X POST http://127.0.0.1:8085/write \
   -H "Content-Type: application/json" \
   -d '{
-    "events": [ { "type": "user-renamed", "identifiers": { "userId": "123" }, "payload": "..." } ],
+    "events": [ { "type": "user-renamed", "clientTime": "2026-09-01T14:30:00.000000Z", "identifiers": { "userId": "123" }, "payload": "..." } ],
     "condition": {
       "failIfEventsMatch": [ { "identifiers": [ { "name": "userId", "value": "123" } ] } ],
       "afterSequence": 12345
@@ -288,6 +324,18 @@ rebuild instead of one call per type:
 curl -X DELETE http://127.0.0.1:8085/documents
 ```
 
+### What a projection may use
+
+When a `write` call carries documents, your application builds them before
+sending the call. At that point, it doesn't know the `sequence` or `writeTime`
+the server will give the events. So a document can only use what your
+application sends: each event's `type`, `clientTime`, identifiers, metadata,
+and payload.
+
+Rebuilding a projection from `/events` must follow the same rule. If a rebuild
+used `sequence` or `writeTime`, it would produce documents that differ from the
+ones written alongside the events.
+
 ## Resetting between test runs
 
 If the server has `devMode` on, `DELETE /events` wipes every event,
@@ -335,7 +383,7 @@ present when it helps and left out otherwise.
 
 | Status | `error` | Meaning |
 |---|---|---|
-| 400 | `InvalidRequest` | Malformed or invalid request body: bad JSON, invalid query shape, `limit` over the configured maximum, more than 100 events or too many documents in one `write`, a document missing `type`/`id`, a repeated document `type`+`id` in the same call, a document deletion with no `version`, and so on |
+| 400 | `InvalidRequest` | Malformed or invalid request body: bad JSON, invalid query shape, `limit` over the configured maximum, an event missing `clientTime` or with a `clientTime` not in the exact format (see Event dates), more than 100 events or too many documents in one `write`, a document missing `type`/`id`, a repeated document `type`+`id` in the same call, a document deletion with no `version`, and so on |
 | 401 | `Unauthorized` | Missing or invalid Bearer token (only when `enableAuth` is on) |
 | 404 | `DocumentNotFound` | `GET /documents/{type}/{id}` only: no document exists at that `type` + `id` |
 | 409 | `ConcurrencyException` | The write's `condition` failed, or a document's `version` didn't match |

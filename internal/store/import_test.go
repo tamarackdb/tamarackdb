@@ -32,8 +32,11 @@ func TestImportRoundTrip(t *testing.T) {
 		if got[i].Sequence != want.Sequence {
 			t.Errorf("event %d: Sequence = %d, want %d (Import must not reassign it)", i, got[i].Sequence, want.Sequence)
 		}
-		if !got[i].Time.Equal(want.Time) {
-			t.Errorf("event %d: Time = %v, want %v (Import must not reassign it)", i, got[i].Time, want.Time)
+		if !got[i].WriteTime.Equal(want.WriteTime) {
+			t.Errorf("event %d: WriteTime = %v, want %v (Import must not reassign it)", i, got[i].WriteTime, want.WriteTime)
+		}
+		if got[i].ClientTime != want.ClientTime {
+			t.Errorf("event %d: ClientTime = %q, want %q", i, got[i].ClientTime, want.ClientTime)
 		}
 		if got[i].Type != want.Type || got[i].Payload != want.Payload {
 			t.Errorf("event %d: EventData = %+v, want %+v", i, got[i].EventData, want.EventData)

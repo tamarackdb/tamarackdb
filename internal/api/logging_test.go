@@ -122,8 +122,8 @@ func TestAccessLogLevelPerOutcome(t *testing.T) {
 			level: "DEBUG",
 			serve: func(t *testing.T) *httptest.ResponseRecorder {
 				srv, _, _ := newTestServer(t)
-				doRequest(t, srv, "POST", "/write", `{"events":[{"type":"t","identifiers":{"userId":"123"},"metadata":{},"payload":""}]}`)
-				body := `{"events":[{"type":"t","identifiers":{"userId":"999"},"metadata":{},"payload":""}],
+				doRequest(t, srv, "POST", "/write", `{"events":[{"type":"t","clientTime":"2026-09-01T14:23:05.123456Z","identifiers":{"userId":"123"},"metadata":{},"payload":""}]}`)
+				body := `{"events":[{"type":"t","clientTime":"2026-09-01T14:23:05.123456Z","identifiers":{"userId":"999"},"metadata":{},"payload":""}],
 					"condition":{"failIfEventsMatch":[{"identifiers":[{"name":"userId","value":"123"}]}],"afterSequence":0}}`
 				return doRequest(t, srv, "POST", "/write", body)
 			},
@@ -142,7 +142,7 @@ func TestAccessLogLevelPerOutcome(t *testing.T) {
 			serve: func(t *testing.T) *httptest.ResponseRecorder {
 				srv, _, _ := newTestServer(t)
 				hugePayload := strings.Repeat("x", 70000) // over the 65536 test-server MaxEventSize
-				body := `{"events":[{"type":"t","identifiers":{},"metadata":{},"payload":"` + hugePayload + `"}]}`
+				body := `{"events":[{"type":"t","clientTime":"2026-09-01T14:23:05.123456Z","identifiers":{},"metadata":{},"payload":"` + hugePayload + `"}]}`
 				return doRequest(t, srv, "POST", "/write", body)
 			},
 		},
@@ -179,7 +179,7 @@ func TestAccessLogLevelPerOutcome(t *testing.T) {
 					active.Done()
 					<-queuedDone
 				}()
-				return doRequest(t, srv, "POST", "/write", `{"events":[{"type":"t","identifiers":{},"metadata":{},"payload":""}]}`)
+				return doRequest(t, srv, "POST", "/write", `{"events":[{"type":"t","clientTime":"2026-09-01T14:23:05.123456Z","identifiers":{},"metadata":{},"payload":""}]}`)
 			},
 		},
 		{
@@ -188,7 +188,7 @@ func TestAccessLogLevelPerOutcome(t *testing.T) {
 			serve: func(t *testing.T) *httptest.ResponseRecorder {
 				srv, qm, _ := newTestServer(t)
 				qm.Close() // Join now fails with queue.ErrClosed, handleErr's default case
-				return doRequest(t, srv, "POST", "/write", `{"events":[{"type":"t","identifiers":{},"metadata":{},"payload":""}]}`)
+				return doRequest(t, srv, "POST", "/write", `{"events":[{"type":"t","clientTime":"2026-09-01T14:23:05.123456Z","identifiers":{},"metadata":{},"payload":""}]}`)
 			},
 		},
 		{
@@ -220,8 +220,8 @@ func TestAccessLogBelowThresholdIsSuppressed(t *testing.T) {
 
 	doRequest(t, srv, "GET", "/health", "") // success, DEBUG
 
-	doRequest(t, srv, "POST", "/write", `{"events":[{"type":"t","identifiers":{"userId":"123"},"metadata":{},"payload":""}]}`)
-	conflictBody := `{"events":[{"type":"t","identifiers":{"userId":"999"},"metadata":{},"payload":""}],
+	doRequest(t, srv, "POST", "/write", `{"events":[{"type":"t","clientTime":"2026-09-01T14:23:05.123456Z","identifiers":{"userId":"123"},"metadata":{},"payload":""}]}`)
+	conflictBody := `{"events":[{"type":"t","clientTime":"2026-09-01T14:23:05.123456Z","identifiers":{"userId":"999"},"metadata":{},"payload":""}],
 		"condition":{"failIfEventsMatch":[{"identifiers":[{"name":"userId","value":"123"}]}],"afterSequence":0}}`
 	doRequest(t, srv, "POST", "/write", conflictBody) // 409, DEBUG
 
@@ -247,12 +247,12 @@ func TestAccessLogAtOrAboveThresholdIsLogged(t *testing.T) {
 		close(queuedDone)
 	}()
 	time.Sleep(50 * time.Millisecond)
-	doRequest(t, srv, "POST", "/write", `{"events":[{"type":"t","identifiers":{},"metadata":{},"payload":""}]}`) // AppendQueueFull, WARNING
+	doRequest(t, srv, "POST", "/write", `{"events":[{"type":"t","clientTime":"2026-09-01T14:23:05.123456Z","identifiers":{},"metadata":{},"payload":""}]}`) // AppendQueueFull, WARNING
 	active.Done()
 	<-queuedDone
 
-	doRequest(t, srv, "POST", "/write", `{"events":[{"type":"t","identifiers":{"userId":"123"},"metadata":{},"payload":""}]}`)
-	conflictBody := `{"events":[{"type":"t","identifiers":{"userId":"999"},"metadata":{},"payload":""}],
+	doRequest(t, srv, "POST", "/write", `{"events":[{"type":"t","clientTime":"2026-09-01T14:23:05.123456Z","identifiers":{"userId":"123"},"metadata":{},"payload":""}]}`)
+	conflictBody := `{"events":[{"type":"t","clientTime":"2026-09-01T14:23:05.123456Z","identifiers":{"userId":"999"},"metadata":{},"payload":""}],
 		"condition":{"failIfEventsMatch":[{"identifiers":[{"name":"userId","value":"123"}]}],"afterSequence":0}}`
 	doRequest(t, srv, "POST", "/write", conflictBody) // 409, DEBUG, below "warning"
 

@@ -31,7 +31,7 @@ func TestOpenCreatesSchemaOnFreshFile(t *testing.T) {
 			t.Errorf("table %q not found: %v", table, err)
 		}
 	}
-	for _, idx := range []string{"idx_events_time", "idx_events_type", "idx_identifiers_name_value", "idx_metadata_name_value"} {
+	for _, idx := range []string{"idx_events_client_time", "idx_events_type", "idx_identifiers_name_value", "idx_metadata_name_value"} {
 		var name string
 		err := s.writeDB.QueryRowContext(context.Background(),
 			"SELECT name FROM sqlite_master WHERE type='index' AND name=?", idx).Scan(&name)
@@ -41,7 +41,7 @@ func TestOpenCreatesSchemaOnFreshFile(t *testing.T) {
 	}
 
 	wantColumns := map[string]bool{
-		"sequence": false, "time": false, "type": false, "payload": false,
+		"sequence": false, "client_time": false, "write_time": false, "type": false, "payload": false,
 		"identifiers": false, "metadata": false,
 	}
 	rows, err := s.writeDB.QueryContext(context.Background(), "PRAGMA table_info(events)")

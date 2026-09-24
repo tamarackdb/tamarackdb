@@ -65,6 +65,10 @@ build a database file, so the schema comes out identical. See
 can be pointed at directly with `tamarackdb-server --config ...` if the source ever
 needs replacing.
 
+Each event is copied as is, both dates included: `clientTime` and `writeTime`
+are the ones from the source. `writeTime` is when the source wrote the event,
+not when the backup copied it.
+
 `tamarackdb-backup` only ever copies events, into the events database file.
 It has no notion of documents at all, and never touches (or even needs to
 know the path of) a source's `tamarackdb-documents.sqlite`. This is

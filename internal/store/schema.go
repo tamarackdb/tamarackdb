@@ -11,14 +11,15 @@ const schemaVersion = 2
 const schemaDDL = `
 CREATE TABLE events (
     sequence    INTEGER PRIMARY KEY,
-    time        TEXT NOT NULL,
+    client_time TEXT NOT NULL,
+    write_time  TEXT NOT NULL,
     type        TEXT NOT NULL,
     payload     TEXT NOT NULL,
     identifiers TEXT NOT NULL,
     metadata    TEXT NOT NULL
 );
 
-CREATE INDEX idx_events_time ON events(time);
+CREATE INDEX idx_events_client_time ON events(client_time);
 CREATE INDEX idx_events_type ON events(type);
 
 CREATE TABLE identifiers (

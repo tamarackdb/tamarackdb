@@ -112,7 +112,7 @@ Reads are named by resource: `QUERY /events` for events, `GET /documents/{type}/
 
 Events are read with `QUERY /events`, using the [HTTP QUERY method](https://www.rfc-editor.org/info/rfc10008/) (RFC 10008): safe, idempotent, and cacheable like GET, but carrying a JSON body like POST. This is needed since a Query can be too large or nested to fit in a query string.
 
-The request body is a JSON object with a `query` key. That key holds either the array of `QueryItem` shown above, or the literal string `"*"` for `Query.all()`, plus optional `afterSequence` / `time` keys:
+The request body is a JSON object with a `query` key. That key holds either the array of `QueryItem` shown above, or the literal string `"*"` for `Query.all()`, plus optional `afterSequence` / `clientTime` keys:
 
 ```json
 {
@@ -137,7 +137,7 @@ The request body is a JSON object with a `query` key. That key holds either the 
     }
   ],
   "afterSequence": 12345,
-  "time": {
+  "clientTime": {
     "from": "2026-01-01T00:00:00.000000Z",
     "before": "2026-02-01T00:00:00.000000Z"
   }
@@ -148,7 +148,7 @@ The request body is a JSON object with a `query` key. That key holds either the 
 
 `afterSequence` limits the read to events with a Sequence Position strictly greater than the given value, the same `sequence > afterSequence` rule used by the Append Condition's concurrency check. It's optional: leaving it out reads from the start of the store.
 
-`time` limits the read to events whose `time` falls in the given range: `time.from` is inclusive (`>=`), `time.before` is exclusive (`<`). Both `time` itself, and its `from`/`before` keys, can be left out independently, so a query can filter from a point on, up to a point, or between two points. `time` exists only for search and inspection (for example "events from the last hour"), and plays no part in the Append Condition. Unlike Sequence Position, `time` is not guaranteed to always increase, so it can never be the basis for a concurrency check. `afterSequence` and `time` can be combined; an event must match both when both are given.
+`clientTime` limits the read to events whose `clientTime` falls in the given range: `clientTime.from` is inclusive (`>=`), `clientTime.before` is exclusive (`<`). Both `clientTime` itself, and its `from`/`before` keys, can be left out independently, so a query can filter from a point on, up to a point, or between two points. A bound may carry any RFC 3339 offset: it's converted to UTC before the comparison. The filter exists only for search and inspection (for example "events from last January"), and plays no part in the Append Condition. The application sets `clientTime` to any date it wants (see Writing events and documents), so it follows no order at all: only Sequence Position can be the basis for a concurrency check. `afterSequence` and `clientTime` can be combined; an event must match both when both are given.
 
 ### Pagination
 
@@ -183,8 +183,8 @@ The response body is [NDJSON](https://github.com/ndjson/ndjson-spec) (`Content-T
 Every line but the last is one matching event, in ascending Sequence Position order. The last line is always a trailer carrying `hasMore`:
 
 ```
-{"sequence":12346,"time":"2026-09-01T14:23:05.123456Z","type":"user-created","identifiers":{"userId":"123"},"metadata":{"tenantId":"acme"},"payload":"..."}
-{"sequence":12347,"time":"2026-09-01T14:23:07.981234Z","type":"user-updated","identifiers":{"userId":"123"},"metadata":{"tenantId":"acme"},"payload":"..."}
+{"sequence":12346,"clientTime":"2026-09-01T14:23:05.120000Z","writeTime":"2026-09-01T14:23:05.123456Z","type":"user-created","identifiers":{"userId":"123"},"metadata":{"tenantId":"acme"},"payload":"..."}
+{"sequence":12347,"clientTime":"2026-09-01T14:23:07.978000Z","writeTime":"2026-09-01T14:23:07.981234Z","type":"user-updated","identifiers":{"userId":"123"},"metadata":{"tenantId":"acme"},"payload":"..."}
 {"hasMore":true}
 ```
 
@@ -192,7 +192,12 @@ The trailer comes last, not first, because writing it means fetching every row o
 
 `identifiers` and `metadata` come back in the same compact object shape used when writing (`{"courseId": ["foo", "bar"]}`), grouping multiple values for the same name under one key.
 
-`time` is the moment the event was appended, in ATOM format (RFC 3339) with microsecond precision, always in UTC (`Z`). The store has no timezone setting: `time` is an internal reference value, not something meant for display, so it's always stored and returned in UTC. Converting to local time is left to the application.
+Each event carries two dates, both in ATOM format (RFC 3339) with exactly 6 fractional digits, always in UTC (`Z`):
+
+- `clientTime` is the event's date, as the application gave it when writing the event (see Writing events and documents). A read returns it exactly as received.
+- `writeTime` is when TamarackDB wrote the event, read from the server's clock inside the write transaction, right before the insert. Every event of one `write` call shares the same `writeTime`: order within a call comes from Sequence Position.
+
+The store has no timezone setting: both dates are reference values, not something meant for display. Converting to local time is left to the application.
 
 `payload` is an opaque string: the store never parses or checks it. Its real format (JSON, XML, or anything else) is a convention owned by the writing application, based on the event's `type`. The store has no notion of it.
 
@@ -207,6 +212,7 @@ Response compression (gzip, negotiated the normal way through `Accept-Encoding`,
   "events": [
     {
       "type": "user-created",
+      "clientTime": "2026-09-01T14:24:59.997000Z",
       "identifiers": { "userId": "123" },
       "metadata": { "tenantId": "acme" },
       "payload": "..."
@@ -224,14 +230,18 @@ Response compression (gzip, negotiated the normal way through `Accept-Encoding`,
 
 `condition.failIfEventsMatch` follows the same grammar as `query` on `events` (an array of `QueryItem`, or `"*"`). `condition` itself is optional: an event with nothing to protect can be written with no concurrency check at all. A call needs at least one event or one document, but not both: a documents-only call, with no `events` and no `condition`, is how a rebuild materializes several projections at once (see Documents below).
 
+Every event carries a `clientTime`: the event's date, set by the application. It's required, and it can hold any date (a past date for an import, the moment a user acted while offline, and so on), but its shape is strict: UTC, with exactly 6 fractional digits, like `2026-09-01T14:23:05.123456Z`. Any other shape, including an offset like `-04:00` or `+00:00`, or 3 fractional digits, gets `400 Bad Request`: the store never converts it. This keeps the stored text sortable (see Schema), and a read returns exactly the string the application sent.
+
+The application sets this date, not the store, because a `write` call can carry documents the application built before sending it (see Documents). A document can only contain what the application knows at that point. If the store set the event's only date during the write, the application couldn't put it in the document, and a projection rebuilt later from the stored event would compute a different value than the one written alongside it. `writeTime`, set by the store, exists next to `clientTime` for inspection only.
+
 A single `write` call may carry at most **100 events**. This is a fixed limit, not configuration, since it marks an architectural boundary, not a performance trade-off: a Decision Model appends the handful of events from one business decision, not a batch. A `POST /write` over this limit gets `400 Bad Request`. Writing many events at once (a data migration, a bulk import) isn't a `POST /write` use case (see Response format). The equivalent cap on documents, `maxDocumentsPerWrite`, is configuration instead (see Configuration): unlike the events cap, it isn't an architectural boundary, just a size guard, and a rebuild's documents-only calls have different volume needs than an ordinary event write.
 
-On success, the server responds `200 OK`, not `201 Created`, since there's no single addressable resource to point a `Location` header at. This matches `write` not being modeled as a REST resource (see HTTP API). The body confirms the Sequence Position and `time` given to each event, and the outcome for each document, in the order they were sent:
+On success, the server responds `200 OK`, not `201 Created`, since there's no single addressable resource to point a `Location` header at. This matches `write` not being modeled as a REST resource (see HTTP API). The body confirms the Sequence Position and `writeTime` given to each event, and the outcome for each document, in the order they were sent:
 
 ```json
 {
   "events": [
-    {"sequence": 12348, "time": "2026-09-01T14:25:00.000000Z"}
+    {"sequence": 12348, "writeTime": "2026-09-01T14:25:00.000000Z"}
   ],
   "documents": [
     {"type": "user-profile", "id": "123", "version": 1, "status": "ok"}
@@ -268,6 +278,8 @@ This split exists for I/O isolation, not to enable switching between two copies 
 - **Create**: `payload` present, `version` absent. The app never read this document; it's created at version 1. If it already exists, that's a conflict.
 - **Update**: `payload` present, `version` present, the version the app read. Written at `version + 1`. A version that doesn't match the document's current version, including a document that no longer exists, is a conflict.
 - **Delete**: `payload` `null`, `version` present, required (there's no unversioned deletion of a single document). A version that doesn't match, including a document already absent, is a conflict.
+
+**What a document may depend on.** A document written in the same `write` call as events is built by the application before the store assigns anything. So it can only depend on what the application sends: each event's `type`, `clientTime`, identifiers, metadata, and payload. It must never depend on `sequence` or `writeTime`, which the store sets during the write. A rebuild follows the same rule, or it would produce a document that differs from the one written alongside the events.
 
 A document can disappear as a side effect of an event, not only during a rebuild: an event like `UserDeleted` can carry a matching document deletion in the same `write` call, atomic with the event for what concerns its version.
 
@@ -355,9 +367,9 @@ Every error response uses the same JSON envelope:
 
 `error` is a stable code a client can check. `message` is a human-readable detail, included when it helps figure out the problem, left out when it wouldn't add anything (as with `ConcurrencyException` above).
 
-`QUERY /events` and `POST /write` both respond `400 Bad Request` for any malformed or invalid body: invalid JSON, a `query` / `condition.failIfEventsMatch` that isn't an array of `QueryItem` or `"*"`, an empty array anywhere the Query grammar needs a non-empty one (see Query grammar), a non-integer `afterSequence` or `limit`, a `limit` above the configured maximum (see Pagination), an invalid `time.from` / `time.before` timestamp, an event missing its `type`, an event carrying a duplicate identifier or metadata value, more than 20 identifiers/metadata entries (see Metadata), a `write` with more than 100 events (see Writing events and documents), and so on.
+`QUERY /events` and `POST /write` both respond `400 Bad Request` for any malformed or invalid body: invalid JSON, a `query` / `condition.failIfEventsMatch` that isn't an array of `QueryItem` or `"*"`, an empty array anywhere the Query grammar needs a non-empty one (see Query grammar), a non-integer `afterSequence` or `limit`, a `limit` above the configured maximum (see Pagination), an invalid `clientTime.from` / `clientTime.before` timestamp, an event missing its `type` or `clientTime`, a `clientTime` not in the exact UTC format (see Writing events and documents), an event carrying a duplicate identifier or metadata value, more than 20 identifiers/metadata entries (see Metadata), a `write` with more than 100 events (see Writing events and documents), and so on.
 
-Validation is hand-written in Go, not driven by a JSON Schema: the request surface is small, several rules are about meaning rather than pure structure (a valid ATOM timestamp, a consistent `time.from`/`time.before` range, the full DCB `QueryItem` grammar), and a generic schema validator's error messages don't map cleanly onto the `{error, message}` shape above.
+Validation is hand-written in Go, not driven by a JSON Schema: the request surface is small, several rules are about meaning rather than pure structure (a valid ATOM timestamp, a consistent `clientTime.from`/`clientTime.before` range, the full DCB `QueryItem` grammar), and a generic schema validator's error messages don't map cleanly onto the `{error, message}` shape above.
 
 ## Append Condition and concurrency
 
@@ -468,14 +480,15 @@ PRAGMA user_version = 2;
 
 CREATE TABLE events (
     sequence    INTEGER PRIMARY KEY,
-    time        TEXT NOT NULL,
+    client_time TEXT NOT NULL,
+    write_time  TEXT NOT NULL,
     type        TEXT NOT NULL,
     payload     TEXT NOT NULL,
     identifiers TEXT NOT NULL,
     metadata    TEXT NOT NULL
 );
 
-CREATE INDEX idx_events_time ON events(time);
+CREATE INDEX idx_events_client_time ON events(client_time);
 CREATE INDEX idx_events_type ON events(type);
 
 CREATE TABLE identifiers (
@@ -523,7 +536,7 @@ CREATE TABLE documents_payload (
 
 `documents` and `documents_payload` are both `WITHOUT ROWID`, keyed by `(type, id)`: a document has no history, so its natural key is also its only key, with no separate rowid needed. `documents` carries no `payload` column on purpose (see Documents): a document's payload never needs to be read or written in the same transaction as an event, only its version does.
 
-`time` is stored as `TEXT`, not as an integer timestamp: its fixed-width ATOM format sorts the same way alphabetically as it does chronologically, so nothing needs to be converted between what's stored and what's returned. A read passes the stored text straight through as the response's `time` field.
+`client_time` and `write_time` are stored as `TEXT`, not as integer timestamps. Their fixed-width UTC format sorts the same way alphabetically as it does chronologically, so the `client_time` index serves the range filter directly, and nothing needs to be converted between what's stored and what's returned: a read passes the stored text straight through. This only holds because the format is strict: an offset, or a different number of fractional digits, would break the ordering (`05.123Z` sorts after `05.123456Z`, since `Z` comes after every digit). `write_time` has no index, since nothing filters on it.
 
 `identifiers` and `metadata` are `WITHOUT ROWID` tables, keyed by their natural combined primary key `(event_sequence, name, value)`: these are pure link rows, so a separate rowid would just be an extra, unneeded btree. The secondary index `(name, value, event_sequence)` on each table is what serves the DCB matching check directly, with `event_sequence` included so the index alone can answer the scan.
 

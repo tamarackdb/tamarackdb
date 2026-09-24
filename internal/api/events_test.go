@@ -18,7 +18,7 @@ func seedHTTPEvents(t *testing.T, srv *Server, n int) {
 		}
 		var events []string
 		for i := 0; i < batch; i++ {
-			events = append(events, `{"type":"seed","identifiers":{},"metadata":{},"payload":""}`)
+			events = append(events, `{"type":"seed","clientTime":"2026-09-01T14:23:05.123456Z","identifiers":{},"metadata":{},"payload":""}`)
 		}
 		body := fmt.Sprintf(`{"events":[%s]}`, strings.Join(events, ","))
 		rec := doRequest(t, srv, "POST", "/write", body)
@@ -63,9 +63,16 @@ func TestReadPaginationOverHTTP(t *testing.T) {
 	}
 }
 
-func TestReadTimeAndAfterSequenceFilteringOverHTTP(t *testing.T) {
+func TestReadClientTimeAndAfterSequenceFilteringOverHTTP(t *testing.T) {
 	srv, _, _ := newTestServer(t)
-	seedHTTPEvents(t, srv, 3)
+	rec0 := doRequest(t, srv, "POST", "/write", `{"events":[
+		{"type":"a","clientTime":"2020-01-01T00:00:00.000000Z","identifiers":{},"metadata":{},"payload":""},
+		{"type":"b","clientTime":"2020-01-02T00:00:00.000000Z","identifiers":{},"metadata":{},"payload":""},
+		{"type":"c","clientTime":"2020-01-03T00:00:00.000000Z","identifiers":{},"metadata":{},"payload":""}
+	]}`)
+	if rec0.Code != 200 {
+		t.Fatalf("write status = %d, body = %s", rec0.Code, rec0.Body.String())
+	}
 
 	all := doRequest(t, srv, "QUERY", "/events", `{"query":"*"}`)
 	_, events := parseNDJSON(t, all.Body.String())
@@ -79,11 +86,18 @@ func TestReadTimeAndAfterSequenceFilteringOverHTTP(t *testing.T) {
 		t.Fatalf("afterSequence filter: got %d events, want 2", len(filtered))
 	}
 
-	fromTime := events[1].Time.Format("2006-01-02T15:04:05.000000Z07:00")
-	rec2 := doRequest(t, srv, "QUERY", "/events", fmt.Sprintf(`{"query":"*","time":{"from":%q}}`, fromTime))
+	rec2 := doRequest(t, srv, "QUERY", "/events", `{"query":"*","clientTime":{"from":"2020-01-02T00:00:00.000000Z"}}`)
 	_, filtered2 := parseNDJSON(t, rec2.Body.String())
-	if len(filtered2) != 2 {
-		t.Fatalf("time.from filter: got %d events, want 2", len(filtered2))
+	if len(filtered2) != 2 || filtered2[0].Type != "b" || filtered2[1].Type != "c" {
+		t.Fatalf("clientTime.from filter: got %+v, want b, c", filtered2)
+	}
+
+	// A bound with an offset is converted to UTC before comparing:
+	// 2020-01-01T20:00-04:00 is 2020-01-02T00:00Z.
+	rec3 := doRequest(t, srv, "QUERY", "/events", `{"query":"*","clientTime":{"before":"2020-01-01T20:00:00-04:00"}}`)
+	_, filtered3 := parseNDJSON(t, rec3.Body.String())
+	if len(filtered3) != 1 || filtered3[0].Type != "a" {
+		t.Fatalf("clientTime.before filter with offset: got %+v, want a", filtered3)
 	}
 }
 
@@ -97,8 +111,8 @@ func TestReadValidationFailures(t *testing.T) {
 		{"limit above max", `{"query":"*","limit":999999}`},
 		{"limit negative", `{"query":"*","limit":-1}`},
 		{"limit zero", `{"query":"*","limit":0}`},
-		{"invalid time.from", `{"query":"*","time":{"from":"not-a-time"}}`},
-		{"time.from after time.before", `{"query":"*","time":{"from":"2026-02-01T00:00:00Z","before":"2026-01-01T00:00:00Z"}}`},
+		{"invalid clientTime.from", `{"query":"*","clientTime":{"from":"not-a-time"}}`},
+		{"clientTime.from after clientTime.before", `{"query":"*","clientTime":{"from":"2026-02-01T00:00:00Z","before":"2026-01-01T00:00:00Z"}}`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
