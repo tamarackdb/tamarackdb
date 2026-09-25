@@ -23,14 +23,26 @@ type ReadFilter struct {
 	Limit         int        // must be >= 1; Read fetches Limit+1 rows
 }
 
-// Read runs a paginated DCB read. The returned *EventIterator must be
-// closed by the caller (directly, or by exhausting Next).
+// Read runs a paginated DCB read on the read pool, outside any
+// transaction: it sees committed events only. The returned *EventIterator
+// must be closed by the caller (directly, or by exhausting Next).
 func (s *Store) Read(ctx context.Context, f ReadFilter) (*EventIterator, error) {
+	return readEvents(ctx, s.readDB, f)
+}
+
+// querier is what a read needs, satisfied by both *sql.DB (the read pool)
+// and *sql.Tx (a write transaction).
+type querier interface {
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+func readEvents(ctx context.Context, q querier, f ReadFilter) (*EventIterator, error) {
 	if f.Limit < 1 {
 		return nil, fmt.Errorf("store: Read: Limit must be >= 1, got %d", f.Limit)
 	}
 	sqlStr, args := buildReadSQL(f)
-	rows, err := s.readDB.QueryContext(ctx, sqlStr, args...)
+	rows, err := q.QueryContext(ctx, sqlStr, args...)
 	if err != nil {
 		return nil, wrapf("Read", err)
 	}

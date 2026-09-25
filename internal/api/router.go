@@ -153,8 +153,7 @@ func New(qm *queue.Manager, st *store.Store, opts Options) *Server {
 	// matches). An unknown path gets the stdlib's plain-text 404; a known
 	// path with the wrong method correctly gets 405 + Allow.
 	if opts.DevMode {
-		// Truncates every event (identifiers, metadata, events itself);
-		// documents are never touched, see Store.Truncate. A different
+		// Deletes every event and document, see Store.Reset. A different
 		// method on the same path as "QUERY /events" above.
 		mux.HandleFunc("DELETE /events", s.handleReset)
 

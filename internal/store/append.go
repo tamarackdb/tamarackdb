@@ -11,34 +11,46 @@ import (
 	"github.com/tamarackdb/tamarackdb/internal/document"
 )
 
-// Append writes events and documents in a single SQLite transaction
-// (BEGIN IMMEDIATE, via the write pool's _txlock=immediate DSN),
-// optionally checking condition first. events and documents are
-// assumed already validated by the caller (dcb.EventData.Validate/
-// document.Data.Validate, the per-write caps): this package doesn't
-// re-validate request shape, only concurrency and persistence.
-//
-// BEGIN IMMEDIATE takes SQLite's write lock before the condition check
-// runs, so the check and the INSERTs execute under one continuously held
-// lock: no other writer can commit conflicting rows between the check and
-// the inserts. In production this overlaps with, rather than substitutes
-// for, internal/queue's FIFO guarantee that only one writer is ever
-// mid-transaction at a time; BEGIN IMMEDIATE remains as defense in depth
-// and keeps this package correct even when Append is called directly, with
-// no queue manager in front of it at all, as cmd/tamarackdb-demo and this package's
-// own tests do.
-//
-// Events and documents commit together, or not at all.
+// Append writes events and documents in one transaction of its own,
+// optionally checking condition first: Begin, Tx.Append,
+// Tx.WriteDocuments, then Commit. Events and documents commit together, or
+// not at all. events and documents are assumed already validated by the
+// caller (dcb.EventData.Validate, document.Data.Validate, the per-call
+// caps): this package doesn't re-validate request shape, only concurrency
+// and persistence.
 func (s *Store) Append(ctx context.Context, events []dcb.EventData, condition *dcb.AppendCondition, documents []document.Data) ([]dcb.Event, error) {
 	if len(events) == 0 && len(documents) == 0 {
 		return nil, nil
 	}
 
-	tx, err := s.writeDB.BeginTx(ctx, nil)
+	tx, err := s.Begin(ctx)
 	if err != nil {
-		return nil, wrapf("begin append", err)
+		return nil, err
 	}
 	defer tx.Rollback() // no-op after Commit
+
+	result, err := tx.Append(ctx, events, condition)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.WriteDocuments(ctx, documents); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// appendEvents checks condition, then inserts events, inside tx. The
+// check runs against every event visible to tx: committed ones, and the
+// ones appended earlier in the same transaction. The write lock is already
+// held (BEGIN IMMEDIATE), so no other writer can commit conflicting rows
+// between the check and the inserts.
+func (s *Store) appendEvents(ctx context.Context, tx *sql.Tx, events []dcb.EventData, condition *dcb.AppendCondition) ([]dcb.Event, error) {
+	if len(events) == 0 {
+		return nil, nil
+	}
 
 	if condition != nil && (condition.FailIfEventsMatch != nil || condition.AfterSequence != nil) {
 		after := int64(0)
@@ -47,6 +59,7 @@ func (s *Store) Append(ctx context.Context, events []dcb.EventData, condition *d
 		}
 		holds, decided := resolveWithoutQuery(condition.FailIfEventsMatch, after, s.peekLastAssigned())
 		if !decided {
+			var err error
 			holds, err = checkFailIfEventsMatchSQL(ctx, tx, *condition.FailIfEventsMatch, after)
 			if err != nil {
 				return nil, wrapf("check append condition", err)
@@ -83,13 +96,6 @@ func (s *Store) Append(ctx context.Context, events []dcb.EventData, condition *d
 	}
 	if err := insertMetadataBatch(ctx, tx, result); err != nil {
 		return nil, err
-	}
-	if err := writeDocuments(ctx, tx, documents); err != nil {
-		return nil, err
-	}
-
-	if err := tx.Commit(); err != nil {
-		return nil, wrapf("commit append", err)
 	}
 	return result, nil
 }

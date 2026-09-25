@@ -35,11 +35,11 @@ type Store struct {
 	readDB  *sql.DB
 	lock    *os.File
 
-	// seqMu guards nextSeq, the in-memory Sequence Position counter (see
-	// Append). A mutex is still needed even though internal/queue ensures
-	// at most one writer ever reaches Append in production: Append is also
-	// called directly, with no queue manager in front of it, by
-	// cmd/tamarackdb-demo and by this package's own concurrency tests.
+	// seqMu guards nextSeq, the in-memory Sequence Position counter. A Tx
+	// advances it as it appends, and puts it back on rollback (see Tx).
+	// The write pool's single connection already serializes transactions;
+	// the mutex keeps readers of the counter (LastSequence, the Append
+	// Condition shortcut) safe alongside them.
 	seqMu   sync.Mutex
 	nextSeq int64 // next sequence value to assign; nextSeq-1 is the highest assigned so far
 }
@@ -174,17 +174,15 @@ func (s *Store) WritePoolStats() PoolStats {
 	return PoolStats{InUse: stats.InUse, Max: stats.MaxOpenConnections}
 }
 
-// Truncate deletes every event, identifier, and metadata row, leaving the
-// schema itself untouched. Callers reach it only through the devMode-gated
-// DELETE / endpoint, which joins the same FIFO write-admission queue as
-// POST /append (see internal/queue) before calling Truncate, never during
-// ordinary operation. The in-memory sequence counter (nextSeq) is
-// deliberately left untouched by a wipe: the tables become empty, but the
-// counter keeps climbing from wherever it was.
-func (s *Store) Truncate(ctx context.Context) error {
+// Reset deletes every event and every document, and sets the Sequence
+// Position counter back to zero: the next event appended gets sequence 1.
+// The schema stays in place. It's meant for dev mode only. Since the write
+// pool holds a single connection, Reset waits for an open Tx to end: the
+// caller rolls it back first.
+func (s *Store) Reset(ctx context.Context) error {
 	tx, err := s.writeDB.BeginTx(ctx, nil)
 	if err != nil {
-		return wrapf("begin truncate", err)
+		return wrapf("begin reset", err)
 	}
 	defer tx.Rollback() // no-op after Commit
 
@@ -192,10 +190,18 @@ func (s *Store) Truncate(ctx context.Context) error {
 		"DELETE FROM identifiers",
 		"DELETE FROM metadata",
 		"DELETE FROM events",
+		"DELETE FROM documents",
 	} {
 		if _, err := tx.ExecContext(ctx, stmt); err != nil {
-			return wrapf("truncate", err)
+			return wrapf("reset", err)
 		}
 	}
-	return wrapf("commit truncate", tx.Commit())
+	if err := tx.Commit(); err != nil {
+		return wrapf("commit reset", err)
+	}
+
+	s.seqMu.Lock()
+	s.nextSeq = 1
+	s.seqMu.Unlock()
+	return nil
 }

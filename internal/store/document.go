@@ -8,10 +8,15 @@ import (
 	"github.com/tamarackdb/tamarackdb/internal/document"
 )
 
-// GetDocument reads a document's payload by type+id from the read pool.
-// found is false when no document exists at that type+id.
+// GetDocument reads a document's payload by type+id from the read pool,
+// outside any transaction: it sees committed documents only. found is
+// false when no document exists at that type+id.
 func (s *Store) GetDocument(ctx context.Context, typ, id string) (payload string, found bool, err error) {
-	err = s.readDB.QueryRowContext(ctx,
+	return getDocument(ctx, s.readDB, typ, id)
+}
+
+func getDocument(ctx context.Context, q querier, typ, id string) (payload string, found bool, err error) {
+	err = q.QueryRowContext(ctx,
 		"SELECT payload FROM documents WHERE type = ? AND id = ?", typ, id).Scan(&payload)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
@@ -20,6 +25,21 @@ func (s *Store) GetDocument(ctx context.Context, typ, id string) (payload string
 		return "", false, wrapf("read document", err)
 	}
 	return payload, true, nil
+}
+
+// WriteDocuments creates, replaces, or deletes documents in a transaction
+// of its own, outside any Tx. It's meant for a projection rebuild, while
+// the server is paused.
+func (s *Store) WriteDocuments(ctx context.Context, documents []document.Data) error {
+	tx, err := s.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() // no-op after Commit
+	if err := tx.WriteDocuments(ctx, documents); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // DeleteDocumentsByType removes every document of typ. It's meant for a
