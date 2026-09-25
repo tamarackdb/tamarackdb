@@ -66,22 +66,17 @@ Closing the connection while waiting takes the request out of the queue.
 
 ### Deadline
 
-A transaction must end before its deadline, or the server rolls it back. The
-deadline is 5 seconds after the ticket is given out, unless the operator
-changed it. When a command needs more time, ask for it in seconds when opening
-the transaction:
+The server rolls a transaction back when either limit is reached:
 
-```sh
-curl -X POST http://127.0.0.1:8085/begin \
-  -H "Content-Type: application/json" \
-  -d '{ "timeout": 10 }'
-```
+- **Idle timeout** (5 seconds out of the box): time without any call made
+  with the ticket. Each call renews it when it ends.
+- **Total ceiling** (15 seconds out of the box): time since the ticket was
+  given out, however many calls you make.
 
-A total ceiling (30 seconds out of the box) always applies: a `timeout` above
-it is lowered to the ceiling. The operator can also turn on a lease: each call
-with the ticket then moves the deadline to that call's time plus the
-transaction's timeout, never past the ceiling. See
-[Architecture](/docs/architecture/#deadline-and-ceiling) for the details.
+Both are set by the operator. A client can't ask for more. They are there to
+recover from a client that crashed or hangs, not to time a normal command: a
+normal command ends with its own commit or rollback well before either limit.
+See [Architecture](/docs/architecture/#deadline-and-ceiling) for the details.
 
 ### Ending a transaction
 
@@ -108,7 +103,7 @@ A transaction also ends, rolled back, when:
 - any call made with its ticket returns an error, except `404
   DocumentNotFound` (see [Documents](#documents));
 - the client closes the connection while a call with its ticket is running;
-- the deadline passes before `POST /commit`.
+- the idle timeout or the total ceiling is reached (see [Deadline](#deadline)).
 
 Once a transaction has ended, any call with its ticket gets `410
 TransactionNotActive`. After an error, don't try to continue: open a new

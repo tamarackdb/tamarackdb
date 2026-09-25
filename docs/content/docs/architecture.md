@@ -211,14 +211,8 @@ Every endpoint is named by the resource it acts on (`/events`, `/documents`) or 
 { "ticket": "a045ad63-5d4b-4847-8eb9-fbddb4e2d65b" }
 ```
 
-The request body is optional. It lets the client ask for a deadline other than the default, when it expects a command
-to take longer than usual:
-
-```json
-{ "timeout": 10 }
-```
-
-`timeout` is in seconds. A value above the transaction ceiling is lowered to the ceiling (see Deadline and ceiling).
+It takes no request body. How long a transaction may last is set by the operator, not the client (see Deadline and
+ceiling).
 
 If another transaction is active, the request waits in a FIFO, with its HTTP connection held open, until its turn
 comes. The SQLite transaction starts with `BEGIN IMMEDIATE` at the moment the ticket is given out: the write lock is
@@ -231,14 +225,18 @@ is paused, a request that reaches the head of the FIFO gets `503 Paused` (see Pa
 
 #### Deadline and ceiling
 
-A transaction must end before its deadline, or it's rolled back automatically.
+A transaction must end before its deadline, or it's rolled back automatically. Two limits set the deadline, both
+configuration, neither chosen by the client:
 
-- The deadline defaults to 5 seconds after the ticket is given out (configurable). The client can ask for a different
-  value when opening the transaction.
-- An optional lease (configurable, off by default) renews the deadline: each call made with the ticket moves the
-  deadline to that call's time plus the transaction's timeout.
-- A total ceiling of 30 seconds (configurable) applies no matter what: the requested timeout and lease renewals can
-  never push the deadline past it. It keeps a buggy client from holding the store indefinitely.
+- **An idle timeout**, 5 seconds by default. The deadline starts at the moment the ticket is given out plus the idle
+  timeout. Each call made with the ticket renews it: when the call ends, the deadline moves to that moment plus the
+  idle timeout. A client that stops making calls, because it crashed or hangs, loses its transaction after that long.
+- **A total ceiling**, 15 seconds by default, counted from the moment the ticket is given out. Renewals never push the
+  deadline past it. It keeps a buggy client that keeps making calls from holding the store indefinitely.
+
+The deadline is a safety net for a client that fails, not a time budget for a command. A healthy client always ends
+its transaction itself, with a commit or a rollback, long before either limit. The store holds a single global lock,
+so how long one client may hold it is the operator's decision: it's what every other client waits for.
 
 #### Calls inside a transaction
 
@@ -719,8 +717,8 @@ the deadline timer and `POST /reset` wait on, so nothing ever uses the write con
 **Deadline.** A timer tracks the active transaction's deadline and ceiling. When it fires, it takes the mutex, which
 waits for a call already running to finish, then rolls the transaction back and gives the turn to the next request.
 A call that was already running when the deadline passed finishes normally; if it was `POST /commit`, the commit
-wins. The next call with that ticket gets `410 TransactionNotActive`. When the lease is on, every call with the ticket
-resets the timer, up to the ceiling.
+wins. The next call with that ticket gets `410 TransactionNotActive`. Every call with the ticket resets the timer
+when it ends, up to the ceiling.
 
 **A failed call ends the transaction.** A call that returns an error (other than `404 DocumentNotFound`), panics, or
 whose client disconnects before it finishes, rolls the transaction back and gives the turn to the next request. The
@@ -994,8 +992,8 @@ transaction timeouts, pagination/size limits, and the FIFO depth) comes from thr
    [Backup](/docs/guides/backup/)); each binary reads only its own section.
 2. `TAMARACKDB_*` environment variables, one per configuration key.
 3. Built-in defaults, for the keys that have one (`socketPath`, `dataDir`, `logLevel`, `defaultLimit`, `maxLimit`,
-   `maxEventSize`, `maxDocumentSize`, `maxDocumentsPerWrite`, `transactionTimeout`, `transactionLease`,
-   `transactionCeiling`, `maxTransactionWait`, `maxQueuedTransactions`, `readPoolSize`).
+   `maxEventSize`, `maxDocumentSize`, `maxDocumentsPerWrite`, `transactionTimeout`, `transactionCeiling`,
+   `maxTransactionWait`, `maxQueuedTransactions`, `readPoolSize`).
 
 A value set in the configuration file always wins over the matching environment variable. The configuration file
 itself is optional: an application deployed as one instance per environment, each with its own file, uses it as the
@@ -1022,8 +1020,7 @@ from.
 | `maxDocumentSize` | `TAMARACKDB_MAX_DOCUMENT_SIZE` | `65536` (64 KiB) |
 | `maxDocumentsPerWrite` | `TAMARACKDB_MAX_DOCUMENTS_PER_WRITE` | `100` |
 | `transactionTimeout` | `TAMARACKDB_TRANSACTION_TIMEOUT` | `5` (seconds) |
-| `transactionLease` | `TAMARACKDB_TRANSACTION_LEASE` | `false` |
-| `transactionCeiling` | `TAMARACKDB_TRANSACTION_CEILING` | `30` (seconds) |
+| `transactionCeiling` | `TAMARACKDB_TRANSACTION_CEILING` | `15` (seconds) |
 | `maxTransactionWait` | `TAMARACKDB_MAX_TRANSACTION_WAIT` | `30` (seconds) |
 | `maxQueuedTransactions` | `TAMARACKDB_MAX_QUEUED_TRANSACTIONS` | `100` |
 | `readPoolSize` | `TAMARACKDB_READ_POOL_SIZE` | `8` |
@@ -1037,12 +1034,10 @@ caps how many documents one `POST /documents` call may carry. Unlike the fixed 1
 configuration, not an architectural boundary: document volume needs vary more between applications, especially for a
 rebuild's calls.
 
-`transactionTimeout` is a transaction's default deadline, counted from the moment its ticket is given out; a client
-can ask for another value when opening the transaction. `transactionLease`, when on, makes each call with the ticket
-move the deadline to that call's time plus the transaction's timeout. `transactionCeiling` is the total time no
-transaction can exceed,
-whatever its requested timeout and lease renewals (see Deadline and ceiling). `transactionTimeout` can't be greater
-than `transactionCeiling`: `Load` rejects that configuration.
+`transactionTimeout` is a transaction's idle timeout: how long it may go without a call before it's rolled back,
+counted from the moment its ticket is given out, then from the end of each call made with the ticket.
+`transactionCeiling` is the total time no transaction can exceed, however many calls it makes (see Deadline and
+ceiling). `transactionTimeout` can't be greater than `transactionCeiling`: `Load` rejects that configuration.
 
 `maxTransactionWait` caps how long a request may wait in the FIFO before getting `503 TransactionWaitTimeout`.
 `maxQueuedTransactions` caps how many requests may wait in the FIFO at once. A request that arrives when the FIFO is
@@ -1171,7 +1166,7 @@ saturated, too detailed to fit a metric:
       "since": "2026-09-01T14:23:04.900000Z",
       "ageSeconds": 0.223,
       "deadline": "2026-09-01T14:23:09.900000Z",
-      "ceiling": "2026-09-01T14:23:34.900000Z",
+      "ceiling": "2026-09-01T14:23:19.900000Z",
       "calls": 7
     },
     "queued": [
