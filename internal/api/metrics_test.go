@@ -17,12 +17,12 @@ func TestMetricsOutput(t *testing.T) {
 	// already queued would itself queue behind it and this synchronous
 	// httptest call would deadlock waiting for a Done that only happens
 	// at the end of this test.
-	first := doRequest(t, srv, "POST", "/write", `{"events":[{"type":"t","clientTime":"2026-09-01T14:23:05.123456Z","identifiers":{"userId":"1"},"metadata":{},"payload":""}]}`)
+	first := doRequest(t, srv, "POST", "/write", `{"events":[{"type":"t","identifiers":{"userId":"1"},"metadata":{},"payload":""}]}`)
 	if first.Code != 200 {
 		t.Fatalf("seed append status = %d, body = %s", first.Code, first.Body.String())
 	}
 	conflict := doRequest(t, srv, "POST", "/write",
-		`{"events":[{"type":"t","clientTime":"2026-09-01T14:23:05.123456Z","identifiers":{"userId":"2"},"metadata":{},"payload":""}],"condition":{"failIfEventsMatch":[{"identifiers":[{"name":"userId","value":"1"}]}]}}`)
+		`{"events":[{"type":"t","identifiers":{"userId":"2"},"metadata":{},"payload":""}],"condition":{"failIfEventsMatch":[{"identifiers":[{"name":"userId","value":"1"}]}]}}`)
 	if conflict.Code != 409 {
 		t.Fatalf("conflict append status = %d, want 409, body = %s", conflict.Code, conflict.Body.String())
 	}

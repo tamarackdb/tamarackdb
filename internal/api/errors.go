@@ -118,5 +118,5 @@ var (
 	errNegativeLimit        = errors.New("api: limit must be non-negative")
 	errZeroLimit            = errors.New("api: limit must be greater than zero")
 	errLimitExceedsMax      = errors.New("api: limit exceeds the configured maximum")
-	errInvalidTimeRange     = errors.New("api: clientTime.from must be earlier than clientTime.before")
+	errInvalidTimeRange     = errors.New("api: time.from must be earlier than time.before")
 )

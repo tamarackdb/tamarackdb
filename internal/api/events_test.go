@@ -1,10 +1,14 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/tamarackdb/tamarackdb/internal/dcb"
 )
 
 // seedHTTPEvents appends n events via HTTP, batching by 100 per call to
@@ -18,7 +22,7 @@ func seedHTTPEvents(t *testing.T, srv *Server, n int) {
 		}
 		var events []string
 		for i := 0; i < batch; i++ {
-			events = append(events, `{"type":"seed","clientTime":"2026-09-01T14:23:05.123456Z","identifiers":{},"metadata":{},"payload":""}`)
+			events = append(events, `{"type":"seed","identifiers":{},"metadata":{},"payload":""}`)
 		}
 		body := fmt.Sprintf(`{"events":[%s]}`, strings.Join(events, ","))
 		rec := doRequest(t, srv, "POST", "/write", body)
@@ -63,15 +67,18 @@ func TestReadPaginationOverHTTP(t *testing.T) {
 	}
 }
 
-func TestReadClientTimeAndAfterSequenceFilteringOverHTTP(t *testing.T) {
-	srv, _, _ := newTestServer(t)
-	rec0 := doRequest(t, srv, "POST", "/write", `{"events":[
-		{"type":"a","clientTime":"2020-01-01T00:00:00.000000Z","identifiers":{},"metadata":{},"payload":""},
-		{"type":"b","clientTime":"2020-01-02T00:00:00.000000Z","identifiers":{},"metadata":{},"payload":""},
-		{"type":"c","clientTime":"2020-01-03T00:00:00.000000Z","identifiers":{},"metadata":{},"payload":""}
-	]}`)
-	if rec0.Code != 200 {
-		t.Fatalf("write status = %d, body = %s", rec0.Code, rec0.Body.String())
+// TestReadTimeAndAfterSequenceFilteringOverHTTP seeds events through
+// store.Import, since time is set by the server on append and a test needs
+// events a day apart.
+func TestReadTimeAndAfterSequenceFilteringOverHTTP(t *testing.T) {
+	srv, _, st := newTestServer(t)
+	day := func(d int) time.Time { return time.Date(2020, 1, d, 0, 0, 0, 0, time.UTC) }
+	if err := st.Import(context.Background(), []dcb.Event{
+		{Sequence: 1, Time: day(1), EventData: dcb.EventData{Type: "a"}},
+		{Sequence: 2, Time: day(2), EventData: dcb.EventData{Type: "b"}},
+		{Sequence: 3, Time: day(3), EventData: dcb.EventData{Type: "c"}},
+	}); err != nil {
+		t.Fatalf("Import() error = %v", err)
 	}
 
 	all := doRequest(t, srv, "QUERY", "/events", `{"query":"*"}`)
@@ -86,18 +93,18 @@ func TestReadClientTimeAndAfterSequenceFilteringOverHTTP(t *testing.T) {
 		t.Fatalf("afterSequence filter: got %d events, want 2", len(filtered))
 	}
 
-	rec2 := doRequest(t, srv, "QUERY", "/events", `{"query":"*","clientTime":{"from":"2020-01-02T00:00:00.000000Z"}}`)
+	rec2 := doRequest(t, srv, "QUERY", "/events", `{"query":"*","time":{"from":"2020-01-02T00:00:00.000000Z"}}`)
 	_, filtered2 := parseNDJSON(t, rec2.Body.String())
 	if len(filtered2) != 2 || filtered2[0].Type != "b" || filtered2[1].Type != "c" {
-		t.Fatalf("clientTime.from filter: got %+v, want b, c", filtered2)
+		t.Fatalf("time.from filter: got %+v, want b, c", filtered2)
 	}
 
 	// A bound with an offset is converted to UTC before comparing:
 	// 2020-01-01T20:00-04:00 is 2020-01-02T00:00Z.
-	rec3 := doRequest(t, srv, "QUERY", "/events", `{"query":"*","clientTime":{"before":"2020-01-01T20:00:00-04:00"}}`)
+	rec3 := doRequest(t, srv, "QUERY", "/events", `{"query":"*","time":{"before":"2020-01-01T20:00:00-04:00"}}`)
 	_, filtered3 := parseNDJSON(t, rec3.Body.String())
 	if len(filtered3) != 1 || filtered3[0].Type != "a" {
-		t.Fatalf("clientTime.before filter with offset: got %+v, want a", filtered3)
+		t.Fatalf("time.before filter with offset: got %+v, want a", filtered3)
 	}
 }
 
@@ -111,8 +118,8 @@ func TestReadValidationFailures(t *testing.T) {
 		{"limit above max", `{"query":"*","limit":999999}`},
 		{"limit negative", `{"query":"*","limit":-1}`},
 		{"limit zero", `{"query":"*","limit":0}`},
-		{"invalid clientTime.from", `{"query":"*","clientTime":{"from":"not-a-time"}}`},
-		{"clientTime.from after clientTime.before", `{"query":"*","clientTime":{"from":"2026-02-01T00:00:00Z","before":"2026-01-01T00:00:00Z"}}`},
+		{"invalid time.from", `{"query":"*","time":{"from":"not-a-time"}}`},
+		{"time.from after time.before", `{"query":"*","time":{"from":"2026-02-01T00:00:00Z","before":"2026-01-01T00:00:00Z"}}`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

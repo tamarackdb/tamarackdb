@@ -65,7 +65,7 @@ func mustReadAllFrom(t *testing.T, path string) []dcb.Event {
 	return events
 }
 
-// toDCBEvent decodes a store.ReadEvent (which carries writeTime/identifiers/
+// toDCBEvent decodes a store.ReadEvent (which carries time/identifiers/
 // metadata as raw wire bytes, see store.ReadEvent's own doc comment) back
 // into a dcb.Event, by round-tripping it through dcb.Event's own
 // UnmarshalJSON rather than duplicating its time/JSON parsing here.
@@ -73,13 +73,12 @@ func toDCBEvent(t *testing.T, re store.ReadEvent) dcb.Event {
 	t.Helper()
 	wire, err := json.Marshal(struct {
 		Sequence    int64           `json:"sequence"`
-		ClientTime  string          `json:"clientTime"`
-		WriteTime   string          `json:"writeTime"`
+		Time        string          `json:"time"`
 		Type        string          `json:"type"`
 		Identifiers json.RawMessage `json:"identifiers"`
 		Metadata    json.RawMessage `json:"metadata"`
 		Payload     string          `json:"payload"`
-	}{re.Sequence, re.ClientTime, re.WriteTime, re.Type, re.Identifiers, re.Metadata, re.Payload})
+	}{re.Sequence, re.Time, re.Type, re.Identifiers, re.Metadata, re.Payload})
 	if err != nil {
 		t.Fatalf("marshal ReadEvent: %v", err)
 	}
@@ -98,18 +97,17 @@ func TestRunCopiesAllEventsAcrossMultiplePages(t *testing.T) {
 	}
 	defer sourceStore.Close()
 
-	var sourceWriteTimes []time.Time
+	var sourceTimes []time.Time
 	for i := 0; i < 7; i++ {
 		appended, _, err := sourceStore.Append(context.Background(), []dcb.EventData{{
 			Type:        "Seeded",
-			ClientTime:  fmt.Sprintf("2020-01-0%dT00:00:00.000000Z", i+1),
 			Identifiers: dcb.IdentifierSet{{Name: "n", Value: fmt.Sprintf("%d", i)}},
 			Payload:     fmt.Sprintf(`{"i":%d}`, i),
 		}}, nil, nil)
 		if err != nil {
 			t.Fatalf("Append() error = %v", err)
 		}
-		sourceWriteTimes = append(sourceWriteTimes, appended[0].WriteTime)
+		sourceTimes = append(sourceTimes, appended[0].Time)
 	}
 
 	ts := newSourceServer(t, sourceStore)
@@ -131,11 +129,8 @@ func TestRunCopiesAllEventsAcrossMultiplePages(t *testing.T) {
 		if ev.Payload != fmt.Sprintf(`{"i":%d}`, i) {
 			t.Errorf("event %d: Payload = %q, want %q", i, ev.Payload, fmt.Sprintf(`{"i":%d}`, i))
 		}
-		if want := fmt.Sprintf("2020-01-0%dT00:00:00.000000Z", i+1); ev.ClientTime != want {
-			t.Errorf("event %d: ClientTime = %q, want %q (copied from the source)", i, ev.ClientTime, want)
-		}
-		if !ev.WriteTime.Equal(sourceWriteTimes[i]) {
-			t.Errorf("event %d: WriteTime = %v, want %v (the source's, not the copy's)", i, ev.WriteTime, sourceWriteTimes[i])
+		if !ev.Time.Equal(sourceTimes[i]) {
+			t.Errorf("event %d: Time = %v, want %v (the source's, not the copy's)", i, ev.Time, sourceTimes[i])
 		}
 	}
 }
@@ -184,8 +179,8 @@ func TestFetchPageFailsOnMissingTrailer(t *testing.T) {
 		// short partway through (see readTrailer's doc comment).
 		w.Header().Set("Content-Type", "application/x-ndjson")
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprintln(w, `{"sequence":1,"clientTime":"2026-01-01T00:00:00.000000Z","writeTime":"2026-01-01T00:00:00.000000Z","type":"Seeded","identifiers":{},"metadata":{},"payload":""}`)
-		fmt.Fprintln(w, `{"sequence":2,"clientTime":"2026-01-01T00:00:00.000001Z","writeTime":"2026-01-01T00:00:00.000001Z","type":"Seeded","identifiers":{},"metadata":{},"payload":""}`)
+		fmt.Fprintln(w, `{"sequence":1,"time":"2026-01-01T00:00:00.000000Z","type":"Seeded","identifiers":{},"metadata":{},"payload":""}`)
+		fmt.Fprintln(w, `{"sequence":2,"time":"2026-01-01T00:00:00.000001Z","type":"Seeded","identifiers":{},"metadata":{},"payload":""}`)
 	}))
 	defer ts.Close()
 

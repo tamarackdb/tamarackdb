@@ -14,7 +14,6 @@ func TestAppendReadRoundTripSingleEvent(t *testing.T) {
 	s := openTestStore(t)
 	input := dcb.EventData{
 		Type:        "user-created",
-		ClientTime:  "2020-01-02T03:04:05.123456Z",
 		Identifiers: dcb.IdentifierSet{{Name: "userId", Value: "123"}},
 		Metadata:    dcb.MetadataSet{{Name: "tenantId", Value: "acme"}},
 		Payload:     "hello",
@@ -26,8 +25,8 @@ func TestAppendReadRoundTripSingleEvent(t *testing.T) {
 	if appended[0].Sequence == 0 {
 		t.Errorf("Sequence = 0, want a positive assigned sequence")
 	}
-	if appended[0].WriteTime.IsZero() {
-		t.Errorf("WriteTime is zero, want assigned time")
+	if appended[0].Time.IsZero() {
+		t.Errorf("Time is zero, want assigned time")
 	}
 
 	events, hasMore := mustReadAll(t, s, ReadFilter{Query: dcb.QueryAll(), Limit: 10})
@@ -41,11 +40,8 @@ func TestAppendReadRoundTripSingleEvent(t *testing.T) {
 	if got.Type != input.Type || got.Payload != input.Payload {
 		t.Errorf("Read() = %+v, want type/payload matching %+v", got, input)
 	}
-	if got.ClientTime != input.ClientTime {
-		t.Errorf("ClientTime = %q, want %q (stored and read back unchanged)", got.ClientTime, input.ClientTime)
-	}
-	if !got.WriteTime.Equal(appended[0].WriteTime) {
-		t.Errorf("WriteTime = %v, want %v", got.WriteTime, appended[0].WriteTime)
+	if !got.Time.Equal(appended[0].Time) {
+		t.Errorf("Time = %v, want %v", got.Time, appended[0].Time)
 	}
 	if len(got.Identifiers) != 1 || got.Identifiers[0] != input.Identifiers[0] {
 		t.Errorf("Identifiers = %+v, want %+v", got.Identifiers, input.Identifiers)
@@ -68,8 +64,8 @@ func TestAppendMultiEventStrictlyIncreasing(t *testing.T) {
 		if appended[i].Sequence != appended[i-1].Sequence+1 {
 			t.Errorf("Sequence[%d] = %d, want %d (consecutive)", i, appended[i].Sequence, appended[i-1].Sequence+1)
 		}
-		if !appended[i].WriteTime.Equal(appended[0].WriteTime) {
-			t.Errorf("WriteTime[%d] = %v, want %v (one writeTime per write)", i, appended[i].WriteTime, appended[0].WriteTime)
+		if !appended[i].Time.Equal(appended[0].Time) {
+			t.Errorf("Time[%d] = %v, want %v (one time per append)", i, appended[i].Time, appended[0].Time)
 		}
 	}
 }

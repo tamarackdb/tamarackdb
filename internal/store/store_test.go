@@ -46,14 +46,14 @@ func mustReadAll(t *testing.T, s *Store, f ReadFilter) ([]dcb.Event, bool) {
 	return events, it.HasMore()
 }
 
-// toDCBEvent decodes a ReadEvent's raw writeTime/identifiers/metadata back into a
+// toDCBEvent decodes a ReadEvent's raw time/identifiers/metadata back into a
 // dcb.Event, so tests can keep asserting against the structured shape even
 // though production code (see internal/api/read.go) never does this decode.
 func toDCBEvent(t *testing.T, re ReadEvent) dcb.Event {
 	t.Helper()
-	tm, err := time.Parse(timeLayout, re.WriteTime)
+	tm, err := time.Parse(timeLayout, re.Time)
 	if err != nil {
-		t.Fatalf("decode writeTime: %v", err)
+		t.Fatalf("decode time: %v", err)
 	}
 	var ids dcb.IdentifierSet
 	if err := ids.UnmarshalJSON(re.Identifiers); err != nil {
@@ -65,8 +65,8 @@ func toDCBEvent(t *testing.T, re ReadEvent) dcb.Event {
 	}
 	return dcb.Event{
 		Sequence:  re.Sequence,
-		WriteTime: tm,
-		EventData: dcb.EventData{Type: re.Type, ClientTime: re.ClientTime, Identifiers: ids, Metadata: md, Payload: re.Payload},
+		Time:      tm,
+		EventData: dcb.EventData{Type: re.Type, Identifiers: ids, Metadata: md, Payload: re.Payload},
 	}
 }
 
@@ -81,13 +81,8 @@ func mustImport(t *testing.T, s *Store, events []dcb.Event) {
 	}
 }
 
-// eventAt builds a pre-sequenced event for Import, with a writeTime and,
-// unless ed already has one, a clientTime both derived from seq (a day
-// apart, so a test can tell them apart).
+// eventAt builds a pre-sequenced event for Import, with a time derived
+// from seq.
 func eventAt(seq int64, ed dcb.EventData) dcb.Event {
-	writeTime := time.Unix(0, seq*int64(time.Microsecond)).UTC()
-	if ed.ClientTime == "" {
-		ed.ClientTime = dcb.FormatTime(writeTime.Add(-24 * time.Hour))
-	}
-	return dcb.Event{Sequence: seq, WriteTime: writeTime, EventData: ed}
+	return dcb.Event{Sequence: seq, Time: time.Unix(0, seq*int64(time.Microsecond)).UTC(), EventData: ed}
 }

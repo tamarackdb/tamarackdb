@@ -14,7 +14,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// timeLayout renders writeTime and clientTime range bounds in ATOM format
+// timeLayout renders time and its range bounds in ATOM format
 // (RFC 3339) with fixed microsecond precision, always UTC, matching
 // dcb.Event's wire format exactly.
 const timeLayout = "2006-01-02T15:04:05.000000Z07:00"

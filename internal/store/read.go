@@ -12,15 +12,15 @@ import (
 )
 
 // ReadFilter holds Read's parameters, already resolved/validated by the
-// caller: default/max limit applied, clientTime range strings parsed.
+// caller: default/max limit applied, time range strings parsed.
 // Store adds no defaults of its own except AfterSequence's implicit 0:
 // omitting it reads from the beginning of the store.
 type ReadFilter struct {
-	Query            dcb.Query
-	AfterSequence    *int64     // nil = from the beginning; sequence > *AfterSequence
-	ClientTimeFrom   *time.Time // nil = unconstrained; inclusive (>=)
-	ClientTimeBefore *time.Time // nil = unconstrained; exclusive (<)
-	Limit            int        // must be >= 1; Read fetches Limit+1 rows
+	Query         dcb.Query
+	AfterSequence *int64     // nil = from the beginning; sequence > *AfterSequence
+	TimeFrom      *time.Time // nil = unconstrained; inclusive (>=)
+	TimeBefore    *time.Time // nil = unconstrained; exclusive (<)
+	Limit         int        // must be >= 1; Read fetches Limit+1 rows
 }
 
 // Read runs a paginated DCB read. The returned *EventIterator must be
@@ -40,7 +40,7 @@ func (s *Store) Read(ctx context.Context, f ReadFilter) (*EventIterator, error) 
 func buildReadSQL(f ReadFilter) (string, []any) {
 	var b strings.Builder
 	args := make([]any, 0, 6)
-	b.WriteString(`SELECT events.sequence, events.client_time, events.write_time, events.type, events.payload,
+	b.WriteString(`SELECT events.sequence, events.time, events.type, events.payload,
   events.identifiers, events.metadata
 FROM events
 WHERE events.sequence > ?`)
@@ -51,13 +51,13 @@ WHERE events.sequence > ?`)
 	}
 	args = append(args, after)
 
-	if f.ClientTimeFrom != nil {
-		b.WriteString(" AND events.client_time >= ?")
-		args = append(args, f.ClientTimeFrom.UTC().Format(timeLayout))
+	if f.TimeFrom != nil {
+		b.WriteString(" AND events.time >= ?")
+		args = append(args, f.TimeFrom.UTC().Format(timeLayout))
 	}
-	if f.ClientTimeBefore != nil {
-		b.WriteString(" AND events.client_time < ?")
-		args = append(args, f.ClientTimeBefore.UTC().Format(timeLayout))
+	if f.TimeBefore != nil {
+		b.WriteString(" AND events.time < ?")
+		args = append(args, f.TimeBefore.UTC().Format(timeLayout))
 	}
 	if where, whereArgs := queryToSQL(f.Query); where != "" {
 		b.WriteString(" AND ")
@@ -69,22 +69,19 @@ WHERE events.sequence > ?`)
 	return b.String(), args
 }
 
-// ReadEvent is one row of a Read result. ClientTime, WriteTime, Identifiers,
-// and Metadata are left exactly as stored (see insertEventsBatch):
-// client_time is the client's string, already validated as UTC in
-// timeLayout, write_time is always written from a UTC time.Time in
-// timeLayout, and identifiers/metadata are always written via
-// IdentifierSet/MetadataSet's own MarshalJSON, so all four are already
-// byte-identical to what the HTTP API returns. Nothing in the read
+// ReadEvent is one row of a Read result. Time, Identifiers, and Metadata
+// are left exactly as stored (see insertEventsBatch): time is always
+// written from a UTC time.Time in timeLayout, and identifiers/metadata are
+// always written via IdentifierSet/MetadataSet's own MarshalJSON, so all
+// three are already byte-identical to what the HTTP API returns. Nothing in the read
 // path needs the structured form (query filtering already happened in SQL),
 // so scanEvent skips decoding them at all, trading away read-time corruption
-// detection on these four columns for that: a garbled column is now
+// detection on these three columns for that: a garbled column is now
 // forwarded to the client as-is instead of failing with a clear "corrupt
 // data" error, the same trade-off already made for the type/payload columns.
 type ReadEvent struct {
 	Sequence    int64
-	ClientTime  string // raw events.client_time text, already UTC and timeLayout-formatted
-	WriteTime   string // raw events.write_time text, already UTC and timeLayout-formatted
+	Time        string // raw events.time text, already UTC and timeLayout-formatted
 	Type        string
 	Identifiers json.RawMessage
 	Metadata    json.RawMessage
@@ -93,15 +90,14 @@ type ReadEvent struct {
 
 func scanEvent(rows *sql.Rows) (ReadEvent, error) {
 	var seq int64
-	var clientTime, writeTime, typ, payload string
+	var tm, typ, payload string
 	var idsJSON, mdJSON []byte
-	if err := rows.Scan(&seq, &clientTime, &writeTime, &typ, &payload, &idsJSON, &mdJSON); err != nil {
+	if err := rows.Scan(&seq, &tm, &typ, &payload, &idsJSON, &mdJSON); err != nil {
 		return ReadEvent{}, err
 	}
 	return ReadEvent{
 		Sequence:    seq,
-		ClientTime:  clientTime,
-		WriteTime:   writeTime,
+		Time:        tm,
 		Type:        typ,
 		Identifiers: json.RawMessage(idsJSON),
 		Metadata:    json.RawMessage(mdJSON),

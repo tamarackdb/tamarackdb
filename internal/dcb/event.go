@@ -146,17 +146,9 @@ func unmarshalCompact[T any](data []byte, build func(name, value string) T) ([]T
 
 // EventData is everything known about an event before it is appended:
 // what a client submits to POST /write, and all the matching predicate
-// (see match.go) ever needs. Sequence, ClientTime, and WriteTime play no
-// part in matching.
-//
-// ClientTime is the event's date as supplied by the client, in timeLayout
-// and always UTC. It is kept as the exact string received, never parsed
-// into a time.Time and re-formatted, so a read returns byte for byte what
-// the client sent: a projection built from it before the write and one
-// rebuilt from a read later always see the same value.
+// (see match.go) ever needs. Sequence and Time play no part in matching.
 type EventData struct {
 	Type        string        `json:"type"`
-	ClientTime  string        `json:"clientTime"`
 	Identifiers IdentifierSet `json:"identifiers"`
 	Metadata    MetadataSet   `json:"metadata"`
 	Payload     string        `json:"payload"`
@@ -178,16 +170,12 @@ func (e EventData) Size() int {
 }
 
 // Validate checks the domain rules that apply to a single event
-// regardless of the rest of the append request: a non-empty Type, a
-// ClientTime in timeLayout and UTC (see ValidateClientTime), at most
+// regardless of the rest of the append request: a non-empty Type, at most
 // MaxIdentifiers/MaxMetadata entries, and no duplicate {name,value} pair
 // within either set.
 func (e EventData) Validate() error {
 	if e.Type == "" {
 		return &ValidationError{Err: ErrMissingType, Message: "event is missing its type"}
-	}
-	if err := ValidateClientTime(e.ClientTime); err != nil {
-		return err
 	}
 	if len(e.Identifiers) > MaxIdentifiers {
 		return &ValidationError{Err: ErrTooManyIdentifiers, Message: fmt.Sprintf(
@@ -217,44 +205,17 @@ func duplicateExists[T comparable](items []T) bool {
 	return false
 }
 
-// clientTimeFormatMessage is the one message for every ClientTime format
-// violation, spelling out the exact expected shape: a client producing
-// millisecond timestamps (JavaScript's toISOString) sees right away what
-// to change.
-const clientTimeFormatMessage = "clientTime must be UTC with exactly 6 fractional digits, e.g. 2026-09-01T14:23:05.123456Z"
-
-// ValidateClientTime checks that s is a timestamp in timeLayout, in UTC
-// ("Z", never an offset, not even "+00:00"), with exactly 6 fractional
-// digits. Parsing then re-formatting s in UTC must give s back unchanged,
-// which rules out any other offset and any other precision in one check.
-//
-// The shape is strict because client_time is stored as TEXT and filtered
-// by range: only one fixed-width UTC form sorts the same way as text as it
-// does in time. "05.123Z" would sort after "05.123456Z", since "Z" comes
-// after every digit.
-func ValidateClientTime(s string) error {
-	if s == "" {
-		return &ValidationError{Err: ErrMissingClientTime, Message: "event is missing its clientTime"}
-	}
-	t, err := time.Parse(timeLayout, s)
-	if err != nil || t.UTC().Format(timeLayout) != s {
-		return &ValidationError{Err: ErrInvalidClientTime, Message: clientTimeFormatMessage}
-	}
-	return nil
-}
-
 // Event is a fully materialized, persisted event: EventData plus the
-// Sequence Position and WriteTime assigned by the store at append time.
-// WriteTime is when the store wrote the event, the same value for every
-// event of one write. It is for inspection only: a projection built
-// alongside the write can't know it, so projections use ClientTime.
+// Sequence Position and Time assigned by the store at append time. Time
+// is when the store appended the event, the same value for every event of
+// one append call; order within a call comes from Sequence.
 type Event struct {
-	Sequence  int64
-	WriteTime time.Time
+	Sequence int64
+	Time     time.Time
 	EventData
 }
 
-// timeLayout renders/parses clientTime and writeTime in ATOM format
+// timeLayout renders/parses time in ATOM format
 // (RFC 3339) with fixed microsecond precision, always UTC, matching the
 // exact wire format used in requests and responses
 // (e.g. "2026-09-01T14:23:05.123456Z").
@@ -262,26 +223,17 @@ type Event struct {
 // zero digits, so it cannot be used as-is here.
 const timeLayout = "2006-01-02T15:04:05.000000Z07:00"
 
-// FormatTime renders t in the exact form ValidateClientTime accepts: UTC,
-// timeLayout, 6 fractional digits. For Go callers building a ClientTime
-// from a time.Time.
-func FormatTime(t time.Time) string {
-	return t.UTC().Format(timeLayout)
-}
-
 func (e Event) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
 		Sequence    int64         `json:"sequence"`
-		ClientTime  string        `json:"clientTime"`
-		WriteTime   string        `json:"writeTime"`
+		Time        string        `json:"time"`
 		Type        string        `json:"type"`
 		Identifiers IdentifierSet `json:"identifiers"`
 		Metadata    MetadataSet   `json:"metadata"`
 		Payload     string        `json:"payload"`
 	}{
 		Sequence:    e.Sequence,
-		ClientTime:  e.ClientTime,
-		WriteTime:   e.WriteTime.UTC().Format(timeLayout),
+		Time:        e.Time.UTC().Format(timeLayout),
 		Type:        e.Type,
 		Identifiers: e.Identifiers,
 		Metadata:    e.Metadata,
@@ -292,8 +244,7 @@ func (e Event) MarshalJSON() ([]byte, error) {
 func (e *Event) UnmarshalJSON(data []byte) error {
 	var wire struct {
 		Sequence    int64         `json:"sequence"`
-		ClientTime  string        `json:"clientTime"`
-		WriteTime   string        `json:"writeTime"`
+		Time        string        `json:"time"`
 		Type        string        `json:"type"`
 		Identifiers IdentifierSet `json:"identifiers"`
 		Metadata    MetadataSet   `json:"metadata"`
@@ -302,12 +253,12 @@ func (e *Event) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &wire); err != nil {
 		return err
 	}
-	t, err := time.Parse(time.RFC3339Nano, wire.WriteTime)
+	t, err := time.Parse(time.RFC3339Nano, wire.Time)
 	if err != nil {
-		return fmt.Errorf("dcb: invalid writeTime %q: %w", wire.WriteTime, err)
+		return fmt.Errorf("dcb: invalid time %q: %w", wire.Time, err)
 	}
-	e.Sequence, e.WriteTime = wire.Sequence, t.UTC()
-	e.EventData = EventData{Type: wire.Type, ClientTime: wire.ClientTime, Identifiers: wire.Identifiers, Metadata: wire.Metadata, Payload: wire.Payload}
+	e.Sequence, e.Time = wire.Sequence, t.UTC()
+	e.EventData = EventData{Type: wire.Type, Identifiers: wire.Identifiers, Metadata: wire.Metadata, Payload: wire.Payload}
 	return nil
 }
 
@@ -326,8 +277,6 @@ func (e *ValidationError) Unwrap() error { return e.Err }
 
 var (
 	ErrMissingType         = errors.New("event is missing its type")
-	ErrMissingClientTime   = errors.New("event is missing its clientTime")
-	ErrInvalidClientTime   = errors.New("invalid clientTime")
 	ErrTooManyIdentifiers  = errors.New("too many identifiers")
 	ErrTooManyMetadata     = errors.New("too many metadata entries")
 	ErrDuplicateIdentifier = errors.New("duplicate identifier")

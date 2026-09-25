@@ -13,8 +13,8 @@ func TestAppendReadRoundTrip(t *testing.T) {
 	srv, _, _ := newTestServer(t)
 
 	body := `{"events":[
-		{"type":"user-created","clientTime":"2026-09-01T14:23:05.123456Z","identifiers":{"userId":"123"},"metadata":{"tenantId":"acme"},"payload":"a"},
-		{"type":"user-updated","clientTime":"2026-09-01T14:23:05.123456Z","identifiers":{"userId":"123"},"metadata":{},"payload":"b"}
+		{"type":"user-created","identifiers":{"userId":"123"},"metadata":{"tenantId":"acme"},"payload":"a"},
+		{"type":"user-updated","identifiers":{"userId":"123"},"metadata":{},"payload":"b"}
 	]}`
 	rec := doRequest(t, srv, "POST", "/write", body)
 	if rec.Code != 200 {
@@ -43,46 +43,12 @@ func TestAppendReadRoundTrip(t *testing.T) {
 		t.Errorf("events = %+v, want user-created then user-updated in sequence order", events)
 	}
 	for i, ev := range events {
-		if ev.ClientTime != "2026-09-01T14:23:05.123456Z" {
-			t.Errorf("event %d: clientTime = %q, want the value sent, unchanged", i, ev.ClientTime)
-		}
-		if got := ev.WriteTime.UTC().Format(timeLayout); got != writeResp.Events[i].WriteTime {
-			t.Errorf("event %d: read writeTime = %q, want %q from the write response", i, got, writeResp.Events[i].WriteTime)
+		if got := ev.Time.UTC().Format(timeLayout); got != writeResp.Events[i].Time {
+			t.Errorf("event %d: read time = %q, want %q from the write response", i, got, writeResp.Events[i].Time)
 		}
 	}
-	if writeResp.Events[0].WriteTime != writeResp.Events[1].WriteTime {
-		t.Errorf("writeTime differs within one write: %q vs %q", writeResp.Events[0].WriteTime, writeResp.Events[1].WriteTime)
-	}
-}
-
-func TestWriteRejectsInvalidClientTime(t *testing.T) {
-	const formatMessage = "clientTime must be UTC with exactly 6 fractional digits, e.g. 2026-09-01T14:23:05.123456Z"
-	tests := []struct {
-		name        string
-		clientTime  string // JSON fragment, empty for none
-		wantMessage string
-	}{
-		{"missing", ``, "event is missing its clientTime"},
-		{"milliseconds (JavaScript toISOString)", `"clientTime":"2026-09-01T14:23:05.123Z",`, formatMessage},
-		{"offset", `"clientTime":"2026-09-01T10:23:05.123456-04:00",`, formatMessage},
-		{"+00:00", `"clientTime":"2026-09-01T14:23:05.123456+00:00",`, formatMessage},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			srv, _, _ := newTestServer(t)
-			body := `{"events":[{"type":"t",` + tt.clientTime + `"identifiers":{},"metadata":{},"payload":""}]}`
-			rec := doRequest(t, srv, "POST", "/write", body)
-			if rec.Code != 400 {
-				t.Fatalf("status = %d, want 400, body = %s", rec.Code, rec.Body.String())
-			}
-			var env errorEnvelope
-			if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
-				t.Fatalf("decode error envelope: %v", err)
-			}
-			if env.Error != "InvalidRequest" || env.Message != tt.wantMessage {
-				t.Errorf("error = %+v, want InvalidRequest with message %q", env, tt.wantMessage)
-			}
-		})
+	if writeResp.Events[0].Time != writeResp.Events[1].Time {
+		t.Errorf("time differs within one append: %q vs %q", writeResp.Events[0].Time, writeResp.Events[1].Time)
 	}
 }
 
@@ -94,10 +60,10 @@ func TestAppendValidationFailures(t *testing.T) {
 		wantError  string
 	}{
 		{"missing type", `{"events":[{"identifiers":{},"metadata":{},"payload":""}]}`, 400, "InvalidRequest"},
-		{"duplicate identifier", `{"events":[{"type":"t","clientTime":"2026-09-01T14:23:05.123456Z","identifiers":{"a":["1","1"]},"metadata":{},"payload":""}]}`, 400, "InvalidRequest"},
+		{"duplicate identifier", `{"events":[{"type":"t","identifiers":{"a":["1","1"]},"metadata":{},"payload":""}]}`, 400, "InvalidRequest"},
 		{"empty events", `{"events":[]}`, 400, "InvalidRequest"},
 		{"malformed json", `{"events":`, 400, "InvalidRequest"},
-		{"negative afterSequence in condition", `{"events":[{"type":"t","clientTime":"2026-09-01T14:23:05.123456Z","identifiers":{},"metadata":{},"payload":""}],"condition":{"afterSequence":-1}}`, 400, "InvalidRequest"},
+		{"negative afterSequence in condition", `{"events":[{"type":"t","identifiers":{},"metadata":{},"payload":""}],"condition":{"afterSequence":-1}}`, 400, "InvalidRequest"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -120,7 +86,7 @@ func TestAppendValidationFailures(t *testing.T) {
 func TestAppendTooManyIdentifiers(t *testing.T) {
 	srv, _, _ := newTestServer(t)
 	var b strings.Builder
-	b.WriteString(`{"events":[{"type":"t","clientTime":"2026-09-01T14:23:05.123456Z","identifiers":{`)
+	b.WriteString(`{"events":[{"type":"t","identifiers":{`)
 	for i := 0; i < 21; i++ {
 		if i > 0 {
 			b.WriteString(",")
@@ -139,7 +105,7 @@ func TestAppendTooManyEvents(t *testing.T) {
 	srv, _, _ := newTestServer(t)
 	var events []string
 	for i := 0; i < 101; i++ {
-		events = append(events, `{"type":"t","clientTime":"2026-09-01T14:23:05.123456Z","identifiers":{},"metadata":{},"payload":""}`)
+		events = append(events, `{"type":"t","identifiers":{},"metadata":{},"payload":""}`)
 	}
 	body := fmt.Sprintf(`{"events":[%s]}`, strings.Join(events, ","))
 
@@ -152,7 +118,7 @@ func TestAppendTooManyEvents(t *testing.T) {
 func TestAppendOversizedEvent(t *testing.T) {
 	srv, _, _ := newTestServer(t)
 	hugePayload := strings.Repeat("x", 70000) // over the 65536 test-server MaxEventSize
-	body := fmt.Sprintf(`{"events":[{"type":"t","clientTime":"2026-09-01T14:23:05.123456Z","identifiers":{},"metadata":{},"payload":%q}]}`, hugePayload)
+	body := fmt.Sprintf(`{"events":[{"type":"t","identifiers":{},"metadata":{},"payload":%q}]}`, hugePayload)
 
 	rec := doRequest(t, srv, "POST", "/write", body)
 	if rec.Code != 413 {
@@ -170,12 +136,12 @@ func TestAppendOversizedEvent(t *testing.T) {
 func TestAppendConcurrencyConflictEndToEnd(t *testing.T) {
 	srv, _, _ := newTestServer(t)
 
-	first := doRequest(t, srv, "POST", "/write", `{"events":[{"type":"t","clientTime":"2026-09-01T14:23:05.123456Z","identifiers":{"userId":"123"},"metadata":{},"payload":""}]}`)
+	first := doRequest(t, srv, "POST", "/write", `{"events":[{"type":"t","identifiers":{"userId":"123"},"metadata":{},"payload":""}]}`)
 	if first.Code != 200 {
 		t.Fatalf("first append status = %d, body = %s", first.Code, first.Body.String())
 	}
 
-	body := `{"events":[{"type":"t","clientTime":"2026-09-01T14:23:05.123456Z","identifiers":{"userId":"999"},"metadata":{},"payload":""}],
+	body := `{"events":[{"type":"t","identifiers":{"userId":"999"},"metadata":{},"payload":""}],
 		"condition":{"failIfEventsMatch":[{"identifiers":[{"name":"userId","value":"123"}]}],"afterSequence":0}}`
 	second := doRequest(t, srv, "POST", "/write", body)
 	if second.Code != 409 {
@@ -217,7 +183,7 @@ func TestAppendReturns503WhenQueueFull(t *testing.T) {
 		<-queuedDone
 	}()
 
-	rec := doRequest(t, srv, "POST", "/write", `{"events":[{"type":"t","clientTime":"2026-09-01T14:23:05.123456Z","identifiers":{},"metadata":{},"payload":""}]}`)
+	rec := doRequest(t, srv, "POST", "/write", `{"events":[{"type":"t","identifiers":{},"metadata":{},"payload":""}]}`)
 	if rec.Code != 503 {
 		t.Fatalf("status = %d, want 503, body = %s", rec.Code, rec.Body.String())
 	}
@@ -392,7 +358,7 @@ func TestWriteDocumentConflictReturns409(t *testing.T) {
 func TestWriteEventAndDocumentTogether(t *testing.T) {
 	srv, _, _ := newTestServerWithDocuments(t)
 	body := `{
-		"events":[{"type":"user-renamed","clientTime":"2026-09-01T14:23:05.123456Z","identifiers":{},"metadata":{},"payload":""}],
+		"events":[{"type":"user-renamed","identifiers":{},"metadata":{},"payload":""}],
 		"documents":[{"type":"user-profile","id":"123","payload":"hello"}]
 	}`
 	rec := doRequest(t, srv, "POST", "/write", body)

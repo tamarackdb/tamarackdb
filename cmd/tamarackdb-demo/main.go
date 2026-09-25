@@ -17,7 +17,6 @@ import (
 	"math/rand"
 	"os"
 	"strconv"
-	"time"
 
 	"github.com/tamarackdb/tamarackdb/internal/buildinfo"
 	"github.com/tamarackdb/tamarackdb/internal/config"
@@ -151,10 +150,9 @@ func appendDocuments(ctx context.Context, st *store.Store, rng *rand.Rand, total
 }
 
 // generateEvent builds a single random, schema-agnostic event: a type out
-// of 10 choices, the current time as its clientTime, 1 or 2 identifiers
-// out of 5 possible names (each with a random value between
-// identifierValueMin and identifierValueMax), a tenantId metadata entry,
-// and a garbage-text payload.
+// of 10 choices, 1 or 2 identifiers out of 5 possible names (each with a
+// random value between identifierValueMin and identifierValueMax), a
+// tenantId metadata entry, and a garbage-text payload.
 func generateEvent(rng *rand.Rand) dcb.EventData {
 	identifierCount := 1
 	if rng.Intn(2) == 1 {
@@ -171,7 +169,6 @@ func generateEvent(rng *rand.Rand) dcb.EventData {
 
 	return dcb.EventData{
 		Type:        eventTypes[rng.Intn(len(eventTypes))],
-		ClientTime:  dcb.FormatTime(time.Now()),
 		Identifiers: identifiers,
 		Metadata: dcb.MetadataSet{
 			{Name: "tenant", Value: strconv.Itoa(tenantIDMin + rng.Intn(tenantIDMax-tenantIDMin+1))},

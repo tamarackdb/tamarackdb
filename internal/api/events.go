@@ -17,7 +17,7 @@ import (
 type readRequest struct {
 	Query         dcb.Query      `json:"query"`
 	AfterSequence *int64         `json:"afterSequence,omitempty"`
-	ClientTime    *readTimeRange `json:"clientTime,omitempty"`
+	Time          *readTimeRange `json:"time,omitempty"`
 	Limit         *int           `json:"limit,omitempty"`
 }
 
@@ -46,8 +46,7 @@ type readTrailer struct {
 // instead of decoding and re-encoding data that never needs to change shape.
 type readEventWire struct {
 	Sequence    int64           `json:"sequence"`
-	ClientTime  string          `json:"clientTime"`
-	WriteTime   string          `json:"writeTime"`
+	Time        string          `json:"time"`
 	Type        string          `json:"type"`
 	Identifiers json.RawMessage `json:"identifiers"`
 	Metadata    json.RawMessage `json:"metadata"`
@@ -98,13 +97,13 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 		filter.Limit = *req.Limit
 	}
 
-	if req.ClientTime != nil {
-		from, before, err := parseTimeRange(req.ClientTime)
+	if req.Time != nil {
+		from, before, err := parseTimeRange(req.Time)
 		if err != nil {
 			s.handleErr(w, r, err)
 			return
 		}
-		filter.ClientTimeFrom, filter.ClientTimeBefore = from, before
+		filter.TimeFrom, filter.TimeBefore = from, before
 	}
 
 	it, err := s.st.Read(r.Context(), filter)
@@ -128,8 +127,7 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 		ev := it.Event()
 		wire := readEventWire{
 			Sequence:    ev.Sequence,
-			ClientTime:  ev.ClientTime,
-			WriteTime:   ev.WriteTime,
+			Time:        ev.Time,
 			Type:        ev.Type,
 			Identifiers: ev.Identifiers,
 			Metadata:    ev.Metadata,
@@ -152,30 +150,29 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	_ = nw.WriteValue(readTrailer{HasMore: it.HasMore()}) // best-effort: the client may already be gone
 }
 
-// parseTimeRange parses clientTime.from/clientTime.before (RFC3339Nano,
-// matching dcb.Event's own parsing) and enforces the one additional
-// semantic rule that calls for hand-written validation: a consistent
-// clientTime.from/clientTime.before range: from must be earlier than
-// before when both are present. A bound may carry any offset: it is
-// converted to UTC before being compared against client_time, which is
-// always stored in UTC.
+// parseTimeRange parses time.from/time.before (RFC3339Nano, matching
+// dcb.Event's own parsing) and enforces the one additional semantic rule
+// that calls for hand-written validation: a consistent time.from/
+// time.before range: from must be earlier than before when both are
+// present. A bound may carry any offset: it is converted to UTC before
+// being compared against the stored time, which is always UTC.
 func parseTimeRange(tr *readTimeRange) (from, before *time.Time, err error) {
 	if tr.From != nil {
 		t, perr := time.Parse(time.RFC3339Nano, *tr.From)
 		if perr != nil {
-			return nil, nil, &dcb.ValidationError{Err: perr, Message: fmt.Sprintf("clientTime.from is not a valid RFC3339 timestamp: %q", *tr.From)}
+			return nil, nil, &dcb.ValidationError{Err: perr, Message: fmt.Sprintf("time.from is not a valid RFC3339 timestamp: %q", *tr.From)}
 		}
 		from = &t
 	}
 	if tr.Before != nil {
 		t, perr := time.Parse(time.RFC3339Nano, *tr.Before)
 		if perr != nil {
-			return nil, nil, &dcb.ValidationError{Err: perr, Message: fmt.Sprintf("clientTime.before is not a valid RFC3339 timestamp: %q", *tr.Before)}
+			return nil, nil, &dcb.ValidationError{Err: perr, Message: fmt.Sprintf("time.before is not a valid RFC3339 timestamp: %q", *tr.Before)}
 		}
 		before = &t
 	}
 	if from != nil && before != nil && !from.Before(*before) {
-		return nil, nil, &dcb.ValidationError{Err: errInvalidTimeRange, Message: "clientTime.from must be earlier than clientTime.before"}
+		return nil, nil, &dcb.ValidationError{Err: errInvalidTimeRange, Message: "time.from must be earlier than time.before"}
 	}
 	return from, before, nil
 }

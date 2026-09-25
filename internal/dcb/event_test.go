@@ -148,17 +148,16 @@ func TestEventDataValidate(t *testing.T) {
 		event   EventData
 		wantErr error
 	}{
-		{"valid minimal event", EventData{Type: "user-created", ClientTime: ct}, nil},
-		{"missing type", EventData{ClientTime: ct}, ErrMissingType},
-		{"missing clientTime", EventData{Type: "t"}, ErrMissingClientTime},
-		{"exactly 20 identifiers", EventData{Type: "t", ClientTime: ct, Identifiers: makeIdentifiers(20)}, nil},
-		{"21 identifiers", EventData{Type: "t", ClientTime: ct, Identifiers: makeIdentifiers(21)}, ErrTooManyIdentifiers},
-		{"exactly 20 metadata", EventData{Type: "t", ClientTime: ct, Metadata: makeMetadata(20)}, nil},
-		{"21 metadata", EventData{Type: "t", ClientTime: ct, Metadata: makeMetadata(21)}, ErrTooManyMetadata},
-		{"duplicate identifier", EventData{Type: "t", ClientTime: ct, Identifiers: IdentifierSet{
+		{"valid minimal event", EventData{Type: "user-created"}, nil},
+		{"missing type", EventData{}, ErrMissingType},
+		{"exactly 20 identifiers", EventData{Type: "t", Identifiers: makeIdentifiers(20)}, nil},
+		{"21 identifiers", EventData{Type: "t", Identifiers: makeIdentifiers(21)}, ErrTooManyIdentifiers},
+		{"exactly 20 metadata", EventData{Type: "t", Metadata: makeMetadata(20)}, nil},
+		{"21 metadata", EventData{Type: "t", Metadata: makeMetadata(21)}, ErrTooManyMetadata},
+		{"duplicate identifier", EventData{Type: "t", Identifiers: IdentifierSet{
 			{Name: "userId", Value: "123"}, {Name: "userId", Value: "123"},
 		}}, ErrDuplicateIdentifier},
-		{"duplicate metadata", EventData{Type: "t", ClientTime: ct, Metadata: MetadataSet{
+		{"duplicate metadata", EventData{Type: "t", Metadata: MetadataSet{
 			{Name: "tenantId", Value: "acme"}, {Name: "tenantId", Value: "acme"},
 		}}, ErrDuplicateMetadata},
 	}
@@ -182,66 +181,6 @@ func TestEventDataValidate(t *testing.T) {
 	}
 }
 
-func TestValidateClientTime(t *testing.T) {
-	tests := []struct {
-		name    string
-		in      string
-		wantErr error
-	}{
-		{"valid", "2026-09-01T14:23:05.123456Z", nil},
-		{"valid, all-zero fraction", "2026-09-01T14:23:05.000000Z", nil},
-		{"missing", "", ErrMissingClientTime},
-		{"3 fractional digits (JavaScript toISOString)", "2026-09-01T14:23:05.123Z", ErrInvalidClientTime},
-		{"9 fractional digits", "2026-09-01T14:23:05.123456789Z", ErrInvalidClientTime},
-		{"no fractional digits", "2026-09-01T14:23:05Z", ErrInvalidClientTime},
-		{"offset +00:00", "2026-09-01T14:23:05.123456+00:00", ErrInvalidClientTime},
-		{"offset -04:00", "2026-09-01T10:23:05.123456-04:00", ErrInvalidClientTime},
-		{"lowercase z", "2026-09-01T14:23:05.123456z", ErrInvalidClientTime},
-		{"not a timestamp", "yesterday", ErrInvalidClientTime},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := ValidateClientTime(tt.in)
-			if tt.wantErr == nil {
-				if err != nil {
-					t.Errorf("ValidateClientTime(%q) error = %v, want nil", tt.in, err)
-				}
-				return
-			}
-			if !errors.Is(err, tt.wantErr) {
-				t.Errorf("ValidateClientTime(%q) error = %v, want %v", tt.in, err, tt.wantErr)
-			}
-			var ve *ValidationError
-			if !errors.As(err, &ve) {
-				t.Fatalf("ValidateClientTime(%q) error is not a *ValidationError: %v", tt.in, err)
-			}
-			if tt.wantErr == ErrInvalidClientTime && ve.Message != clientTimeFormatMessage {
-				t.Errorf("message = %q, want %q", ve.Message, clientTimeFormatMessage)
-			}
-		})
-	}
-	if clientTimeFormatMessage != "clientTime must be UTC with exactly 6 fractional digits, e.g. 2026-09-01T14:23:05.123456Z" {
-		t.Errorf("clientTimeFormatMessage = %q", clientTimeFormatMessage)
-	}
-}
-
-func TestFormatTimeIsAValidClientTime(t *testing.T) {
-	loc := time.FixedZone("EDT", -4*3600)
-	for _, tm := range []time.Time{
-		time.Date(2026, 9, 1, 10, 23, 5, 123000000, loc),
-		time.Date(2026, 9, 1, 14, 23, 5, 0, time.UTC),
-		time.Date(2026, 9, 1, 14, 23, 5, 123456789, time.UTC),
-	} {
-		s := FormatTime(tm)
-		if err := ValidateClientTime(s); err != nil {
-			t.Errorf("ValidateClientTime(FormatTime(%v)) = %v, want nil (got %q)", tm, err, s)
-		}
-	}
-	if got, want := FormatTime(time.Date(2026, 9, 1, 10, 23, 5, 123000000, loc)), "2026-09-01T14:23:05.123000Z"; got != want {
-		t.Errorf("FormatTime = %q, want %q", got, want)
-	}
-}
-
 func TestEventDataSize(t *testing.T) {
 	e := EventData{
 		Type:    "abc",
@@ -261,11 +200,10 @@ func TestEventDataSize(t *testing.T) {
 func TestEventMarshalJSON(t *testing.T) {
 	tm := time.Date(2026, 9, 1, 14, 23, 5, 123000000, time.UTC)
 	e := Event{
-		Sequence:  12346,
-		WriteTime: tm,
+		Sequence: 12346,
+		Time:     tm,
 		EventData: EventData{
 			Type:        "user-created",
-			ClientTime:  "2026-09-01T14:23:04.999999Z",
 			Identifiers: IdentifierSet{{Name: "userId", Value: "123"}},
 			Metadata:    MetadataSet{{Name: "tenantId", Value: "acme"}},
 			Payload:     "...",
@@ -275,14 +213,14 @@ func TestEventMarshalJSON(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Marshal() error = %v", err)
 	}
-	want := `{"sequence":12346,"clientTime":"2026-09-01T14:23:04.999999Z","writeTime":"2026-09-01T14:23:05.123000Z","type":"user-created","identifiers":{"userId":"123"},"metadata":{"tenantId":"acme"},"payload":"..."}`
+	want := `{"sequence":12346,"time":"2026-09-01T14:23:05.123000Z","type":"user-created","identifiers":{"userId":"123"},"metadata":{"tenantId":"acme"},"payload":"..."}`
 	if string(got) != want {
 		t.Errorf("Marshal() = %s, want %s", got, want)
 	}
 }
 
 func TestEventUnmarshalJSON(t *testing.T) {
-	input := `{"sequence":12346,"clientTime":"2026-09-01T14:23:04.999999Z","writeTime":"2026-09-01T14:23:05.123456Z","type":"user-created","identifiers":{"userId":"123"},"metadata":{"tenantId":"acme"},"payload":"..."}`
+	input := `{"sequence":12346,"time":"2026-09-01T14:23:05.123456Z","type":"user-created","identifiers":{"userId":"123"},"metadata":{"tenantId":"acme"},"payload":"..."}`
 	var e Event
 	if err := json.Unmarshal([]byte(input), &e); err != nil {
 		t.Fatalf("Unmarshal() error = %v", err)
@@ -291,19 +229,16 @@ func TestEventUnmarshalJSON(t *testing.T) {
 		t.Errorf("Sequence = %d, want 12346", e.Sequence)
 	}
 	wantTime := time.Date(2026, 9, 1, 14, 23, 5, 123456000, time.UTC)
-	if !e.WriteTime.Equal(wantTime) {
-		t.Errorf("WriteTime = %v, want %v", e.WriteTime, wantTime)
-	}
-	if e.ClientTime != "2026-09-01T14:23:04.999999Z" {
-		t.Errorf("ClientTime = %q, want %q", e.ClientTime, "2026-09-01T14:23:04.999999Z")
+	if !e.Time.Equal(wantTime) {
+		t.Errorf("Time = %v, want %v", e.Time, wantTime)
 	}
 	if e.Type != "user-created" {
 		t.Errorf("Type = %q, want %q", e.Type, "user-created")
 	}
 }
 
-func TestEventUnmarshalJSONInvalidWriteTime(t *testing.T) {
-	input := `{"sequence":1,"clientTime":"2026-09-01T14:23:05.123456Z","writeTime":"not-a-time","type":"t","identifiers":{},"metadata":{},"payload":""}`
+func TestEventUnmarshalJSONInvalidTime(t *testing.T) {
+	input := `{"sequence":1,"time":"not-a-time","type":"t","identifiers":{},"metadata":{},"payload":""}`
 	var e Event
 	if err := json.Unmarshal([]byte(input), &e); err == nil {
 		t.Fatalf("Unmarshal() error = nil, want error")
