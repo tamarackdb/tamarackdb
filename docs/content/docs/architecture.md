@@ -614,6 +614,7 @@ the problem, left out when it wouldn't add anything (as with `ConcurrencyExcepti
 | Status | `error` | When |
 |---|---|---|
 | `400` | `InvalidRequest` | Malformed or invalid body, see below |
+| `401` | `Unauthorized` | Missing or invalid Bearer token, only when `enableAuth` is on (see Security) |
 | `404` | `DocumentNotFound` | `GET /documents/{type}/{id}` for a document that doesn't exist |
 | `409` | `ConcurrencyException` | The Append Condition of a `POST /events` call failed |
 | `409` | `NotPaused` | A call accepted only while paused, made outside a pause |
@@ -623,6 +624,7 @@ the problem, left out when it wouldn't add anything (as with `ConcurrencyExcepti
 | `503` | `TransactionQueueFull` | `POST /begin` or `POST /pause` while the FIFO is at its configured depth |
 | `503` | `TransactionWaitTimeout` | A request waited in the FIFO longer than the configured maximum, with `Retry-After` |
 | `503` | `Paused` | A request reached the head of the FIFO while the server is paused |
+| `503` | `Unavailable` | `GET /health` only: SQLite can't be reached (see Health check) |
 
 Inside a transaction, every error except `404 DocumentNotFound` rolls the transaction back (see Calls inside a
 transaction).
@@ -1107,7 +1109,7 @@ health check still helps restart and alerting logic. On success it responds `200
 {"status": "ok", "version": "1.2.3", "paused": false}
 ```
 
-On failure to reach SQLite, it responds `503 Service Unavailable` rather than `500`, the usual signal a supervisor or
+On failure to reach SQLite, it responds `503 Unavailable` rather than `500`, the usual signal a supervisor or
 load balancer already expects for "not ready right now," different from the `500` an ordinary request failure returns
 elsewhere in the API.
 
