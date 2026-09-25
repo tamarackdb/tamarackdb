@@ -256,6 +256,29 @@ curl --unix-socket /var/run/tamarackdb-server.sock -X POST http://localhost/resu
 Use `POST /resume`, not a manual delete of the pause file: the running server
 keeps the pause in memory, and only reads the file at startup.
 
+### Reclaiming disk space
+
+SQLite reuses the space of deleted documents on its own, so the database file
+doesn't keep growing after a rebuild. To give that space back to the
+operating system, run a `VACUUM` by hand. The server must be stopped: it never
+runs one itself.
+
+Do it at the end of a rebuild, while the application is already down:
+
+1. Stop `tamarackdb-server`.
+2. Run the `VACUUM`:
+
+   ```sh
+   sqlite3 /path/to/data/tamarackdb.sqlite 'VACUUM;'
+   ```
+
+3. Start `tamarackdb-server` again. It starts paused, since the pause file is
+   still there.
+4. Resume the server with `POST /resume`.
+
+A `VACUUM` rewrites the whole file, events included, and needs free disk space
+about the size of the database while it runs.
+
 ## Observability
 
 Two more endpoints show the server's own in-memory state: the active

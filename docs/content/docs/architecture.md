@@ -569,7 +569,8 @@ round trip becomes a real, if still secondary, share of total rebuild time. This
 ceiling are configuration, not a fixed constant: a slow projection can use a small `limit` and pay almost nothing for
 it, while a fast one benefits from a larger `limit` that spreads the round-trip cost over more events per page.
 
-A `VACUUM`, to reclaim the space of deleted documents, also runs while the server is paused (see Storage: SQLite).
+Reclaiming the disk space of deleted documents with `VACUUM` is a separate, manual step, run while the server is
+stopped (see Storage: SQLite).
 
 ### Reset (dev mode)
 
@@ -850,8 +851,12 @@ Events and documents live in one file, `tamarackdb.sqlite`, so one SQLite transa
 larger than events and are rewritten in place, so they make the WAL grow faster than events alone would. This stays
 small in practice: only one transaction writes at a time anyway, and a command writes about ten documents, once,
 right before its commit (see Documents). The one heavy case is a projection rebuild, which writes every rebuilt
-document, but it runs while the server is paused, with no other writer (see Projection rebuilds). A `VACUUM` to
-reclaim the space of deleted documents also covers the events, and runs while the server is paused too.
+document, but it runs while the server is paused, with no other writer (see Projection rebuilds). SQLite reuses the space
+of deleted documents for later writes on its own. Giving that space back to the operating system takes a `VACUUM`,
+which rewrites the whole file, events included. The server never runs one: it's run by hand, with `sqlite3`, while
+the server is stopped, the same way as a full `ANALYZE` (see below). Stopping the server costs a few seconds, on top
+of a rebuild's downtime that's already accepted, and keeps the server free of a long operation it would have to
+coordinate with reads still in flight.
 
 `tamarackdb-backup` only ever copies events (see [Backup](/docs/guides/backup/)): a document is reproducible from
 events, so it doesn't need its own backup copy. A raw copy of the database file, by contrast, includes the documents.
