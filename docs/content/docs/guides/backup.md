@@ -59,25 +59,23 @@ source running only on its default unix socket (see
 Each run reads the highest Sequence Position already in the local file, then
 pages through the source's `QUERY /events` with `afterSequence` set to that
 value, writing every event it gets straight into local storage: not through
-`POST /write`, but through the same code path `store.Open` always uses to
+`POST /events`, but through the same code path `store.Open` always uses to
 build a database file, so the schema comes out identical. See
 [Architecture](/docs/architecture/#storage-sqlite) for why that matters: the backup file
 can be pointed at directly with `tamarackdb-server --config ...` if the source ever
 needs replacing.
 
-Each event is copied as is, both dates included: `clientTime` and `writeTime`
-are the ones from the source. `writeTime` is when the source wrote the event,
-not when the backup copied it.
+Each event is copied as is, `sequence` and `time` included. `time` is when the
+source appended the event, not when the backup copied it.
 
-`tamarackdb-backup` only ever copies events, into the events database file.
-It has no notion of documents at all, and never touches (or even needs to
-know the path of) a source's `tamarackdb-documents.sqlite`. This is
-deliberate, not a gap: a document's payload is reproducible from events (see
-[Architecture](/docs/architecture/#documents)). If you ever point `tamarackdb-server` at a
-restored backup file, the documents database starts empty: any document an
-application writes again shows up as usual, but a full catch-up for the rest
-means rebuilding, the normal `DELETE /documents/{type}` plus a fresh write of
-every projection of that type, not something that happens on its own.
+`tamarackdb-backup` only ever copies events. It never reads a source's
+documents, and the backup file's documents table stays empty. This is
+deliberate, not a gap: every document is reproducible from events (see
+[Architecture](/docs/architecture/#documents)). If you ever point
+`tamarackdb-server` at a restored backup file, the application must rebuild
+its projections before it's used again (see
+[Integration](/docs/guides/integration/#projection-rebuilds)). Nothing
+rebuilds them on its own.
 
 There's no retry inside a run: if one fails partway, nothing is retried in
 process, and the error goes to stderr with a non-zero exit code. Events

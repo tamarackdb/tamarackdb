@@ -1130,6 +1130,10 @@ size in bytes, and how long it took, e.g. `tamarackdb-server: POST /events 200 4
 routed handler, including authentication, so a request turned away with `401 Unauthorized` gets logged just like any
 other. `logLevel` sets the minimum severity a line is written at (see Configuration).
 
+A transaction rolled back because it reached its idle timeout or its ceiling has no request of its own to log. The
+deadline timer logs one line for it instead, at `warning`: which limit was reached, and how long the transaction
+lasted. It's the sign of a client that crashed, hung, or ran a command far longer than it should.
+
 ### Queue and connection pool observability
 
 Event and document counts, per-type breakdowns, and database file size (anything you can work out from the store's
