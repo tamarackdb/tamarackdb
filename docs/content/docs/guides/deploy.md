@@ -36,7 +36,7 @@ file works whether you run one binary or both.
 `bindAddress` / `port`
 : Address and port the server listens on instead of a unix socket.
 : Env: `TAMARACKDB_BIND_ADDRESS` / `TAMARACKDB_PORT`
-: Default: none / none
+: Default: `127.0.0.1` / `8085`, used only once either one is set; otherwise the server listens on `socketPath`
 
 `enableTls` / `tlsCertFile` / `tlsKeyFile`
 : TLS termination (Go's own `ListenAndServeTLS`, no reverse proxy).
