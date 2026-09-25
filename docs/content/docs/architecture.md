@@ -181,12 +181,12 @@ the same identifier, for example) and doesn't want to bother deduplicating them 
 ## HTTP API
 
 Every endpoint is named by the resource it acts on (`/events`, `/documents`) or by the transaction step it performs
-(`/transaction`, `/commit`, `/rollback`). A call that belongs to a transaction carries the ticket in the
+(`/begin`, `/commit`, `/rollback`). A call that belongs to a transaction carries the ticket in the
 `X-Tamarackdb-Ticket` header.
 
 | Endpoint | Ticket | Purpose |
 |---|---|---|
-| `POST /transaction` | none | Wait for a turn in the FIFO, open a transaction, get a ticket |
+| `POST /begin` | none | Wait for a turn in the FIFO, open a transaction, get a ticket |
 | `QUERY /events` | optional | Read events, inside the transaction or from committed data |
 | `POST /events` | required | Append events, with an optional Append Condition |
 | `GET /documents/{type}/{id}` | optional | Read one document, inside the transaction or from committed data |
@@ -205,7 +205,7 @@ Every endpoint is named by the resource it acts on (`/events`, `/documents`) or 
 
 #### Opening a transaction
 
-`POST /transaction` opens a transaction and responds with its ticket:
+`POST /begin` opens a transaction and responds with its ticket:
 
 ```json
 { "ticket": "a045ad63-5d4b-4847-8eb9-fbddb4e2d65b" }
@@ -519,7 +519,7 @@ reads the same events back from `QUERY /events`, with the same values, so it pro
 A pause stops the server from giving out tickets. It guarantees that no transaction is active while a projection
 rebuild runs.
 
-**`POST /pause`** joins the FIFO like a `POST /transaction` request: it's subject to the same maximum wait, and a
+**`POST /pause`** joins the FIFO like a `POST /begin` request: it's subject to the same maximum wait, and a
 client that disconnects while waiting leaves the FIFO, with no pause. When its turn comes, it opens no SQLite
 transaction. It writes the pause file, switches the server to paused, gives its turn to the next request in the FIFO,
 and responds `204 No Content`. The response therefore arrives only once every transaction ahead of it has ended.
@@ -543,7 +543,7 @@ paused. On startup, TamarackDB starts paused if the file is there. A crash or re
 server paused, so the application can't write on half-rebuilt projections: it stays blocked until the rebuild is run
 again and `POST /resume` is called. The file is written before `POST /pause` responds, and deleted before `POST
 /resume` switches the server back, so a crash between the two steps never leaves the server running unpaused when it
-should be paused. A forgotten pause file blocks the application: that shows at once (every `POST /transaction` gets
+should be paused. A forgotten pause file blocks the application: that shows at once (every `POST /begin` gets
 `503 Paused`), and `/health` and `/debug` report it (see Management / observability).
 
 ### Projection rebuilds
@@ -622,7 +622,7 @@ the problem, left out when it wouldn't add anything (as with `ConcurrencyExcepti
 | `410` | `TransactionNotActive` | The ticket is unknown, or its transaction has already ended |
 | `413` | `PayloadTooLarge` | An event or a document payload over its size limit |
 | `500` | `InternalError` | An unexpected server-side failure |
-| `503` | `TransactionQueueFull` | `POST /transaction` or `POST /pause` while the FIFO is at its configured depth |
+| `503` | `TransactionQueueFull` | `POST /begin` or `POST /pause` while the FIFO is at its configured depth |
 | `503` | `TransactionWaitTimeout` | A request waited in the FIFO longer than the configured maximum, with `Retry-After` |
 | `503` | `Paused` | A request reached the head of the FIFO while the server is paused |
 
@@ -692,7 +692,7 @@ since the Sequence Position counter lives in TamarackDB's memory (see Concurrenc
 ### Principle: the transaction FIFO
 
 A queue manager gives out the single active turn, strictly in the order requests arrive. Two kinds of requests join
-its FIFO: `POST /transaction` and `POST /pause`. It knows nothing about what a transaction will read or append. Only
+its FIFO: `POST /begin` and `POST /pause`. It knows nothing about what a transaction will read or append. Only
 two states exist: **Active** (at most one transaction at a time, the only one allowed to touch the write connection)
 and **Queued** (every other request, waiting its turn in line).
 
@@ -706,9 +706,9 @@ and **Queued** (every other request, waiting its turn in line).
 4. When it reaches the head of the line:
    - If the server is paused, it gets `503 Paused`, and the next request moves up.
    - If it's a `POST /pause`, the server writes the pause file, switches to paused, and the next request moves up.
-   - If it's a `POST /transaction`, the handler runs `BEGIN IMMEDIATE` on the write connection, creates a ticket,
+   - If it's a `POST /begin`, the handler runs `BEGIN IMMEDIATE` on the write connection, creates a ticket,
      sets the transaction's deadline and ceiling, and responds with the ticket.
-5. The transaction stays active after the `POST /transaction` response: the queue manager holds it in memory, keyed
+5. The transaction stays active after the `POST /begin` response: the queue manager holds it in memory, keyed
    by its ticket, until it ends (see Ending a transaction). Then the next request moves up.
 
 **The active transaction outlives any single request.** Every call with a ticket looks up the active transaction.
@@ -951,7 +951,7 @@ application, its single source of truth with no backup copy running behind it.
 
 The write connection opens every transaction with `BEGIN IMMEDIATE` (`_txlock=immediate` in the DSN), taking SQLite's
 write lock at the start of the transaction, rather than waiting until the first write statement runs. For a
-transaction opened by `POST /transaction`, that's the moment the ticket is given out: reads, checks, and inserts all
+transaction opened by `POST /begin`, that's the moment the ticket is given out: reads, checks, and inserts all
 run under the lock, with no window where another connection could slip in between them. A call accepted only while
 paused (`POST /documents` without a ticket, `DELETE /documents`) runs its own short `BEGIN IMMEDIATE` ... `COMMIT`,
 under the same mutex as any call (see Principle: the transaction FIFO). The write connection also sets
@@ -1146,7 +1146,7 @@ separate since they serve different needs:
 **`GET /metrics`**: Prometheus exposition format, for scraping into existing monitoring:
 - `tamarackdb_paused` (gauge): whether the server is paused (`1`) or not (`0`)
 - `tamarackdb_transaction_active` (gauge): whether a transaction is currently active (`1`) or not (`0`)
-- `tamarackdb_requests_queued` (gauge): number of requests (`POST /transaction` or `POST /pause`) currently waiting in
+- `tamarackdb_requests_queued` (gauge): number of requests (`POST /begin` or `POST /pause`) currently waiting in
   the FIFO
 - `tamarackdb_queue_longest_wait_seconds` (gauge): longest current wait, in seconds, among queued requests; `0` when
   the FIFO is empty

@@ -15,6 +15,117 @@ examples apply the same way once you point curl at it with
 [Deployment](/docs/guides/deployment/#configure)). Add `-H "Authorization: Bearer <token>"` to
 every request when `enableAuth` is on (see [Deployment](/docs/guides/deployment/#configure)).
 
+## Transactions
+
+TamarackDB is built for applications that handle a command in one go, inside
+one request of the application:
+
+1. Open a transaction.
+2. Read the events your decision needs, decide, and append new events.
+3. Let your event handlers react. Projectors read and update documents.
+   Processors read events, including the ones just appended, and may append
+   more.
+4. Write every changed document.
+5. Commit.
+
+Everything lands together, or nothing does. Every call in steps 2 to 5 runs
+inside one SQLite transaction on the server, so each call sees what earlier
+calls of the same transaction wrote, even though nothing is committed yet.
+
+Only one transaction exists at a time. It holds the store's write lock from
+the moment it opens until it ends. Other clients wait their turn. Keep a
+transaction inside one request of your application, and keep it short: open
+it when the command starts, and end it before you send anything back to the
+end user.
+
+### Opening a transaction
+
+```sh
+curl -X POST http://127.0.0.1:8085/begin
+```
+
+```json
+{ "ticket": "a045ad63-5d4b-4847-8eb9-fbddb4e2d65b" }
+```
+
+Every call that belongs to the transaction carries this ticket in the
+`X-Tamarackdb-Ticket` header.
+
+If another transaction is active, the request waits, with its connection held
+open, until its turn comes. Requests are served in the order they arrive. A
+waiting request can fail with:
+
+- `503 TransactionQueueFull`: too many requests are already waiting. The
+  request never joined the queue.
+- `503 TransactionWaitTimeout`: the request waited longer than the server
+  allows. Retry after the `Retry-After` header.
+- `503 Paused`: the server is paused for a projection rebuild (see
+  [Projection rebuilds](#projection-rebuilds)).
+
+Closing the connection while waiting takes the request out of the queue.
+
+### Deadline
+
+A transaction must end before its deadline, or the server rolls it back. The
+deadline is 5 seconds after the ticket is given out, unless the operator
+changed it. When a command needs more time, ask for it in seconds when opening
+the transaction:
+
+```sh
+curl -X POST http://127.0.0.1:8085/begin \
+  -H "Content-Type: application/json" \
+  -d '{ "timeout": 10 }'
+```
+
+A total ceiling (30 seconds out of the box) always applies: a `timeout` above
+it is lowered to the ceiling. The operator can also turn on a lease: each call
+with the ticket then moves the deadline to that call's time plus the
+transaction's timeout, never past the ceiling. See
+[Architecture](/docs/architecture/#deadline-and-ceiling) for the details.
+
+### Ending a transaction
+
+Commit with `POST /commit`:
+
+```sh
+curl -X POST http://127.0.0.1:8085/commit \
+  -H "X-Tamarackdb-Ticket: a045ad63-5d4b-4847-8eb9-fbddb4e2d65b"
+```
+
+Roll back with `POST /rollback`, for example when one of your event handlers
+throws:
+
+```sh
+curl -X POST http://127.0.0.1:8085/rollback \
+  -H "X-Tamarackdb-Ticket: a045ad63-5d4b-4847-8eb9-fbddb4e2d65b"
+```
+
+Both respond `204 No Content`. A commit never fails with `409`: every Append
+Condition was already checked when its events were appended.
+
+A transaction also ends, rolled back, when:
+
+- any call made with its ticket returns an error, except `404
+  DocumentNotFound` (see [Documents](#documents));
+- the client closes the connection while a call with its ticket is running;
+- the deadline passes before `POST /commit`.
+
+Once a transaction has ended, any call with its ticket gets `410
+TransactionNotActive`. After an error, don't try to continue: open a new
+transaction and run the whole command again.
+
+### A lost commit response
+
+If the connection drops before the `POST /commit` response arrives, you can't
+tell whether the commit happened. This is rare. Most applications can leave it
+to the user: reloading the page shows whether the change was applied.
+
+To retry a command safely instead, append its events with an Append Condition
+(see [Append Condition](#append-condition)). An `afterSequence` on its own is
+enough: if the first commit went through, the store has moved past that
+position, and the retry fails with `409 ConcurrencyException` instead of
+appending the same events twice.
+
 ## Reading events
 
 Reading uses the HTTP `QUERY` method, not `GET`, since a query can be too large or
@@ -23,12 +134,23 @@ nested to fit in a URL:
 ```sh
 curl -X QUERY http://127.0.0.1:8085/events \
   -H "Content-Type: application/json" \
+  -H "X-Tamarackdb-Ticket: a045ad63-5d4b-4847-8eb9-fbddb4e2d65b" \
   -d '{
     "query": [
       { "identifiers": [ { "name": "userId", "value": "123" } ] }
     ]
   }'
 ```
+
+The ticket is optional:
+
+- **With a ticket**, the read runs inside the transaction. It sees every
+  committed event, plus the events appended earlier in the same transaction.
+  Use this to make a decision, or in an event handler that needs the events
+  the command just appended.
+- **Without a ticket**, the read sees committed events only. It never waits
+  for the active transaction. Use this to display data, for a projection
+  rebuild, or for the optimistic flow (see [Append Condition](#append-condition)).
 
 Use the literal string `"*"` in place of `query` to read every event:
 
@@ -44,14 +166,15 @@ matching event is found. Every line but the last is one event, oldest first; the
 last line is always a trailer with `hasMore`:
 
 ```
-{"sequence":12346,"clientTime":"2026-09-01T14:23:05.120000Z","writeTime":"2026-09-01T14:23:05.123456Z","type":"user-created","identifiers":{"userId":"123"},"metadata":{"tenantId":"acme"},"payload":"..."}
+{"sequence":12346,"time":"2026-09-01T14:23:05.123456Z","type":"user-created","identifiers":{"userId":"123"},"metadata":{"tenantId":"acme"},"payload":"..."}
 {"hasMore":false}
 ```
 
-Each event carries two dates: `clientTime`, the date your application gave the
-event, and `writeTime`, when TamarackDB wrote it (see Event dates below).
+`time` is when TamarackDB appended the event, in UTC, with exactly 6
+fractional digits. Convert it to local time in your application if you need
+to display it.
 
-Parse it line by line, not as one JSON document. That way, a response can safely
+Parse the response line by line, not as one JSON document. That way, a response can safely
 resume if the connection drops mid-transfer (see Pagination below). Tell the
 trailer apart from an event line by shape, not position: it's the one with a
 `hasMore` key. If the response ends without one, the page was cut short; treat
@@ -88,14 +211,17 @@ Two more, optional, top-level keys narrow a query further:
 
 - `afterSequence`: only events with a Sequence Position strictly greater than this
   value
-- `clientTime: { "from": "...", "before": "..." }`: only events whose
-  `clientTime` falls in this range (`from` inclusive, `before` exclusive). Either
-  key, or `clientTime` itself, can be left out. A bound may use any RFC 3339
-  offset: it's converted to UTC before comparing.
+- `time: { "from": "...", "before": "..." }`: only events whose `time` falls
+  in this range (`from` inclusive, `before` exclusive). Either key, or `time`
+  itself, can be left out. A bound may use any RFC 3339 offset: it's converted
+  to UTC before comparing.
 
 ```json
-{ "query": "*", "afterSequence": 12345, "clientTime": { "from": "2026-01-01T00:00:00.000000Z" } }
+{ "query": "*", "afterSequence": 12345, "time": { "from": "2026-01-01T00:00:00.000000Z" } }
 ```
+
+The `time` filter is for search and inspection. Only the Sequence Position
+defines the order of events.
 
 ### Pagination
 
@@ -112,27 +238,29 @@ first one: it also lets you resume a response that was cut off mid-transfer, fro
 the last full line you received, with no events skipped or repeated.
 
 The same loop that pages through history can also follow new events live: keep
-polling with `afterSequence` set to the last Sequence Position you saw. Once
-`hasMore` reads `false`, you have caught up, and further polling picks up new
-events as they arrive. `tamarackdb-backup` (see [Backup](/docs/guides/backup/)) is a
-real example of this loop: it pages through `/events` with `afterSequence` set
-to the last sequence it saved locally, and stops once `hasMore` reads
-`false`.
+polling without a ticket, with `afterSequence` set to the last Sequence
+Position you saw. Once `hasMore` reads `false`, you have caught up, and further
+polling picks up new events as they are committed. `tamarackdb-backup` (see
+[Backup](/docs/guides/backup/)) is a real example of this loop: it pages through
+`/events` with `afterSequence` set to the last sequence it saved locally, and
+stops once `hasMore` reads `false`.
 
 `limit` defaults to whatever the server operator set (`defaultLimit`, 1000 out of
 the box) and is capped at `maxLimit` (10000 out of the box). Asking for more than
 that gets you `400 Bad Request`.
 
-## Writing events and documents
+## Appending events
+
+`POST /events` appends events inside a transaction. The ticket is required.
 
 ```sh
-curl -X POST http://127.0.0.1:8085/write \
+curl -X POST http://127.0.0.1:8085/events \
   -H "Content-Type: application/json" \
+  -H "X-Tamarackdb-Ticket: a045ad63-5d4b-4847-8eb9-fbddb4e2d65b" \
   -d '{
     "events": [
       {
         "type": "user-created",
-        "clientTime": "2026-09-01T14:24:59.997000Z",
         "identifiers": { "userId": "123" },
         "metadata": { "tenantId": "acme" },
         "payload": "{\"name\":\"Ada\"}"
@@ -142,67 +270,45 @@ curl -X POST http://127.0.0.1:8085/write \
 ```
 
 `identifiers` and `metadata` are objects whose values are a string, or an array of
-strings: an array gives one tag per value, all on the same event. `payload` is an
-opaque string. TamarackDB never parses it, so its format (JSON, XML, or anything
-else) is entirely up to the calling application.
+strings: an array gives one tag per value, all on the same event. An event
+carries at most 20 identifiers and 20 metadata values, and never the same
+`{name, value}` pair twice. `payload` is an opaque string. TamarackDB never
+parses it, so its format (JSON, XML, or anything else) is entirely up to the
+calling application.
 
-On success (`200 OK`), the response confirms the Sequence Position and
-`writeTime` assigned to each event, in the order you sent them:
+On success (`200 OK`), the response gives the Sequence Position and `time`
+assigned to each event, in the order you sent them:
 
 ```json
 {
   "events": [
-    { "sequence": 12348, "writeTime": "2026-09-01T14:25:00.000000Z" }
+    { "sequence": 12348, "time": "2026-09-01T14:25:00.000000Z" }
   ]
 }
 ```
 
-A single request may carry up to 100 events, each up to 64 KiB (the combined size
-of its `type`, `identifiers`, `metadata`, and `payload`). Put larger content
-(files, documents) in external storage, and reference it from the event instead of
-embedding it.
+These values are final as soon as the call returns, even before the commit:
+the transaction either commits them as they are, or rolls them back entirely.
+Your event handlers can use them right away. Every event of one call shares the
+same `time`; order within a call comes from `sequence`.
 
-### Event dates
+A single call carries between 1 and 100 events, each up to 64 KiB (the combined
+size of its `type`, `identifiers`, `metadata`, and `payload`). A transaction may
+make several `POST /events` calls: the limit applies to each call. Put larger
+content (files, documents) in external storage, and reference it from the event
+instead of embedding it.
 
-Every event you write needs a `clientTime`: the event's date, set by your
-application. It can be any date. Use the moment the fact happened: now, an
-earlier date for an import, or the moment a user acted while offline.
+### Append Condition
 
-Its format is strict: UTC, with exactly 6 fractional digits.
-
-```
-2026-09-01T14:23:05.123456Z
-```
-
-Anything else gets `400 Bad Request`, including an offset (`-04:00`, even
-`+00:00`) or a different number of fractional digits. The server never
-converts the value, so a read returns exactly the string you sent. The strict
-format is what lets the server sort and filter dates as plain text.
-
-In JavaScript, `toISOString()` gives UTC with 3 fractional digits, so pad it:
-
-```js
-const clientTime = new Date().toISOString().replace("Z", "000Z");
-// "2026-09-01T14:23:05.123000Z"
-```
-
-If your application needs the user's local time zone, put it in the payload.
-
-TamarackDB adds a second date when it writes the event: `writeTime`. It's the
-same for every event of one `write` call. It's there for inspection (for
-example, to spot events imported long after they happened). Don't use it in
-projections: see [What a projection may use](#what-a-projection-may-use).
-
-### Optimistic concurrency
-
-Pass a `condition` to make the write fail if something relevant happened since
+Pass a `condition` to make the append fail if something relevant happened since
 you last read:
 
 ```sh
-curl -X POST http://127.0.0.1:8085/write \
+curl -X POST http://127.0.0.1:8085/events \
   -H "Content-Type: application/json" \
+  -H "X-Tamarackdb-Ticket: a045ad63-5d4b-4847-8eb9-fbddb4e2d65b" \
   -d '{
-    "events": [ { "type": "user-renamed", "clientTime": "2026-09-01T14:30:00.000000Z", "identifiers": { "userId": "123" }, "payload": "..." } ],
+    "events": [ { "type": "user-renamed", "identifiers": { "userId": "123" }, "payload": "..." } ],
     "condition": {
       "failIfEventsMatch": [ { "identifiers": [ { "name": "userId", "value": "123" } ] } ],
       "afterSequence": 12345
@@ -212,80 +318,41 @@ curl -X POST http://127.0.0.1:8085/write \
 
 `afterSequence` is the Sequence Position you last read up to (see Pagination
 above). `failIfEventsMatch` is a query, using the same grammar as a read (see
-above). The write fails if any event matching it exists after `afterSequence`.
+above). The append fails if any event matching it exists after `afterSequence`.
 Both are optional and independent: an event with nothing to protect can be
-written with no `condition` at all.
+appended with no `condition` at all.
 
-A failed condition gets `409 Conflict`:
+A failed condition gets `409 Conflict`, and rolls the transaction back:
 
 ```json
 { "error": "ConcurrencyException" }
 ```
 
-The usual flow is: read the events relevant to your decision, keep the Sequence
-Position of the last one you saw, decide what to write, then write with that
-Sequence Position as `afterSequence` and the same query as `failIfEventsMatch`.
+There are two ways to use it.
+
+**Inside a transaction.** Read with the ticket, decide, append with the ticket.
+The transaction holds the write lock the whole time, so no other client can
+append in between. The condition can only fail because of events appended
+earlier in the same transaction, by another model or an event handler. Each
+model can send its own `POST /events` with its own condition.
+
+**Optimistic.** Read without a ticket, decide, then open a transaction only to
+append, with `afterSequence` set to the last Sequence Position you read and the
+same query as `failIfEventsMatch`. The write lock is held only for the append
+itself. If another client appended a matching event in between, you get `409
+ConcurrencyException`: open a new transaction, read again, and retry.
 
 ## Documents
 
-Alongside events, `/write` can carry `documents`: an optional list of projections
-to create, update, or delete, atomically with the events in the same call (see
-[Architecture](/docs/architecture/#documents) for the full mechanism, including why a
-document's payload can, rarely, fail to persist without the whole call
-failing). A document is identified by `type` + `id`, holds one opaque `payload`,
-and carries a `version` for optimistic concurrency.
+A document is a projection: an opaque payload identified by `type` + `id`,
+with no history. It can be overwritten or deleted; the store only holds its
+current state. Documents are written in the same transaction as events, so a
+commit makes both durable together, and a rollback discards both.
 
-**Creating a document**: leave `version` out. You've never read this document,
-so you know it's new; it's created at version 1. If it already exists, that's a
-conflict.
+The document mechanism is optional. An application that keeps its projections
+elsewhere never has to touch it.
 
-```sh
-curl -X POST http://127.0.0.1:8085/write \
-  -H "Content-Type: application/json" \
-  -d '{ "documents": [ { "type": "user-profile", "id": "123", "payload": "{\"name\":\"Ada\"}" } ] }'
-```
-
-A call with `documents` and no `events`/`condition` is valid: this is how you
-materialize several projections at once during a rebuild.
-
-**Updating a document**: pass the `version` you last read it at. It's written at
-`version + 1`. A `version` that doesn't match what the store has, including a
-document that no longer exists, is a conflict.
-
-```sh
-curl -X POST http://127.0.0.1:8085/write \
-  -H "Content-Type: application/json" \
-  -d '{ "documents": [ { "type": "user-profile", "id": "123", "payload": "{\"name\":\"Ada Lovelace\"}", "version": 1 } ] }'
-```
-
-**Deleting a document**: set `payload` to `null`, and pass the `version` you
-read it at (required; there's no unversioned deletion of a single document).
-Deleting an already-absent document is a conflict too, not a silent no-op.
-
-```sh
-curl -X POST http://127.0.0.1:8085/write \
-  -H "Content-Type: application/json" \
-  -d '{ "documents": [ { "type": "user-profile", "id": "123", "version": 2 } ] }'
-```
-
-The response reports each document's outcome, in the order you sent them:
-
-```json
-{
-  "events": [],
-  "documents": [
-    { "type": "user-profile", "id": "123", "version": 3, "status": "ok" }
-  ]
-}
-```
-
-`status` is `"ok"`, or `"payloadWriteFailed"` if the document's identity and
-version were committed but its payload failed to persist (rare; see
-[Architecture](/docs/architecture/#documents)). Either way the call as a whole still
-succeeds (`200 OK`): only retry the specific document that failed, not the
-whole request.
-
-**Reading a document**: `GET /documents/{type}/{id}`.
+### Reading a document
 
 ```sh
 curl -i http://127.0.0.1:8085/documents/user-profile/123
@@ -294,62 +361,136 @@ curl -i http://127.0.0.1:8085/documents/user-profile/123
 ```
 HTTP/1.1 200 OK
 Content-Type: text/plain; charset=utf-8
-X-Tamarackdb-Document-Version: 3
 
 {"name":"Ada Lovelace"}
 ```
 
 The response body is the payload exactly as written, not wrapped in a JSON
 envelope: its own format (JSON, XML, plain text) is up to the writing
-application. The version comes back in the `X-Tamarackdb-Document-Version` header
-instead.
+application.
 
-This returns `404 DocumentNotFound` if no document exists at that `type` + `id`,
-or `503 DocumentNotReady` (with a `Retry-After` header) if it exists but its
-payload hasn't caught up yet: retry after the given delay, rather than
-treating it as absent.
+The ticket is optional, as for events:
 
-**Clearing a type before a rebuild**: `DELETE /documents/{type}` removes every
-document of that type, unversioned, no `devMode` required:
+- **With a ticket**, the read sees documents written earlier in the same
+  transaction. A projector uses it to read a document before changing it.
+- **Without a ticket**, the read sees committed documents only. This is how you
+  read a projection to display a page.
+
+A document that doesn't exist gets `404 DocumentNotFound`. Inside a
+transaction, this is an ordinary answer, not an error: the transaction goes on.
+A projector that gets a `404` usually creates the document.
+
+A document is always read by `type` and `id`. There is no query over documents.
+
+### Writing documents
+
+`POST /documents` writes or deletes several documents at once. The ticket is
+required, except during a projection rebuild (see
+[Projection rebuilds](#projection-rebuilds)).
 
 ```sh
-curl -X DELETE http://127.0.0.1:8085/documents/user-profile
+curl -X POST http://127.0.0.1:8085/documents \
+  -H "Content-Type: application/json" \
+  -H "X-Tamarackdb-Ticket: a045ad63-5d4b-4847-8eb9-fbddb4e2d65b" \
+  -d '{
+    "documents": [
+      { "type": "user-profile", "id": "123", "payload": "{\"name\":\"Ada Lovelace\"}" },
+      { "type": "user-list-entry", "id": "456", "payload": null }
+    ]
+  }'
 ```
 
-**Clearing every type at once**: `DELETE /documents` does the same thing,
-widened to every document, of every type, at once, a shortcut for a total
-rebuild instead of one call per type:
+- A document with a `payload` is created, or replaced if it exists.
+- A document with a `null` payload is deleted. Deleting a document that
+  doesn't exist does nothing.
+- The same `type` + `id` can't appear twice in one call.
+- A call carries at most `maxDocumentsPerWrite` documents (100 out of the box),
+  each payload at most `maxDocumentSize` bytes (64 KiB out of the box).
 
-```sh
-curl -X DELETE http://127.0.0.1:8085/documents
-```
+It responds `204 No Content`.
 
-### What a projection may use
+There is no version and no concurrency check on documents. None is needed:
+your projector reads the document inside the transaction, changes it, and
+writes it back, while the transaction holds the write lock. Nothing else can
+change the document in between.
 
-When a `write` call carries documents, your application builds them before
-sending the call. At that point, it doesn't know the `sequence` or `writeTime`
-the server will give the events. So a document can only use what your
-application sends: each event's `type`, `clientTime`, identifiers, metadata,
-and payload.
+The recommended use is one `POST /documents` call per transaction, right
+before `POST /commit`, carrying every document your event handlers changed.
+Collect the changes in memory while the handlers run, instead of sending each
+small change as it happens. Several calls in one transaction still work.
 
-Rebuilding a projection from `/events` must follow the same rule. If a rebuild
-used `sequence` or `writeTime`, it would produce documents that differ from the
-ones written alongside the events.
+### What a document may depend on
+
+Events are appended before your event handlers run, and `POST /events` returns
+each event's `sequence` and `time`. A document can use anything in an event,
+those two values included. A rebuild reads the same events back from `QUERY
+/events`, with the same values, so it produces the same documents.
+
+## Projection rebuilds
+
+A projection rebuild runs while the server is paused. A pause stops the server
+from giving out tickets, so no transaction is active while you rebuild.
+
+1. Pause the server:
+
+   ```sh
+   curl -X POST http://127.0.0.1:8085/pause
+   ```
+
+   The request waits its turn behind every transaction already queued, then
+   responds `204 No Content`. From then on, every `POST /begin` gets
+   `503 Paused`.
+
+2. Delete the documents to rebuild, one type at a time, or all of them:
+
+   ```sh
+   curl -X DELETE http://127.0.0.1:8085/documents/user-profile
+   curl -X DELETE http://127.0.0.1:8085/documents
+   ```
+
+3. Page through `QUERY /events` without a ticket, and run each page through
+   your projections.
+
+4. Write the rebuilt documents with `POST /documents` without a ticket. Each
+   call commits on its own.
+
+5. Resume:
+
+   ```sh
+   curl -X POST http://127.0.0.1:8085/resume
+   ```
+
+`DELETE /documents/{type}`, `DELETE /documents`, and `POST /documents` without
+a ticket are accepted only while the server is paused. Outside a pause, they
+get `409 NotPaused`. Reads without a ticket work at all times.
+
+`POST /pause` and `POST /resume` both respond `204 No Content`, whether the
+server was already in that state or not.
+
+A rebuild is not atomic as a whole. If it fails partway, run it again from
+step 2. The pause survives a server restart: the server stays paused until
+`POST /resume`, so your application can't write on half-rebuilt projections.
+Your application is expected to be fully down during a rebuild.
 
 ## Resetting between test runs
 
-If the server has `devMode` on, `DELETE /events` wipes every event,
-identifier, and metadata row, leaving an empty event log ready for the next
-test. Documents are untouched:
+If the server has `devMode` on, `POST /reset` deletes every event and every
+document. The next event appended gets sequence 1:
 
 ```sh
-curl -X DELETE http://127.0.0.1:8085/events
+curl -X POST http://127.0.0.1:8085/reset
 ```
 
 This is useful for a client library's own test suite: start each test, or each
-test run, from a clean event log instead of tracking what earlier tests left
+test run, from an empty store instead of tracking what earlier tests left
 behind. It responds `204 No Content` and only exists when `devMode` is on; see
-[Deployment](/docs/guides/deployment/#configure). Never rely on it against a production instance.
+[Deployment](/docs/guides/deployment/#developer-mode). Never rely on it against
+a production instance.
+
+`POST /reset` doesn't wait for its turn. If a transaction is active, it's
+rolled back, and its next call gets `410 TransactionNotActive`. Requests
+waiting for a ticket keep waiting, and get their ticket on the empty store.
+The pause state stays as it is.
 
 ## Generating test data
 
@@ -365,7 +506,7 @@ Documents have types `DocumentType1` to `DocumentType5` and numeric ids from 1
 to `--documents`. Each id exists under only one of those types, picked at
 random.
 
-It writes straight to the database files, not through the running server, so
+It writes straight to the database file, not through the running server, so
 run it before starting `tamarackdb-server`, or against a separate data
 directory. See [Building from source](/docs/contributing/building-from-source/#demo-dataset) for how to build it and what
 its flags do.
@@ -381,14 +522,20 @@ Every error uses the same shape:
 `error` is a stable code your code can check. `message` is a human-readable detail,
 present when it helps and left out otherwise.
 
+Inside a transaction, every error except `404 DocumentNotFound` rolls the
+transaction back.
+
 | Status | `error` | Meaning |
 |---|---|---|
-| 400 | `InvalidRequest` | Malformed or invalid request body: bad JSON, invalid query shape, `limit` over the configured maximum, an event missing `clientTime` or with a `clientTime` not in the exact format (see Event dates), more than 100 events or too many documents in one `write`, a document missing `type`/`id`, a repeated document `type`+`id` in the same call, a document deletion with no `version`, and so on |
+| 400 | `InvalidRequest` | Malformed or invalid request body: bad JSON, invalid query shape, `limit` over the configured maximum, an invalid `time` bound, an event missing `type`, a duplicate identifier or metadata value, no event or more than 100 events in one `POST /events`, too many documents or a repeated document `type` + `id` in one `POST /documents`, and so on |
 | 401 | `Unauthorized` | Missing or invalid Bearer token (only when `enableAuth` is on) |
-| 404 | `DocumentNotFound` | `GET /documents/{type}/{id}` only: no document exists at that `type` + `id` |
-| 409 | `ConcurrencyException` | The write's `condition` failed, or a document's `version` didn't match |
+| 404 | `DocumentNotFound` | `GET /documents/{type}/{id}` only: no document exists at that `type` + `id`. Doesn't end the transaction |
+| 409 | `ConcurrencyException` | The Append Condition of a `POST /events` call failed |
+| 409 | `NotPaused` | `DELETE /documents`, `DELETE /documents/{type}`, or `POST /documents` without a ticket, while the server isn't paused |
+| 410 | `TransactionNotActive` | The ticket is unknown, or its transaction has already ended |
 | 413 | `PayloadTooLarge` | An event, or a document's `payload`, is bigger than the configured maximum size |
 | 500 | `InternalError` | Unexpected server-side failure |
-| 503 | `AppendQueueFull` | `write`/`DELETE /events`/`DELETE /documents/{type}` only: the write queue is already full; retry after the `Retry-After` header |
-| 503 | `DocumentNotReady` | `GET /documents/{type}/{id}` only: the document exists but its payload hasn't caught up yet; retry after the `Retry-After` header |
+| 503 | `TransactionQueueFull` | `POST /begin` or `POST /pause`: too many requests are already waiting |
+| 503 | `TransactionWaitTimeout` | `POST /begin` or `POST /pause`: waited longer than the configured maximum; retry after the `Retry-After` header |
+| 503 | `Paused` | `POST /begin` while the server is paused |
 | 503 | `Unavailable` | `GET /health` only: storage is unreachable |
