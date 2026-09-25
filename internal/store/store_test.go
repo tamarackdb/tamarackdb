@@ -22,7 +22,7 @@ func openTestStore(t *testing.T) *Store {
 
 func mustAppend(t *testing.T, s *Store, events []dcb.EventData, condition *dcb.AppendCondition) []dcb.Event {
 	t.Helper()
-	got, _, err := s.Append(context.Background(), events, condition, nil)
+	got, err := s.Append(context.Background(), events, condition, nil)
 	if err != nil {
 		t.Fatalf("Append() error = %v", err)
 	}

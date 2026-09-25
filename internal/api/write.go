@@ -16,14 +16,6 @@ import (
 // MarshalJSON.
 const timeLayout = "2006-01-02T15:04:05.000000Z07:00"
 
-// documentStatusOK and documentStatusPayloadWriteFailed are
-// writtenDocument.Status's only two values. See document.go's
-// handleGetDocument for the read-side counterpart (DocumentNotReadyException).
-const (
-	documentStatusOK                 = "ok"
-	documentStatusPayloadWriteFailed = "payloadWriteFailed"
-)
-
 type writeRequest struct {
 	Events    []dcb.EventData      `json:"events"`
 	Condition *dcb.AppendCondition `json:"condition,omitempty"`
@@ -31,26 +23,12 @@ type writeRequest struct {
 }
 
 type writeResponse struct {
-	Events    []appendedEvent   `json:"events"`
-	Documents []writtenDocument `json:"documents,omitempty"`
+	Events []appendedEvent `json:"events"`
 }
 
 type appendedEvent struct {
 	Sequence int64  `json:"sequence"`
 	Time     string `json:"time"`
-}
-
-// writtenDocument reports what happened to one document.Data from the
-// request: Version is the new version for a create/update, or the
-// version just deleted (there's no new one to report). Status is
-// "payloadWriteFailed" when the metadata committed but the best-effort
-// payload write to tamarackdb-documents.sqlite failed: the write as a
-// whole still succeeds (200), this is per-document detail only.
-type writtenDocument struct {
-	Type    string `json:"type"`
-	ID      string `json:"id"`
-	Version int64  `json:"version"`
-	Status  string `json:"status"`
 }
 
 // oversizeError is returned by validateWriteRequest's per-event and
@@ -83,7 +61,7 @@ func (s *Server) handleWrite(w http.ResponseWriter, r *http.Request) {
 	}
 	defer ticket.Done()
 
-	events, docResults, err := s.st.Append(r.Context(), req.Events, req.Condition, req.Documents)
+	events, err := s.st.Append(r.Context(), req.Events, req.Condition, req.Documents)
 	if err != nil {
 		s.handleErr(w, r, err) // store.ErrConcurrencyConflict -> 409, etc.
 		return
@@ -92,17 +70,6 @@ func (s *Server) handleWrite(w http.ResponseWriter, r *http.Request) {
 	resp := writeResponse{Events: make([]appendedEvent, len(events))}
 	for i, ev := range events {
 		resp.Events[i] = appendedEvent{Sequence: ev.Sequence, Time: ev.Time.UTC().Format(timeLayout)}
-	}
-	if len(docResults) > 0 {
-		resp.Documents = make([]writtenDocument, len(docResults))
-		for i, dr := range docResults {
-			status := documentStatusOK
-			if !dr.PayloadWritten {
-				status = documentStatusPayloadWriteFailed
-				s.documentPayloadWriteFailedTotal.Add(1)
-			}
-			resp.Documents[i] = writtenDocument{Type: dr.Type, ID: dr.ID, Version: dr.Version, Status: status}
-		}
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)

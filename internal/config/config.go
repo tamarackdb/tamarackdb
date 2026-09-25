@@ -39,15 +39,11 @@ const (
 	DefaultLogLevel             = "warning"
 )
 
-// eventsDatabaseFilename and documentsDatabaseFilename are the fixed
-// filenames TamarackDB uses within DataDir: only the directory is
-// configurable, not either file's name, the same convention MySQL's own
-// datadir uses. Unexported: EventsDatabasePath/DocumentsDatabasePath are
-// the only supported way to get at these paths.
-const (
-	eventsDatabaseFilename    = "tamarackdb.sqlite"
-	documentsDatabaseFilename = "tamarackdb-documents.sqlite"
-)
+// databaseFilename is the fixed filename TamarackDB uses within DataDir:
+// only the directory is configurable, not the file's name, the same
+// convention MySQL's own datadir uses. Unexported: DatabasePath is the
+// only supported way to get at this path.
+const databaseFilename = "tamarackdb.sqlite"
 
 // Config is TamarackDB's startup configuration, resolved once from a TOML
 // file and/or environment variables and never mutated or reloaded while the
@@ -69,12 +65,9 @@ type Config struct {
 	EnableAuth  bool   `toml:"enableAuth"`
 	AuthToken   string `toml:"authToken"`
 
-	// DataDir is the directory holding both SQLite files: the events
-	// database (EventsDatabasePath) and the documents database
-	// (DocumentsDatabasePath, see docs/content/docs/architecture.md's
-	// I/O isolation rationale for why it's a second file rather than a
-	// table in the events database). Only the directory is configurable; the two
-	// filenames within it are fixed.
+	// DataDir is the directory holding the SQLite database file
+	// (DatabasePath). Only the directory is configurable; the filename
+	// within it is fixed.
 	DataDir string `toml:"dataDir"` // default: data
 
 	// DevMode, when true, registers the DELETE / endpoint, which wipes the
@@ -380,14 +373,8 @@ func (c *Config) Validate() error {
 	return nil
 }
 
-// EventsDatabasePath is the events SQLite file's path: DataDir joined with
-// its fixed filename.
-func (c Config) EventsDatabasePath() string {
-	return filepath.Join(c.DataDir, eventsDatabaseFilename)
-}
-
-// DocumentsDatabasePath is the documents SQLite file's path: DataDir
-// joined with its fixed filename.
-func (c Config) DocumentsDatabasePath() string {
-	return filepath.Join(c.DataDir, documentsDatabaseFilename)
+// DatabasePath is the SQLite file's path, holding both events and
+// documents: DataDir joined with its fixed filename.
+func (c Config) DatabasePath() string {
+	return filepath.Join(c.DataDir, databaseFilename)
 }

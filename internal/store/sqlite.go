@@ -35,17 +35,6 @@ type Store struct {
 	readDB  *sql.DB
 	lock    *os.File
 
-	// docWriteDB/docReadDB/docLock are tamarackdb-documents.sqlite's own
-	// connections and lock, entirely separate from the events file's
-	// (see the design rationale in OpenDocuments). Nil until OpenDocuments
-	// is called: a Store used only for events (most tests,
-	// cmd/tamarackdb-demo) never needs them, and GetDocument,
-	// DeleteDocumentsByType, and Append's document handling all report
-	// ErrDocumentsNotOpen rather than touch a nil *sql.DB.
-	docWriteDB *sql.DB
-	docReadDB  *sql.DB
-	docLock    *os.File
-
 	// seqMu guards nextSeq, the in-memory Sequence Position counter (see
 	// Append). A mutex is still needed even though internal/queue ensures
 	// at most one writer ever reaches Append in production: Append is also
@@ -137,74 +126,9 @@ func Open(ctx context.Context, path string, readPoolSize int) (*Store, error) {
 	return &Store{writeDB: writeDB, readDB: readDB, lock: lock, nextSeq: maxSeq + 1}, nil
 }
 
-// Close closes both connection pools and releases the database file lock,
-// plus tamarackdb-documents.sqlite's own pools and lock if OpenDocuments
-// was called.
+// Close closes both connection pools and releases the database file lock.
 func (s *Store) Close() error {
-	errs := []error{s.writeDB.Close(), s.readDB.Close(), releaseLock(s.lock)}
-	if s.docWriteDB != nil {
-		errs = append(errs, s.docWriteDB.Close(), s.docReadDB.Close(), releaseLock(s.docLock))
-	}
-	return errors.Join(errs...)
-}
-
-// OpenDocuments opens (or creates) tamarackdb-documents.sqlite at path,
-// with its own read/write connection pools, schema, and file lock,
-// entirely independent of the events file: the two are never meant to
-// share a WAL or a writer lock (see docs/content/docs/architecture.md's
-// I/O isolation rationale). Callers that never pass documents to Append and never call
-// GetDocument/DeleteDocumentsByType don't need to call this at all.
-//
-// Any non-nil error is fatal at startup, the same treatment Open's own
-// errors get.
-func (s *Store) OpenDocuments(ctx context.Context, path string, readPoolSize int) error {
-	if readPoolSize <= 0 {
-		readPoolSize = fallbackReadPoolSize
-	}
-
-	lock, err := acquireLock(path)
-	if err != nil {
-		return err
-	}
-
-	writeDB, err := sql.Open("sqlite", dsn(path, "&_txlock=immediate"))
-	if err != nil {
-		releaseLock(lock)
-		return wrapf("open documents write pool", err)
-	}
-	writeDB.SetMaxOpenConns(1)
-	writeDB.SetMaxIdleConns(1)
-
-	readDB, err := sql.Open("sqlite", dsn(path, "&_query_only=1"))
-	if err != nil {
-		writeDB.Close()
-		releaseLock(lock)
-		return wrapf("open documents read pool", err)
-	}
-	readDB.SetMaxOpenConns(readPoolSize)
-	readDB.SetMaxIdleConns(readPoolSize)
-
-	if err := writeDB.PingContext(ctx); err != nil {
-		writeDB.Close()
-		readDB.Close()
-		releaseLock(lock)
-		return wrapf("open documents database file", err)
-	}
-	if err := readDB.PingContext(ctx); err != nil {
-		writeDB.Close()
-		readDB.Close()
-		releaseLock(lock)
-		return wrapf("open documents database file", err)
-	}
-	if err := ensureDocumentsSchema(ctx, writeDB); err != nil {
-		writeDB.Close()
-		readDB.Close()
-		releaseLock(lock)
-		return err // already wrapped, or *SchemaVersionError
-	}
-
-	s.docWriteDB, s.docReadDB, s.docLock = writeDB, readDB, lock
-	return nil
+	return errors.Join(s.writeDB.Close(), s.readDB.Close(), releaseLock(s.lock))
 }
 
 // Ping confirms the store is reachable, for use by GET /health (a trivial

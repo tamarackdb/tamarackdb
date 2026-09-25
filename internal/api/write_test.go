@@ -199,58 +199,44 @@ func TestAppendReturns503WhenQueueFull(t *testing.T) {
 	}
 }
 
-func TestWriteDocumentCreateUpdateDelete(t *testing.T) {
-	srv, _, _ := newTestServerWithDocuments(t)
-
-	create := doRequest(t, srv, "POST", "/write",
-		`{"documents":[{"type":"user-profile","id":"123","payload":"hello"}]}`)
-	if create.Code != 200 {
-		t.Fatalf("create status = %d, body = %s", create.Code, create.Body.String())
+func TestWriteDocumentCreateReplaceDelete(t *testing.T) {
+	srv, _, _ := newTestServer(t)
+	getBody := func(wantCode int) string {
+		t.Helper()
+		rec := doRequest(t, srv, "GET", "/documents/user-profile/123", "")
+		if rec.Code != wantCode {
+			t.Fatalf("get status = %d, want %d, body = %s", rec.Code, wantCode, rec.Body.String())
+		}
+		return rec.Body.String()
 	}
-	var createResp writeResponse
-	if err := json.Unmarshal(create.Body.Bytes(), &createResp); err != nil {
-		t.Fatalf("decode create response: %v", err)
-	}
-	if len(createResp.Documents) != 1 || createResp.Documents[0].Version != 1 || createResp.Documents[0].Status != "ok" {
-		t.Fatalf("create Documents = %+v, want one entry, version 1, status ok", createResp.Documents)
-	}
-
-	get := doRequest(t, srv, "GET", "/documents/user-profile/123", "")
-	if get.Code != 200 {
-		t.Fatalf("get status = %d, body = %s", get.Code, get.Body.String())
-	}
-	if get.Body.String() != "hello" || get.Header().Get(DocumentVersionHeader) != "1" {
-		t.Fatalf("get body = %q, version header = %q, want body=hello version=1",
-			get.Body.String(), get.Header().Get(DocumentVersionHeader))
+	write := func(body string) {
+		t.Helper()
+		rec := doRequest(t, srv, "POST", "/write", body)
+		if rec.Code != 200 {
+			t.Fatalf("write status = %d, body = %s", rec.Code, rec.Body.String())
+		}
 	}
 
-	update := doRequest(t, srv, "POST", "/write",
-		`{"documents":[{"type":"user-profile","id":"123","payload":"updated","version":1}]}`)
-	if update.Code != 200 {
-		t.Fatalf("update status = %d, body = %s", update.Code, update.Body.String())
+	write(`{"documents":[{"type":"user-profile","id":"123","payload":"hello"}]}`)
+	if got := getBody(200); got != "hello" {
+		t.Fatalf("get body = %q, want hello", got)
 	}
 
-	del := doRequest(t, srv, "POST", "/write",
-		`{"documents":[{"type":"user-profile","id":"123","version":2}]}`)
-	if del.Code != 200 {
-		t.Fatalf("delete status = %d, body = %s", del.Code, del.Body.String())
-	}
-	var delResp writeResponse
-	if err := json.Unmarshal(del.Body.Bytes(), &delResp); err != nil {
-		t.Fatalf("decode delete response: %v", err)
-	}
-	if len(delResp.Documents) != 1 || delResp.Documents[0].Version != 2 {
-		t.Fatalf("delete Documents = %+v, want one entry reporting version 2 (the deleted version)", delResp.Documents)
+	write(`{"documents":[{"type":"user-profile","id":"123","payload":"updated"}]}`)
+	if got := getBody(200); got != "updated" {
+		t.Fatalf("get body = %q, want updated", got)
 	}
 
-	getAfterDelete := doRequest(t, srv, "GET", "/documents/user-profile/123", "")
-	if getAfterDelete.Code != 404 {
-		t.Fatalf("get-after-delete status = %d, want 404, body = %s", getAfterDelete.Code, getAfterDelete.Body.String())
-	}
+	write(`{"documents":[{"type":"user-profile","id":"123","payload":null}]}`)
+	getBody(404)
+
+	// Deleting a document that no longer exists does nothing.
+	write(`{"documents":[{"type":"user-profile","id":"123"}]}`)
+	getBody(404)
 }
 
 func TestWriteDocumentsOnlyCallHasNoEvents(t *testing.T) {
-	srv, _, _ := newTestServerWithDocuments(t)
+	srv, _, _ := newTestServer(t)
 	rec := doRequest(t, srv, "POST", "/write", `{"documents":[{"type":"user-profile","id":"123","payload":"hello"}]}`)
 	if rec.Code != 200 {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
@@ -271,12 +257,10 @@ func TestWriteDocumentValidationFailures(t *testing.T) {
 	}{
 		{"missing type", `{"documents":[{"id":"123","payload":"x"}]}`},
 		{"missing id", `{"documents":[{"type":"user-profile","payload":"x"}]}`},
-		{"version zero", `{"documents":[{"type":"user-profile","id":"123","payload":"x","version":0}]}`},
-		{"delete without version", `{"documents":[{"type":"user-profile","id":"123"}]}`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			srv, _, _ := newTestServerWithDocuments(t)
+			srv, _, _ := newTestServer(t)
 			rec := doRequest(t, srv, "POST", "/write", tt.body)
 			if rec.Code != 400 {
 				t.Fatalf("status = %d, want 400, body = %s", rec.Code, rec.Body.String())
@@ -293,7 +277,7 @@ func TestWriteDocumentValidationFailures(t *testing.T) {
 }
 
 func TestWriteTooManyDocuments(t *testing.T) {
-	srv, _, _ := newTestServerWithDocuments(t)
+	srv, _, _ := newTestServer(t)
 	var docs []string
 	for i := 0; i < 101; i++ {
 		docs = append(docs, fmt.Sprintf(`{"type":"t","id":"%d","payload":"x"}`, i))
@@ -307,7 +291,7 @@ func TestWriteTooManyDocuments(t *testing.T) {
 }
 
 func TestWriteDuplicateDocumentKey(t *testing.T) {
-	srv, _, _ := newTestServerWithDocuments(t)
+	srv, _, _ := newTestServer(t)
 	body := `{"documents":[
 		{"type":"user-profile","id":"123","payload":"a"},
 		{"type":"user-profile","id":"123","payload":"b"}
@@ -326,7 +310,7 @@ func TestWriteDuplicateDocumentKey(t *testing.T) {
 }
 
 func TestWriteOversizedDocumentPayload(t *testing.T) {
-	srv, _, _ := newTestServerWithDocuments(t)
+	srv, _, _ := newTestServer(t)
 	hugePayload := strings.Repeat("x", 70000) // over the 65536 test-server MaxDocumentSize
 	body := fmt.Sprintf(`{"documents":[{"type":"user-profile","id":"123","payload":%q}]}`, hugePayload)
 
@@ -343,20 +327,8 @@ func TestWriteOversizedDocumentPayload(t *testing.T) {
 	}
 }
 
-func TestWriteDocumentConflictReturns409(t *testing.T) {
-	srv, _, _ := newTestServerWithDocuments(t)
-	first := doRequest(t, srv, "POST", "/write", `{"documents":[{"type":"user-profile","id":"123","payload":"a"}]}`)
-	if first.Code != 200 {
-		t.Fatalf("first status = %d, body = %s", first.Code, first.Body.String())
-	}
-	second := doRequest(t, srv, "POST", "/write", `{"documents":[{"type":"user-profile","id":"123","payload":"b"}]}`)
-	if second.Code != 409 {
-		t.Fatalf("second status = %d, want 409, body = %s", second.Code, second.Body.String())
-	}
-}
-
 func TestWriteEventAndDocumentTogether(t *testing.T) {
-	srv, _, _ := newTestServerWithDocuments(t)
+	srv, _, _ := newTestServer(t)
 	body := `{
 		"events":[{"type":"user-renamed","identifiers":{},"metadata":{},"payload":""}],
 		"documents":[{"type":"user-profile","id":"123","payload":"hello"}]
@@ -369,7 +341,10 @@ func TestWriteEventAndDocumentTogether(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if len(resp.Events) != 1 || len(resp.Documents) != 1 {
-		t.Fatalf("response = %+v, want one event and one document", resp)
+	if len(resp.Events) != 1 {
+		t.Fatalf("response = %+v, want one event", resp)
+	}
+	if get := doRequest(t, srv, "GET", "/documents/user-profile/123", ""); get.Code != 200 || get.Body.String() != "hello" {
+		t.Fatalf("get = %d %q, want 200 hello", get.Code, get.Body.String())
 	}
 }

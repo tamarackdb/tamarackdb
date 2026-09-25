@@ -34,8 +34,6 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 		"Total number of writers (POST /write and, in dev mode, DELETE /events) admitted to exclusive SQLite write access since startup.", float64(snap.AdmittedTotal))
 	writeMetric(&b, "tamarackdb_appends_failed_total", "counter",
 		"Total number of writes that failed with a concurrency conflict (409 ConcurrencyException) since startup.", float64(s.failedTotal.Load()))
-	writeMetric(&b, "tamarackdb_documents_payload_write_failures_total", "counter",
-		"Total number of documents whose best-effort payload write to tamarackdb-documents.sqlite failed since startup, across every /write call.", float64(s.documentPayloadWriteFailedTotal.Load()))
 
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4")
 	w.WriteHeader(http.StatusOK)

@@ -78,15 +78,12 @@ func main() {
 	fmt.Printf("maxQueuedWriters: %d\n", cfg.MaxQueuedWriters)
 	fmt.Printf("readPoolSize: %d\n\n", cfg.ReadPoolSize)
 
-	st, err := store.Open(context.Background(), cfg.EventsDatabasePath(), cfg.ReadPoolSize)
+	st, err := store.Open(context.Background(), cfg.DatabasePath(), cfg.ReadPoolSize)
 	if err != nil {
 		log.Fatalf("tamarackdb-server: %v", err)
 	}
 	// st.Close() is not deferred: shutdown is ordered explicitly below,
 	// not left to main's return.
-	if err := st.OpenDocuments(context.Background(), cfg.DocumentsDatabasePath(), cfg.ReadPoolSize); err != nil {
-		log.Fatalf("tamarackdb-server: %v", err)
-	}
 
 	qm := queue.New(cfg.MaxQueuedWriters)
 

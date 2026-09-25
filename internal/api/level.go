@@ -52,11 +52,10 @@ func parseLevel(s string) (level, bool) {
 // level a response carrying it should be logged at. A plain successful
 // response never calls writeError at all, so it keeps statusWriter's
 // default, levelDebug: a success is exactly as unremarkable as
-// ConcurrencyException or DocumentNotReady below, the server did what it
+// ConcurrencyException or DocumentNotFound below, the server did what it
 // was supposed to do.
 var codeLevel = map[string]level{
 	"DocumentNotFound":     levelDebug,   // 404, exactly as designed
-	"DocumentNotReady":     levelDebug,   // 503, exactly as designed
 	"ConcurrencyException": levelDebug,   // 409, exactly as designed
 	"InvalidRequest":       levelInfo,    // 400, client-side noise
 	"PayloadTooLarge":      levelInfo,    // 413, client-side noise

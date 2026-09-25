@@ -67,7 +67,7 @@ func TestOpenCreatesSchemaOnFreshFile(t *testing.T) {
 		}
 	}
 
-	wantDocColumns := map[string]bool{"type": false, "id": false, "version": false}
+	wantDocColumns := map[string]bool{"type": false, "id": false, "payload": false}
 	docRows, err := s.writeDB.QueryContext(context.Background(), "PRAGMA table_info(documents)")
 	if err != nil {
 		t.Fatalf("read documents table_info: %v", err)
@@ -84,8 +84,8 @@ func TestOpenCreatesSchemaOnFreshFile(t *testing.T) {
 		if _, ok := wantDocColumns[name]; ok {
 			wantDocColumns[name] = true
 		}
-		if name == "payload" {
-			t.Error("documents table has a payload column; it must not, that lives in tamarackdb-documents.sqlite")
+		if name == "version" {
+			t.Error("documents table has a version column; documents are not versioned")
 		}
 	}
 	for name, found := range wantDocColumns {

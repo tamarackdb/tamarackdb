@@ -53,13 +53,10 @@ func TestLoadFullConfig(t *testing.T) {
 	}
 }
 
-func TestEventsAndDocumentsDatabasePath(t *testing.T) {
+func TestDatabasePath(t *testing.T) {
 	cfg := Config{DataDir: "/var/lib/tamarackdb"}
-	if got, want := cfg.EventsDatabasePath(), "/var/lib/tamarackdb/tamarackdb.sqlite"; got != want {
-		t.Errorf("EventsDatabasePath() = %q, want %q", got, want)
-	}
-	if got, want := cfg.DocumentsDatabasePath(), "/var/lib/tamarackdb/tamarackdb-documents.sqlite"; got != want {
-		t.Errorf("DocumentsDatabasePath() = %q, want %q", got, want)
+	if got, want := cfg.DatabasePath(), "/var/lib/tamarackdb/tamarackdb.sqlite"; got != want {
+		t.Errorf("DatabasePath() = %q, want %q", got, want)
 	}
 }
 

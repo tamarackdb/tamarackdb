@@ -90,14 +90,6 @@ type Server struct {
 	// the writer.
 	failedTotal atomic.Uint64
 
-	// documentPayloadWriteFailedTotal counts documents whose best-effort
-	// payload write to tamarackdb-documents.sqlite failed, across every
-	// /write call, exposed by GET /metrics. Distinct from failedTotal: a
-	// payload write failure never fails the /write call itself (see
-	// store.Append's doc comment), so it needs its own counter to stay
-	// visible to an operator instead of hiding inside 200 responses.
-	documentPayloadWriteFailedTotal atomic.Uint64
-
 	// readHTTPOpen counts QUERY /events requests currently in flight,
 	// exposed by GET /debug. Unlike writes, reads have no FIFO queue to
 	// derive this from (internal/queue only tracks write admission), so

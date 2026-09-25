@@ -1,8 +1,7 @@
-// Command init creates a new TamarackDB data directory: the events
-// database and its documents companion, both empty with their schema
-// already applied, ready for tamarackdb-server. It is a thin wrapper
-// around store.Open and Store.OpenDocuments, which create each file and
-// its schema as a side effect of opening it.
+// Command init creates a new TamarackDB data directory: an empty database
+// with its schema already applied, ready for tamarackdb-server. It is a
+// thin wrapper around store.Open, which creates the file and its schema as
+// a side effect of opening it.
 package main
 
 import (
@@ -18,7 +17,7 @@ import (
 )
 
 func main() {
-	dataDir := flag.String("data-dir", "", "directory to create the SQLite database files in")
+	dataDir := flag.String("data-dir", "", "directory to create the SQLite database file in")
 	showVersion := flag.Bool("version", false, "print the version and exit")
 	flag.Parse()
 
@@ -33,29 +32,23 @@ func main() {
 	}
 
 	cfg := config.Config{DataDir: *dataDir}
-	eventsPath, documentsPath := cfg.EventsDatabasePath(), cfg.DocumentsDatabasePath()
+	path := cfg.DatabasePath()
 
-	if err := checkNotExists(eventsPath); err != nil {
-		log.Fatalf("tamarackdb-init: %v", err)
-	}
-	if err := checkNotExists(documentsPath); err != nil {
+	if err := checkNotExists(path); err != nil {
 		log.Fatalf("tamarackdb-init: %v", err)
 	}
 	if err := os.MkdirAll(*dataDir, 0o755); err != nil {
 		log.Fatalf("tamarackdb-init: %v", err)
 	}
 
-	st, err := store.Open(context.Background(), eventsPath, 0)
+	st, err := store.Open(context.Background(), path, 0)
 	if err != nil {
-		log.Fatalf("tamarackdb-init: %v", err)
-	}
-	if err := st.OpenDocuments(context.Background(), documentsPath, 0); err != nil {
 		log.Fatalf("tamarackdb-init: %v", err)
 	}
 	if err := st.Close(); err != nil {
 		log.Fatalf("tamarackdb-init: %v", err)
 	}
-	log.Printf("tamarackdb-init: created %s and %s", eventsPath, documentsPath)
+	log.Printf("tamarackdb-init: created %s", path)
 }
 
 // checkNotExists returns an error if path already exists, so tamarackdb-init

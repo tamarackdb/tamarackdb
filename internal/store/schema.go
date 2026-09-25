@@ -39,14 +39,10 @@ CREATE TABLE metadata (
 
 CREATE INDEX idx_metadata_name_value ON metadata(name, value, event_sequence);
 
--- No payload column: only the identity and version of a document are
--- atomic with events. The payload itself lives in the separate
--- tamarackdb-documents.sqlite file (see documentschema.go), written
--- best-effort after this transaction commits.
 CREATE TABLE documents (
     type    TEXT NOT NULL,
     id      TEXT NOT NULL,
-    version INTEGER NOT NULL,
+    payload TEXT NOT NULL,
     PRIMARY KEY (type, id)
 ) WITHOUT ROWID;
 `

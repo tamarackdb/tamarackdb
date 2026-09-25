@@ -3,7 +3,6 @@ package api
 import (
 	"bytes"
 	"context"
-	"database/sql"
 	"log"
 	"net/http/httptest"
 	"path/filepath"
@@ -70,50 +69,7 @@ func TestAccessLogLevelPerOutcome(t *testing.T) {
 			name:  "DocumentNotFound",
 			level: "DEBUG",
 			serve: func(t *testing.T) *httptest.ResponseRecorder {
-				srv, _, _ := newTestServerWithDocuments(t)
-				return doRequest(t, srv, "GET", "/documents/user-profile/123", "")
-			},
-		},
-		{
-			name:  "DocumentNotReady",
-			level: "DEBUG",
-			serve: func(t *testing.T) *httptest.ResponseRecorder {
-				path := filepath.Join(t.TempDir(), "test.db")
-				st, err := store.Open(context.Background(), path, 0)
-				if err != nil {
-					t.Fatalf("store.Open() error = %v", err)
-				}
-				t.Cleanup(func() { st.Close() })
-				docPath := filepath.Join(t.TempDir(), "documents.db")
-				if err := st.OpenDocuments(context.Background(), docPath, 0); err != nil {
-					t.Fatalf("OpenDocuments() error = %v", err)
-				}
-				qm := queue.New(0)
-				t.Cleanup(qm.Close)
-				srv := New(qm, st, Options{
-					EnableAuth: true, AuthToken: testToken, DefaultLimit: 1000, MaxLimit: 10000,
-					MaxEventSize: 65536, MaxDocumentSize: 65536, MaxDocumentsPerWrite: 100,
-					LogLevel: "debug",
-				})
-
-				create := doRequest(t, srv, "POST", "/write", `{"documents":[{"type":"user-profile","id":"123","payload":"hello"}]}`)
-				if create.Code != 200 {
-					t.Fatalf("create status = %d, body = %s", create.Code, create.Body.String())
-				}
-
-				// Simulate a payload write that never landed, by reaching
-				// straight into tamarackdb-documents.sqlite (see
-				// document_test.go's TestGetDocumentNotReady).
-				docDB, err := sql.Open("sqlite", docPath)
-				if err != nil {
-					t.Fatalf("open documents db: %v", err)
-				}
-				defer docDB.Close()
-				if _, err := docDB.ExecContext(context.Background(),
-					"DELETE FROM documents_payload WHERE type = 'user-profile' AND id = '123'"); err != nil {
-					t.Fatalf("delete payload row: %v", err)
-				}
-
+				srv, _, _ := newTestServer(t)
 				return doRequest(t, srv, "GET", "/documents/user-profile/123", "")
 			},
 		},

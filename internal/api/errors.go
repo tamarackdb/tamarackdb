@@ -65,10 +65,9 @@ func (s *Server) handleErr(w http.ResponseWriter, r *http.Request, err error) {
 		// domain rule but reuses this same 400 vehicle.
 		writeError(w, http.StatusBadRequest, "InvalidRequest", ve.Message)
 	case errors.As(err, &de):
-		// document.Data.Validate()'s own domain rules (missing type/id,
-		// invalid version, deletion without a version): same 400
-		// treatment, distinct type since internal/document doesn't
-		// depend on internal/dcb.
+		// document.Data.Validate()'s own domain rules (missing type or
+		// id): same 400 treatment, distinct type since internal/document
+		// doesn't depend on internal/dcb.
 		writeError(w, http.StatusBadRequest, "InvalidRequest", de.Message)
 	case errors.As(err, &oe):
 		writeError(w, http.StatusRequestEntityTooLarge, "PayloadTooLarge", oe.Error())

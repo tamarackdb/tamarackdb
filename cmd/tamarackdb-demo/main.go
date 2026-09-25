@@ -10,7 +10,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -85,24 +84,16 @@ func main() {
 	}
 	ctx := context.Background()
 	cfg := config.Config{DataDir: *dataDir}
-	st, err := store.Open(ctx, cfg.EventsDatabasePath(), 0)
+	st, err := store.Open(ctx, cfg.DatabasePath(), 0)
 	if err != nil {
 		log.Fatalf("tamarackdb-demo: %v", err)
 	}
 	defer st.Close()
-	if *documents > 0 {
-		if err := st.OpenDocuments(ctx, cfg.DocumentsDatabasePath(), 0); err != nil {
-			log.Fatalf("tamarackdb-demo: %v", err)
-		}
-	}
 
 	appendEvents(ctx, st, rng, *events)
 	appendDocuments(ctx, st, rng, *documents)
 
-	log.Printf("tamarackdb-demo: done, %d events in %s", *events, cfg.EventsDatabasePath())
-	if *documents > 0 {
-		log.Printf("tamarackdb-demo: done, %d documents in %s", *documents, cfg.DocumentsDatabasePath())
-	}
+	log.Printf("tamarackdb-demo: done, %d events and %d documents in %s", *events, *documents, cfg.DatabasePath())
 }
 
 // appendEvents appends total random events, appendBatchSize per
@@ -114,7 +105,7 @@ func appendEvents(ctx context.Context, st *store.Store, rng *rand.Rand, total in
 		for i := range batch {
 			batch[i] = generateEvent(rng)
 		}
-		if _, _, err := st.Append(ctx, batch, nil, nil); err != nil {
+		if _, err := st.Append(ctx, batch, nil, nil); err != nil {
 			log.Fatalf("tamarackdb-demo: %v", err)
 		}
 		appended += batchSize
@@ -122,9 +113,9 @@ func appendEvents(ctx context.Context, st *store.Store, rng *rand.Rand, total in
 	}
 }
 
-// appendDocuments creates total random documents, appendBatchSize per
-// store.Append call. Ids run from 1 to total, so a run never collides
-// with itself, but a second run on the same data directory does.
+// appendDocuments writes total random documents, appendBatchSize per
+// store.Append call. Ids run from 1 to total, so a second run on the same
+// data directory replaces the first run's documents.
 func appendDocuments(ctx context.Context, st *store.Store, rng *rand.Rand, total int) {
 	for appended := 0; appended < total; {
 		batchSize := min(appendBatchSize, total-appended)
@@ -132,17 +123,8 @@ func appendDocuments(ctx context.Context, st *store.Store, rng *rand.Rand, total
 		for i := range batch {
 			batch[i] = generateDocument(rng, appended+i+1)
 		}
-		_, results, err := st.Append(ctx, nil, nil, batch)
-		if errors.Is(err, store.ErrConcurrencyConflict) {
-			log.Fatal("tamarackdb-demo: demo documents already exist in this data directory; use an empty -data-dir to create documents")
-		}
-		if err != nil {
+		if _, err := st.Append(ctx, nil, nil, batch); err != nil {
 			log.Fatalf("tamarackdb-demo: %v", err)
-		}
-		for _, r := range results {
-			if !r.PayloadWritten {
-				log.Fatalf("tamarackdb-demo: payload write failed for document %s/%s", r.Type, r.ID)
-			}
 		}
 		appended += batchSize
 		log.Printf("tamarackdb-demo: appended %d/%d documents", appended, total)
@@ -177,9 +159,8 @@ func generateEvent(rng *rand.Rand) dcb.EventData {
 	}
 }
 
-// generateDocument builds a single random document to create at version
-// 1: a type out of 5 choices, id as its numeric id, and a garbage-text
-// payload.
+// generateDocument builds a single random document: a type out of 5
+// choices, id as its numeric id, and a garbage-text payload.
 func generateDocument(rng *rand.Rand, id int) document.Data {
 	payload := garbageText(rng, documentPayloadLenMin, documentPayloadLenMax)
 	return document.Data{
