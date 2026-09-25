@@ -162,19 +162,15 @@ stays quiet, and only capacity issues and real failures show up. See
 [Logs](#logs) for the full list of severities. It opens everything it needs
 under `dataDir`, creating it, with its schema, if it doesn't exist yet.
 
-## Provisioning and migration
+## Provisioning
 
-`tamarackdb-init` creates a new data directory, as shown above. `tamarackdb-migrate` brings an existing database up to
-the schema this binary expects, run once between a schema change and rolling
-out the new server. Point it at a config file so it can find the data
-directory:
+`tamarackdb-init` creates a new data directory, as shown above. The server
+also creates the database on its first start if it doesn't exist yet.
 
-```sh
-./bin/tamarackdb-migrate --config /path/to/config.toml
-```
-
-The server itself never changes the schema on its own. See
-[Architecture](/docs/architecture/#schema) for why migration is a separate tool.
+On startup, the server checks that the database's schema version matches the
+one built into the binary, and refuses to start if it doesn't. The server
+never changes the schema on its own (see
+[Architecture](/docs/architecture/#schema)).
 
 ## Docker
 
@@ -195,8 +191,8 @@ pod or `docker-compose` setup, override `TAMARACKDB_SOCKET_PATH`: it wins over
 the image's own `TAMARACKDB_BIND_ADDRESS`/`TAMARACKDB_PORT`. Mount a shared
 volume for the socket path so the other container can reach it.
 
-`tamarackdb-migrate` and `tamarackdb-init` are also in the image, for running
-against the mounted volume:
+`tamarackdb-init` is also in the image, for running against the mounted
+volume:
 
 ```sh
 docker exec <container> ./tamarackdb-init --data-dir /data

@@ -983,11 +983,7 @@ On startup, the process reads `PRAGMA user_version` and checks it against the sc
 A database file that doesn't exist yet is created fresh, with the schema above setting it at the current version. An
 existing file whose version doesn't match (older, from a schema that's since changed, or newer, from a downgraded
 binary) is fatal: the process logs it and refuses to start, the same treatment as any other storage integrity failure
-(see Startup, shutdown, and crash behavior).
-
-Moving an existing database from one schema version to the next is the job of a separate binary, not the TamarackDB
-process itself: a dedicated migration tool, run once, on purpose, between a schema change and the next deployment of
-the main binary. The TamarackDB server never changes its own schema.
+(see Startup, shutdown, and crash behavior). The TamarackDB server never changes its own schema.
 
 ## Configuration
 
@@ -1225,6 +1221,6 @@ nothing about it lets you end a transaction, cancel a read, or otherwise change 
 
 ## Implementation
 
-The concrete Go code behind the queue manager, the Query-to-SQL translation, the schema migration tool, and the backup
-tool live in `internal/queue`, `internal/store`, `cmd/tamarackdb-migrate`, and `cmd/tamarackdb-backup`. The document
+The concrete Go code behind the queue manager, the Query-to-SQL translation, and the backup tool live in
+`internal/queue`, `internal/store`, and `cmd/tamarackdb-backup`. The document
 wire shape and its validation rules live in `internal/document`, independent of `internal/dcb`.

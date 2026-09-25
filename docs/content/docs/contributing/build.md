@@ -14,16 +14,15 @@ For how to run it, see [Deployment](/docs/guides/deployment/). For how it works 
 make build
 ```
 
-This builds four binaries under `bin/`:
+This builds three binaries under `bin/`:
 
 | Binary | Purpose |
 |---|---|
 | `tamarackdb-server` | The HTTP server |
-| `tamarackdb-migrate` | Standalone schema migration tool |
 | `tamarackdb-init` | Creates a new data directory |
 | `tamarackdb-backup` | Copies new events from a remote instance into a local backup file |
 
-Each binary also has its own target with the same name, so `make tamarackdb-migrate`
+Each binary also has its own target with the same name, so `make tamarackdb-init`
 builds only that one.
 
 The running build's version comes from `git describe --tags --always --dirty`,

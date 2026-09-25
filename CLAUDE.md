@@ -37,7 +37,7 @@ Docs are split by audience, not by topic. Paths below are relative to
   or application integration against TamarackDB's HTTP API. Excludes
   anything operational.
 - `guides/deploy.md`: configuration, running the binary, Docker,
-  provisioning/migration tool usage, health check, observability
+  provisioning tool usage, health check, observability
   (`/metrics`, `/debug`), logs. Audience: whoever runs an instance.
 - `contributing/build.md`: compiling, testing, Makefile targets, the demo/seed
   tool (`cmd/demo`). Audience: contributors building TamarackDB from

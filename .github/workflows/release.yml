@@ -31,7 +31,6 @@ jobs:
           out="tamarackdb-${{ github.ref_name }}-linux-${{ matrix.arch }}"
           mkdir -p "$out"
           go build -ldflags "$LDFLAGS" -o "$out/tamarackdb-server" ./cmd/tamarackdb-server
-          go build -ldflags "$LDFLAGS" -o "$out/tamarackdb-migrate" ./cmd/tamarackdb-migrate
           go build -ldflags "$LDFLAGS" -o "$out/tamarackdb-init" ./cmd/tamarackdb-init
           go build -ldflags "$LDFLAGS" -o "$out/tamarackdb-backup" ./cmd/tamarackdb-backup
           zip -r "$out.zip" "$out"
