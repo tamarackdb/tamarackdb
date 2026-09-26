@@ -63,9 +63,8 @@ type Config struct {
 	// calls it makes.
 	Ceiling time.Duration
 
-	// MaxQueued and MaxWait bound the FIFO (see queue.New).
+	// MaxQueued bounds the FIFO (see queue.New).
 	MaxQueued int
-	MaxWait   time.Duration
 
 	// PauseFile is the file whose presence means "paused". Empty means
 	// the pause isn't persisted, for tests.
@@ -127,7 +126,7 @@ type transaction struct {
 // Callers must Close it when done.
 func New(st *store.Store, cfg Config) (*Manager, error) {
 	m := &Manager{
-		q:     queue.New(cfg.MaxQueued, cfg.MaxWait),
+		q:     queue.New(cfg.MaxQueued),
 		st:    st,
 		cfg:   cfg,
 		stats: newStats(),

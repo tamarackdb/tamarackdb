@@ -61,12 +61,13 @@ waiting request can fail with:
 
 - `503 TransactionQueueFull`: too many requests are already waiting. The
   request never joined the queue.
-- `503 TransactionWaitTimeout`: the request waited longer than the server
-  allows. Retry after the `Retry-After` header.
 - `503 Paused`: the server is paused for a projection rebuild (see
   [Projection rebuilds](#projection-rebuilds)).
 
-Closing the connection while waiting takes the request out of the queue.
+The server puts no limit on how long a request waits. Your client sets its
+own: when it no longer wants to wait, it closes the connection, and the
+request leaves the queue. Pick that limit from how long your end user can
+wait. A request never loses its place in the queue unless its client gives up.
 
 ### Deadline
 
@@ -536,6 +537,5 @@ transaction back.
 | 413 | `PayloadTooLarge` | An event, or a document's `payload`, is bigger than the configured maximum size |
 | 500 | `InternalError` | Unexpected server-side failure |
 | 503 | `TransactionQueueFull` | `POST /begin` or `POST /pause`: too many requests are already waiting |
-| 503 | `TransactionWaitTimeout` | `POST /begin` or `POST /pause`: waited longer than the configured maximum; retry after the `Retry-After` header |
 | 503 | `Paused` | `POST /begin` while the server is paused |
 | 503 | `Unavailable` | `GET /health` only: storage is unreachable |

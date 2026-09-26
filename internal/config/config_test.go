@@ -46,7 +46,7 @@ func TestLoadFullConfig(t *testing.T) {
 		LogLevel:             DefaultLogLevel,
 		DefaultEventsPerPage: 500, MaxEventsPerPage: 5000, MaxEventSize: 32768,
 		MaxDocumentSize: 16384, MaxDocumentsPerRequest: 50,
-		TransactionTimeout: 5, MaxTransactionDuration: 15, MaxTransactionWait: 30, MaxQueuedTransactions: 250, ReadPoolSize: 16,
+		TransactionTimeout: 5, MaxTransactionDuration: 15, MaxQueuedTransactions: 250, ReadPoolSize: 16,
 	}
 	if *cfg != want {
 		t.Errorf("Load() = %+v, want %+v", *cfg, want)
@@ -120,9 +120,6 @@ func TestLoadAppliesDefaults(t *testing.T) {
 	}
 	if cfg.MaxTransactionDuration != DefaultMaxTransactionDuration {
 		t.Errorf("MaxTransactionDuration = %d, want %d", cfg.MaxTransactionDuration, DefaultMaxTransactionDuration)
-	}
-	if cfg.MaxTransactionWait != DefaultMaxTransactionWait {
-		t.Errorf("MaxTransactionWait = %d, want %d", cfg.MaxTransactionWait, DefaultMaxTransactionWait)
 	}
 	if cfg.ReadPoolSize != DefaultReadPoolSize {
 		t.Errorf("ReadPoolSize = %d, want %d", cfg.ReadPoolSize, DefaultReadPoolSize)
@@ -292,7 +289,7 @@ func TestLoadFileNotFoundUsesBuiltInDefaults(t *testing.T) {
 		SocketPath: DefaultSocketPath, DataDir: DefaultDataDir, LogLevel: DefaultLogLevel,
 		DefaultEventsPerPage: DefaultEventsPerPage, MaxEventsPerPage: DefaultMaxEventsPerPage, MaxEventSize: DefaultEventSize,
 		MaxDocumentSize: DefaultDocumentSize, MaxDocumentsPerRequest: DefaultMaxDocumentsPerRequest,
-		TransactionTimeout: 5, MaxTransactionDuration: 15, MaxTransactionWait: 30, MaxQueuedTransactions: DefaultMaxQueuedTransactions, ReadPoolSize: DefaultReadPoolSize,
+		TransactionTimeout: 5, MaxTransactionDuration: 15, MaxQueuedTransactions: DefaultMaxQueuedTransactions, ReadPoolSize: DefaultReadPoolSize,
 	}
 	if *cfg != want {
 		t.Errorf("Load() = %+v, want %+v", *cfg, want)
@@ -421,7 +418,7 @@ func TestLoadFromEnvWithoutFile(t *testing.T) {
 		AuthToken: "secret", DataDir: "data", LogLevel: DefaultLogLevel,
 		DefaultEventsPerPage: DefaultEventsPerPage, MaxEventsPerPage: DefaultMaxEventsPerPage, MaxEventSize: DefaultEventSize,
 		MaxDocumentSize: DefaultDocumentSize, MaxDocumentsPerRequest: DefaultMaxDocumentsPerRequest,
-		TransactionTimeout: 5, MaxTransactionDuration: 15, MaxTransactionWait: 30, MaxQueuedTransactions: DefaultMaxQueuedTransactions, ReadPoolSize: DefaultReadPoolSize,
+		TransactionTimeout: 5, MaxTransactionDuration: 15, MaxQueuedTransactions: DefaultMaxQueuedTransactions, ReadPoolSize: DefaultReadPoolSize,
 	}
 	if *cfg != want {
 		t.Errorf("Load() = %+v, want %+v", *cfg, want)
@@ -815,7 +812,7 @@ func TestValidateLogLevelValues(t *testing.T) {
 				AuthToken: "secret", DataDir: "data", LogLevel: lvl,
 				DefaultEventsPerPage: 1000, MaxEventsPerPage: 10000, MaxEventSize: 65536,
 				MaxDocumentSize: 65536, MaxDocumentsPerRequest: 100,
-				TransactionTimeout: 5, MaxTransactionDuration: 15, MaxTransactionWait: 30, MaxQueuedTransactions: 100, ReadPoolSize: 8,
+				TransactionTimeout: 5, MaxTransactionDuration: 15, MaxQueuedTransactions: 100, ReadPoolSize: 8,
 			}
 			if err := cfg.Validate(); err != nil {
 				t.Errorf("Validate() error = %v, want nil for logLevel = %q", err, lvl)
@@ -830,7 +827,7 @@ func TestValidateInvalidLogLevel(t *testing.T) {
 		AuthToken: "secret", DataDir: "data", LogLevel: "verbose",
 		DefaultEventsPerPage: 1000, MaxEventsPerPage: 10000, MaxEventSize: 65536,
 		MaxDocumentSize: 65536, MaxDocumentsPerRequest: 100,
-		TransactionTimeout: 5, MaxTransactionDuration: 15, MaxTransactionWait: 30, MaxQueuedTransactions: 100, ReadPoolSize: 8,
+		TransactionTimeout: 5, MaxTransactionDuration: 15, MaxQueuedTransactions: 100, ReadPoolSize: 8,
 	}
 	if err := cfg.Validate(); err == nil {
 		t.Error("Validate() error = nil, want error for logLevel = \"verbose\"")
@@ -843,7 +840,7 @@ func TestValidateNonPositiveMaxDocumentSize(t *testing.T) {
 		AuthToken: "secret", DataDir: "data", LogLevel: "warning",
 		DefaultEventsPerPage: 1000, MaxEventsPerPage: 10000, MaxEventSize: 65536,
 		MaxDocumentSize: 0, MaxDocumentsPerRequest: 100,
-		TransactionTimeout: 5, MaxTransactionDuration: 15, MaxTransactionWait: 30, MaxQueuedTransactions: 100, ReadPoolSize: 8,
+		TransactionTimeout: 5, MaxTransactionDuration: 15, MaxQueuedTransactions: 100, ReadPoolSize: 8,
 	}
 	if err := cfg.Validate(); err == nil {
 		t.Error("Validate() error = nil, want error for MaxDocumentSize = 0")
@@ -856,7 +853,7 @@ func TestValidateNonPositiveMaxDocumentsPerRequest(t *testing.T) {
 		AuthToken: "secret", DataDir: "data", LogLevel: "warning",
 		DefaultEventsPerPage: 1000, MaxEventsPerPage: 10000, MaxEventSize: 65536,
 		MaxDocumentSize: 65536, MaxDocumentsPerRequest: 0,
-		TransactionTimeout: 5, MaxTransactionDuration: 15, MaxTransactionWait: 30, MaxQueuedTransactions: 100, ReadPoolSize: 8,
+		TransactionTimeout: 5, MaxTransactionDuration: 15, MaxQueuedTransactions: 100, ReadPoolSize: 8,
 	}
 	if err := cfg.Validate(); err == nil {
 		t.Error("Validate() error = nil, want error for MaxDocumentsPerRequest = 0")
@@ -869,7 +866,7 @@ func TestValidateEmptyDataDir(t *testing.T) {
 		AuthToken: "secret", DataDir: "", LogLevel: "warning",
 		DefaultEventsPerPage: 1000, MaxEventsPerPage: 10000, MaxEventSize: 65536,
 		MaxDocumentSize: 65536, MaxDocumentsPerRequest: 100,
-		TransactionTimeout: 5, MaxTransactionDuration: 15, MaxTransactionWait: 30, MaxQueuedTransactions: 100, ReadPoolSize: 8,
+		TransactionTimeout: 5, MaxTransactionDuration: 15, MaxQueuedTransactions: 100, ReadPoolSize: 8,
 	}
 	if err := cfg.Validate(); err == nil {
 		t.Error("Validate() error = nil, want error for empty DataDir")
@@ -882,7 +879,7 @@ func TestValidateDirectly(t *testing.T) {
 		EnableTLS: true, TLSCertFile: "cert.pem", TLSKeyFile: "key.pem",
 		EnableAuth: true, AuthToken: "secret", DataDir: "data", LogLevel: "warning",
 		DefaultEventsPerPage: 1000, MaxEventsPerPage: 10000, MaxEventSize: 65536,
-		MaxDocumentSize: 65536, MaxDocumentsPerRequest: 100, TransactionTimeout: 5, MaxTransactionDuration: 15, MaxTransactionWait: 30, MaxQueuedTransactions: 100,
+		MaxDocumentSize: 65536, MaxDocumentsPerRequest: 100, TransactionTimeout: 5, MaxTransactionDuration: 15, MaxQueuedTransactions: 100,
 		ReadPoolSize: 8,
 	}
 	if err := cfg.Validate(); err != nil {
@@ -910,7 +907,7 @@ func TestValidateNonPositiveMaxQueuedTransactions(t *testing.T) {
 				AuthToken: "secret", DataDir: "data", LogLevel: "warning",
 				DefaultEventsPerPage: 1000, MaxEventsPerPage: 10000, MaxEventSize: 65536,
 				MaxDocumentSize: 65536, MaxDocumentsPerRequest: 100,
-				TransactionTimeout: 5, MaxTransactionDuration: 15, MaxTransactionWait: 30, MaxQueuedTransactions: tt.maxQueuedTransactions, ReadPoolSize: 8,
+				TransactionTimeout: 5, MaxTransactionDuration: 15, MaxQueuedTransactions: tt.maxQueuedTransactions, ReadPoolSize: 8,
 			}
 			if err := cfg.Validate(); err == nil {
 				t.Errorf("Validate() error = nil, want error for MaxQueuedTransactions = %d", tt.maxQueuedTransactions)
@@ -934,7 +931,7 @@ func TestValidateNonPositiveReadPoolSize(t *testing.T) {
 				AuthToken: "secret", DataDir: "data", LogLevel: "warning",
 				DefaultEventsPerPage: 1000, MaxEventsPerPage: 10000, MaxEventSize: 65536,
 				MaxDocumentSize: 65536, MaxDocumentsPerRequest: 100,
-				TransactionTimeout: 5, MaxTransactionDuration: 15, MaxTransactionWait: 30, MaxQueuedTransactions: 100, ReadPoolSize: tt.readPoolSize,
+				TransactionTimeout: 5, MaxTransactionDuration: 15, MaxQueuedTransactions: 100, ReadPoolSize: tt.readPoolSize,
 			}
 			if err := cfg.Validate(); err == nil {
 				t.Errorf("Validate() error = nil, want error for ReadPoolSize = %d", tt.readPoolSize)
@@ -945,32 +942,30 @@ func TestValidateNonPositiveReadPoolSize(t *testing.T) {
 
 func TestLoadTransactionSettingsFromFileAndEnv(t *testing.T) {
 	setEnv(t, map[string]string{
+		"TAMARACKDB_TRANSACTION_TIMEOUT":      "10",
 		"TAMARACKDB_MAX_TRANSACTION_DURATION": "40",
-		"TAMARACKDB_MAX_TRANSACTION_WAIT":     "60",
 	})
 	path := writeConfigFile(t, `[server]
-		transactionTimeout = 10
 		maxTransactionDuration = 20
 	`)
 	cfg, err := Load(path)
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	if cfg.TransactionTimeout != 10 || cfg.MaxTransactionDuration != 20 || cfg.MaxTransactionWait != 60 {
-		t.Errorf("transaction settings = %d/%d/%d, want 10/20 from the file and 60 from env",
-			cfg.TransactionTimeout, cfg.MaxTransactionDuration, cfg.MaxTransactionWait)
+	if cfg.TransactionTimeout != 10 || cfg.MaxTransactionDuration != 20 {
+		t.Errorf("transaction settings = %d/%d, want 10 from env and 20 from the file",
+			cfg.TransactionTimeout, cfg.MaxTransactionDuration)
 	}
 }
 
 func TestValidateTransactionSettings(t *testing.T) {
 	tests := []struct {
-		name                  string
-		timeout, ceiling, max int
+		name             string
+		timeout, ceiling int
 	}{
-		{"zero timeout", 0, 15, 30},
-		{"negative ceiling", 5, -1, 30},
-		{"timeout above ceiling", 20, 15, 30},
-		{"zero max wait", 5, 15, 0},
+		{"zero timeout", 0, 15},
+		{"negative ceiling", 5, -1},
+		{"timeout above ceiling", 20, 15},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -978,7 +973,7 @@ func TestValidateTransactionSettings(t *testing.T) {
 				SocketPath: DefaultSocketPath, DataDir: "data", LogLevel: "warning",
 				DefaultEventsPerPage: 1000, MaxEventsPerPage: 10000, MaxEventSize: 65536,
 				MaxDocumentSize: 65536, MaxDocumentsPerRequest: 100,
-				TransactionTimeout: tt.timeout, MaxTransactionDuration: tt.ceiling, MaxTransactionWait: tt.max,
+				TransactionTimeout: tt.timeout, MaxTransactionDuration: tt.ceiling,
 				MaxQueuedTransactions: 100, ReadPoolSize: 8,
 			}
 			if err := c.Validate(); err == nil {

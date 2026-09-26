@@ -21,9 +21,8 @@ const testToken = "test-token"
 // defaults below.
 type testOptions struct {
 	devMode   bool
-	logLevel  string // default: debug
-	maxQueued int    // default: uncapped
-	maxWait   time.Duration
+	logLevel  string        // default: debug
+	maxQueued int           // default: uncapped
 	timeout   time.Duration // default: 5s
 	ceiling   time.Duration // default: 15s
 }
@@ -54,7 +53,6 @@ func newTestServerWith(t *testing.T, o testOptions) (*Server, *txn.Manager, *sto
 		Timeout:   o.timeout,
 		Ceiling:   o.ceiling,
 		MaxQueued: o.maxQueued,
-		MaxWait:   o.maxWait,
 		PauseFile: filepath.Join(dir, "tamarackdb.paused"),
 		OnExpire:  ExpiryLogger(o.logLevel),
 	})

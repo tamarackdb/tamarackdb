@@ -200,9 +200,10 @@ If another transaction is active, the request waits in a FIFO, with its HTTP con
 comes. The SQLite transaction starts with `BEGIN IMMEDIATE` at the moment the ticket is given out: the write lock is
 held from the first operation, reads included, until the transaction ends.
 
-A client that disconnects while waiting leaves the FIFO. A request that waits longer than the configured maximum wait
-gets `503 TransactionWaitTimeout`, with a `Retry-After` header. A request that arrives when the FIFO is already at its
-configured depth gets `503 TransactionQueueFull` right away, instead of joining (see Configuration). While the server
+A client that disconnects while waiting leaves the FIFO. The server puts no limit on how long a request waits: only
+the client knows how long its own caller can wait, so the client ends the wait by closing the connection. A request
+that has waited a long time is close to the head of the FIFO; turning it away would send its retry to the back, behind
+every request that arrived after it. A request that arrives when the FIFO is already at its configured depth gets `503 TransactionQueueFull` right away, instead of joining (see Configuration). While the server
 is paused, a request that reaches the head of the FIFO gets `503 Paused` (see Pause).
 
 #### Deadline and ceiling
@@ -590,7 +591,6 @@ the problem, left out when it wouldn't add anything (as with `ConcurrencyExcepti
 | `413` | `PayloadTooLarge` | An event or a document payload over its size limit |
 | `500` | `InternalError` | An unexpected server-side failure |
 | `503` | `TransactionQueueFull` | `POST /begin` or `POST /pause` while the FIFO is at its configured depth |
-| `503` | `TransactionWaitTimeout` | A request waited in the FIFO longer than the configured maximum, with `Retry-After` |
 | `503` | `Paused` | A request reached the head of the FIFO while the server is paused |
 | `503` | `Unavailable` | `GET /health` only: SQLite can't be reached (see Health check) |
 
@@ -662,8 +662,8 @@ one allowed to touch the write connection) and **Queued** (every other request, 
 2. If the FIFO is already at its configured depth (see Configuration), the request is turned away right away with
    `503 TransactionQueueFull`, instead of joining.
 3. Otherwise it waits, with its HTTP connection held open, until every request ahead of it is done. If the client
-   disconnects, the request leaves the line right away, and everyone behind it moves up one spot. If it waits longer
-   than the configured maximum, it leaves the line with `503 TransactionWaitTimeout`.
+   disconnects, the request leaves the line right away, and everyone behind it moves up one spot. There is no other
+   way out of the line.
 4. When it reaches the head of the line:
    - If it's a `POST /begin` and the server is paused, it gets `503 Paused`, and the next request moves up.
    - If it's a `POST /begin` otherwise, the handler runs `BEGIN IMMEDIATE` on the write connection, creates a
@@ -948,7 +948,7 @@ transaction timeouts, pagination/size limits, and the FIFO depth) comes from thr
 2. `TAMARACKDB_*` environment variables, one per configuration key.
 3. Built-in defaults, for the keys that have one (`socketPath`, `dataDir`, `logLevel`, `defaultEventsPerPage`,
    `maxEventsPerPage`, `maxEventSize`, `maxDocumentSize`, `maxDocumentsPerRequest`, `transactionTimeout`,
-   `maxTransactionDuration`, `maxTransactionWait`, `maxQueuedTransactions`, `readPoolSize`).
+   `maxTransactionDuration`, `maxQueuedTransactions`, `readPoolSize`).
 
 A value set in the configuration file always wins over the matching environment variable. The configuration file
 itself is optional: an application deployed as one instance per environment, each with its own file, uses it as the
@@ -975,7 +975,6 @@ instead.
 | `maxDocumentsPerRequest` | `TAMARACKDB_MAX_DOCUMENTS_PER_REQUEST` | `100` |
 | `transactionTimeout` | `TAMARACKDB_TRANSACTION_TIMEOUT` | `5` (seconds) |
 | `maxTransactionDuration` | `TAMARACKDB_MAX_TRANSACTION_DURATION` | `15` (seconds) |
-| `maxTransactionWait` | `TAMARACKDB_MAX_TRANSACTION_WAIT` | `30` (seconds) |
 | `maxQueuedTransactions` | `TAMARACKDB_MAX_QUEUED_TRANSACTIONS` | `100` |
 | `readPoolSize` | `TAMARACKDB_READ_POOL_SIZE` | `8` |
 
@@ -993,11 +992,12 @@ from the moment its ticket is given out, then from the end of each call made wit
 is the ceiling: the total time no transaction can exceed, however many calls it makes (see Deadline and ceiling).
 `transactionTimeout` can't be greater than `maxTransactionDuration`: `Load` rejects that configuration.
 
-`maxTransactionWait` caps how long a request may wait in the FIFO before getting `503 TransactionWaitTimeout`.
 `maxQueuedTransactions` caps how many requests may wait in the FIFO at once. A request that arrives when the FIFO is
-already at that depth gets `503 TransactionQueueFull` instead of joining. Neither is "0 means no limit": a FIFO with no
+already at that depth gets `503 TransactionQueueFull` instead of joining. It isn't "0 means no limit": a FIFO with no
 bound would let a burst, or a broken client, pile up an unlimited number of blocked HTTP connections, so every
-deployment gets a bound whether it sets one or not.
+deployment gets a bound whether it sets one or not. How long a request waits needs no setting of its own: with at most
+`maxQueuedTransactions` requests ahead of it, each held at most `maxTransactionDuration`, the wait is already bounded.
+A client that wants a shorter wait closes the connection.
 
 ## Security
 

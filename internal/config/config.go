@@ -35,7 +35,6 @@ const (
 	DefaultMaxQueuedTransactions  = 100
 	DefaultTransactionTimeout     = 5  // seconds
 	DefaultMaxTransactionDuration = 15 // seconds
-	DefaultMaxTransactionWait     = 30 // seconds
 	DefaultReadPoolSize           = 8
 	DefaultDocumentSize           = 65536 // 64 KiB
 	DefaultMaxDocumentsPerRequest = 100
@@ -115,15 +114,13 @@ type Config struct {
 	TransactionTimeout     int `toml:"transactionTimeout"`     // default: 5
 	MaxTransactionDuration int `toml:"maxTransactionDuration"` // default: 15
 
-	// MaxTransactionWait caps how long, in seconds, a POST /begin or
-	// POST /pause may wait in the FIFO before getting 503
-	// TransactionWaitTimeout. MaxQueuedTransactions caps how many requests
-	// may wait in the FIFO at once; one more gets 503 TransactionQueueFull
-	// instead of joining. Optional; defaulted by Load when omitted.
-	// Neither is "0 means no limit": a FIFO with no bound would let a
-	// burst, or a broken client, pile up an unlimited number of blocked
-	// HTTP connections, so every deployment gets a bound.
-	MaxTransactionWait    int `toml:"maxTransactionWait"`    // default: 30
+	// MaxQueuedTransactions caps how many requests may wait in the FIFO
+	// at once; one more gets 503 TransactionQueueFull instead of joining.
+	// Optional; defaulted by Load when omitted. It isn't "0 means no
+	// limit": a FIFO with no bound would let a burst, or a broken client,
+	// pile up an unlimited number of blocked HTTP connections, so every
+	// deployment gets a bound. There is no cap on how long a request
+	// waits: its client ends the wait by closing the connection.
 	MaxQueuedTransactions int `toml:"maxQueuedTransactions"` // default: 100
 
 	// ReadPoolSize is the number of SQLite connections available for
@@ -200,9 +197,6 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.MaxTransactionDuration == 0 {
 		cfg.MaxTransactionDuration = DefaultMaxTransactionDuration
-	}
-	if cfg.MaxTransactionWait == 0 {
-		cfg.MaxTransactionWait = DefaultMaxTransactionWait
 	}
 	if cfg.MaxQueuedTransactions == 0 {
 		cfg.MaxQueuedTransactions = DefaultMaxQueuedTransactions
@@ -355,15 +349,6 @@ func applyEnv(cfg *Config) error {
 			cfg.MaxTransactionDuration = n
 		}
 	}
-	if cfg.MaxTransactionWait == 0 {
-		if v, ok := os.LookupEnv("TAMARACKDB_MAX_TRANSACTION_WAIT"); ok {
-			n, err := strconv.Atoi(v)
-			if err != nil {
-				return fmt.Errorf("invalid TAMARACKDB_MAX_TRANSACTION_WAIT %q: %w", v, err)
-			}
-			cfg.MaxTransactionWait = n
-		}
-	}
 	if cfg.MaxQueuedTransactions == 0 {
 		if v, ok := os.LookupEnv("TAMARACKDB_MAX_QUEUED_TRANSACTIONS"); ok {
 			n, err := strconv.Atoi(v)
@@ -424,8 +409,6 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("maxTransactionDuration must be positive, got %d", c.MaxTransactionDuration)
 	case c.TransactionTimeout > c.MaxTransactionDuration:
 		return fmt.Errorf("transactionTimeout (%d) must not exceed maxTransactionDuration (%d)", c.TransactionTimeout, c.MaxTransactionDuration)
-	case c.MaxTransactionWait <= 0:
-		return fmt.Errorf("maxTransactionWait must be positive, got %d", c.MaxTransactionWait)
 	case c.MaxQueuedTransactions <= 0:
 		return fmt.Errorf("maxQueuedTransactions must be positive, got %d", c.MaxQueuedTransactions)
 	case c.ReadPoolSize <= 0:

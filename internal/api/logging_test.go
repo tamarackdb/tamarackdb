@@ -117,12 +117,6 @@ func TestAccessLogLevelPerOutcome(t *testing.T) {
 			}
 			return rec
 		}},
-		{"TransactionWaitTimeout", "WARNING", func(t *testing.T) *httptest.ResponseRecorder {
-			srv, _, _ := newTestServerWith(t, testOptions{maxWait: 20 * time.Millisecond})
-			holder := begin(t, srv)
-			defer commit(t, srv, holder)
-			return doRequest(t, srv, "POST", "/begin", "")
-		}},
 		{"Paused", "WARNING", func(t *testing.T) *httptest.ResponseRecorder {
 			srv, _, _ := newTestServer(t)
 			pause(t, srv)

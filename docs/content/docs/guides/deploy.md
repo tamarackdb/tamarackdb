@@ -83,11 +83,6 @@ file works whether you run one binary or both.
 : Env: `TAMARACKDB_MAX_TRANSACTION_DURATION`
 : Default: `15`
 
-`maxTransactionWait`
-: Seconds a `POST /begin` or `POST /pause` may wait for its turn before it gets `503 TransactionWaitTimeout`.
-: Env: `TAMARACKDB_MAX_TRANSACTION_WAIT`
-: Default: `30`
-
 `maxQueuedTransactions`
 : Maximum requests waiting for their turn at once. One more gets `503 TransactionQueueFull`.
 : Env: `TAMARACKDB_MAX_QUEUED_TRANSACTIONS`
@@ -142,9 +137,10 @@ transaction until `transactionTimeout`. A client that keeps calling but never
 ends its transaction holds it until `maxTransactionDuration`. A request waiting
 behind `N` such transactions may wait up to `N` times `maxTransactionDuration`.
 
-Size `maxQueuedTransactions` and `maxTransactionWait` against how many users
-the application serves at once, and how long you'd rather they wait than get
-an error. There's no "no limit" value: every deployment gets a bound.
+Size `maxQueuedTransactions` against how many users the application serves
+at once. There's no "no limit" value: every deployment gets a bound. The
+server doesn't cap how long a request waits for its turn: each client sets its
+own limit and closes the connection when it's reached.
 
 ## Run
 
@@ -350,7 +346,6 @@ Each outcome carries a fixed level, not derived from the status code alone:
 | Call only accepted while paused | 409 | `info` |
 | Transaction no longer active | 410 | `info` |
 | Transaction queue full | 503 | `warning` |
-| Waited too long for a transaction | 503 | `warning` |
 | Server paused | 503 | `warning` |
 | Transaction expired | none | `warning` |
 | Internal error | 500 | `error` |

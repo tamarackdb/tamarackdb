@@ -36,7 +36,7 @@ func mustJoin(t *testing.T, m *Manager) *Turn {
 }
 
 func TestJoinAdmitsImmediatelyWhenIdle(t *testing.T) {
-	m := New(0, 0)
+	m := New(0)
 	defer m.Close()
 
 	turn := mustJoin(t, m)
@@ -52,7 +52,7 @@ func TestJoinAdmitsImmediatelyWhenIdle(t *testing.T) {
 }
 
 func TestJoinSerializesSecondWaiterUntilDone(t *testing.T) {
-	m := New(0, 0)
+	m := New(0)
 	defer m.Close()
 
 	first := mustJoin(t, m)
@@ -81,7 +81,7 @@ func TestJoinSerializesSecondWaiterUntilDone(t *testing.T) {
 }
 
 func TestStrictFIFOOrderAcrossMultipleWaiters(t *testing.T) {
-	m := New(0, 0)
+	m := New(0)
 	defer m.Close()
 
 	holder := mustJoin(t, m)
@@ -131,7 +131,7 @@ func TestStrictFIFOOrderAcrossMultipleWaiters(t *testing.T) {
 }
 
 func TestJoinContextCancellationWhileQueued(t *testing.T) {
-	m := New(0, 0)
+	m := New(0)
 	defer m.Close()
 
 	holder := mustJoin(t, m)
@@ -162,7 +162,7 @@ func TestJoinContextCancellationWhileQueued(t *testing.T) {
 }
 
 func TestJoinCancellationDoesNotStarveOtherWaiters(t *testing.T) {
-	m := New(0, 0)
+	m := New(0)
 	defer m.Close()
 
 	holder := mustJoin(t, m)
@@ -202,7 +202,7 @@ func TestJoinCancellationDoesNotStarveOtherWaiters(t *testing.T) {
 }
 
 func TestDoneIsIdempotent(t *testing.T) {
-	m := New(0, 0)
+	m := New(0)
 	defer m.Close()
 
 	turn := mustJoin(t, m)
@@ -211,7 +211,7 @@ func TestDoneIsIdempotent(t *testing.T) {
 }
 
 func TestCloseIsIdempotentAndUnblocksCallers(t *testing.T) {
-	m := New(0, 0)
+	m := New(0)
 	m.Close()
 	m.Close() // must not block or panic
 
@@ -221,7 +221,7 @@ func TestCloseIsIdempotentAndUnblocksCallers(t *testing.T) {
 }
 
 func TestJoinRejectsWhenQueueFull(t *testing.T) {
-	m := New(1, 0)
+	m := New(1)
 	defer m.Close()
 
 	holder := mustJoin(t, m)
@@ -244,7 +244,7 @@ func TestJoinRejectsWhenQueueFull(t *testing.T) {
 }
 
 func TestJoinUncappedWhenMaxQueuedZero(t *testing.T) {
-	m := New(0, 0)
+	m := New(0)
 	defer m.Close()
 
 	holder := mustJoin(t, m)
@@ -286,7 +286,7 @@ func TestJoinUncappedWhenMaxQueuedZero(t *testing.T) {
 }
 
 func TestConcurrentStress(t *testing.T) {
-	m := New(0, 0)
+	m := New(0)
 	defer m.Close()
 
 	const goroutines = 50
@@ -317,27 +317,8 @@ func TestConcurrentStress(t *testing.T) {
 	}
 }
 
-func TestJoinFailsAfterMaxWait(t *testing.T) {
-	m := New(0, 50*time.Millisecond)
-	defer m.Close()
-
-	holder := mustJoin(t, m)
-	defer holder.Done()
-
-	start := time.Now()
-	if _, err := m.Join(context.Background(), KindTransaction); err != ErrWaitTimeout {
-		t.Fatalf("Join() error = %v, want ErrWaitTimeout", err)
-	}
-	if waited := time.Since(start); waited < 50*time.Millisecond {
-		t.Errorf("Join() returned after %v, want at least maxWait", waited)
-	}
-	if snap := m.Snapshot(); len(snap.Queued) != 0 {
-		t.Errorf("Snapshot().Queued = %+v, want empty after the timed-out entry left", snap.Queued)
-	}
-}
-
 func TestSnapshotReportsKinds(t *testing.T) {
-	m := New(0, 0)
+	m := New(0)
 	defer m.Close()
 
 	holder, err := m.Join(context.Background(), KindOptimize)

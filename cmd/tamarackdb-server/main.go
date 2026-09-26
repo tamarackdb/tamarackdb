@@ -77,7 +77,6 @@ func main() {
 	fmt.Printf("maxDocumentsPerRequest: %d\n", cfg.MaxDocumentsPerRequest)
 	fmt.Printf("transactionTimeout: %d\n", cfg.TransactionTimeout)
 	fmt.Printf("maxTransactionDuration: %d\n", cfg.MaxTransactionDuration)
-	fmt.Printf("maxTransactionWait: %d\n", cfg.MaxTransactionWait)
 	fmt.Printf("maxQueuedTransactions: %d\n", cfg.MaxQueuedTransactions)
 	fmt.Printf("readPoolSize: %d\n\n", cfg.ReadPoolSize)
 
@@ -95,7 +94,6 @@ func main() {
 		Timeout:   time.Duration(cfg.TransactionTimeout) * time.Second,
 		Ceiling:   time.Duration(cfg.MaxTransactionDuration) * time.Second,
 		MaxQueued: cfg.MaxQueuedTransactions,
-		MaxWait:   time.Duration(cfg.MaxTransactionWait) * time.Second,
 		PauseFile: cfg.PauseFilePath(),
 		OnExpire:  api.ExpiryLogger(cfg.LogLevel),
 	})
@@ -237,7 +235,6 @@ const defaultConfigTemplate = `[server]
 # maxDocumentsPerRequest = %d
 # transactionTimeout = %d # seconds
 # maxTransactionDuration = %d # seconds
-# maxTransactionWait = %d # seconds
 # maxQueuedTransactions = %d
 # readPoolSize = %d
 `
@@ -251,6 +248,5 @@ func printDefaultConfig() {
 		config.DefaultEventsPerPage, config.DefaultMaxEventsPerPage, config.DefaultEventSize,
 		config.DefaultDocumentSize, config.DefaultMaxDocumentsPerRequest,
 		config.DefaultTransactionTimeout, config.DefaultMaxTransactionDuration,
-		config.DefaultMaxTransactionWait, config.DefaultMaxQueuedTransactions,
-		config.DefaultReadPoolSize)
+		config.DefaultMaxQueuedTransactions, config.DefaultReadPoolSize)
 }

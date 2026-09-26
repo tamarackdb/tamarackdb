@@ -81,20 +81,6 @@ func TestBeginReturns503WhenQueueFull(t *testing.T) {
 	}
 }
 
-func TestBeginReturns503AfterMaxWait(t *testing.T) {
-	srv, _, _ := newTestServerWith(t, testOptions{maxWait: 50 * time.Millisecond})
-	holder := begin(t, srv)
-	defer commit(t, srv, holder)
-
-	rec := doRequest(t, srv, "POST", "/begin", "")
-	if rec.Code != 503 || errorCode(t, rec) != "TransactionWaitTimeout" {
-		t.Fatalf("status = %d, body = %s, want 503 TransactionWaitTimeout", rec.Code, rec.Body.String())
-	}
-	if ra := rec.Header().Get("Retry-After"); ra != "1" {
-		t.Errorf("Retry-After = %q, want \"1\"", ra)
-	}
-}
-
 func TestExpiredTransactionGets410(t *testing.T) {
 	srv, _, _ := newTestServerWith(t, testOptions{timeout: 50 * time.Millisecond, ceiling: time.Second})
 	ticket := begin(t, srv)

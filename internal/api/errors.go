@@ -94,9 +94,6 @@ func (s *Server) handleErr(w http.ResponseWriter, r *http.Request, err error) {
 		writeError(w, http.StatusServiceUnavailable, "Paused", "")
 	case errors.Is(err, queue.ErrFull):
 		writeError(w, http.StatusServiceUnavailable, "TransactionQueueFull", "")
-	case errors.Is(err, queue.ErrWaitTimeout):
-		w.Header().Set("Retry-After", "1")
-		writeError(w, http.StatusServiceUnavailable, "TransactionWaitTimeout", "")
 	default:
 		// Everything else: a closed FIFO during shutdown, and any other
 		// unexpected error, including fatal storage errors.

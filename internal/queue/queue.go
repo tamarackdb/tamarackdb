@@ -20,10 +20,6 @@ var ErrClosed = errors.New("queue: closed")
 // maxQueued depth; the caller never joins the queue in that case.
 var ErrFull = errors.New("queue: full")
 
-// ErrWaitTimeout is returned by Join when a request waited longer than the
-// configured maxWait without reaching the head of the queue.
-var ErrWaitTimeout = errors.New("queue: waited too long")
-
 // Kind says what a request waits for, for GET /metrics and GET /debug.
 // The queue itself treats every kind the same way.
 type Kind string
@@ -48,8 +44,7 @@ type Manager struct {
 	activeKind  Kind
 	activeSince time.Time
 	queue       []*waiter
-	maxQueued   int           // 0 means uncapped
-	maxWait     time.Duration // 0 means unbounded
+	maxQueued   int // 0 means uncapped
 }
 
 // waiter is the internal bookkeeping for one request waiting in the queue.
@@ -78,15 +73,14 @@ type Queued struct {
 
 // New creates a Manager. maxQueued caps how many requests may wait at
 // once: a Join arriving when the queue is already at that depth fails
-// immediately with ErrFull instead of joining. maxWait caps how long a
-// Join may wait before failing with ErrWaitTimeout. 0 means no limit for
-// either, for callers with no opinion (tests); configuration always sets
-// both. Callers must Close it when done.
-func New(maxQueued int, maxWait time.Duration) *Manager {
+// immediately with ErrFull instead of joining. 0 means no limit, for
+// callers with no opinion (tests); configuration always sets it. A queued
+// request waits as long as it takes: its client ends the wait by closing
+// the connection. Callers must Close it when done.
+func New(maxQueued int) *Manager {
 	return &Manager{
 		closedCh:  make(chan struct{}),
 		maxQueued: maxQueued,
-		maxWait:   maxWait,
 	}
 }
 
@@ -103,9 +97,9 @@ func (m *Manager) Close() {
 }
 
 // Join blocks until the caller holds the active turn, ctx is cancelled
-// (the client disconnected), maxWait passes (ErrWaitTimeout), the queue is
-// already at its configured depth (ErrFull, returned immediately without
-// joining), or the Manager is closed.
+// (the client disconnected), the queue is already at its configured depth
+// (ErrFull, returned immediately without joining), or the Manager is
+// closed.
 //
 // On success, the returned *Turn's Done must be called exactly once, when
 // the caller is finished with the write connection.
@@ -132,20 +126,11 @@ func (m *Manager) Join(ctx context.Context, kind Kind) (*Turn, error) {
 	m.queue = append(m.queue, w)
 	m.mu.Unlock()
 
-	var timeout <-chan time.Time
-	if m.maxWait > 0 {
-		timer := time.NewTimer(m.maxWait)
-		defer timer.Stop()
-		timeout = timer.C
-	}
-
 	select {
 	case <-w.readyCh:
 		return &Turn{m: m}, nil
 	case <-ctx.Done():
 		return m.leave(w, ctx.Err())
-	case <-timeout:
-		return m.leave(w, ErrWaitTimeout)
 	case <-m.closedCh:
 		return m.leave(w, ErrClosed)
 	}
