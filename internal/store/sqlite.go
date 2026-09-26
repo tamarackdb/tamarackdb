@@ -196,12 +196,15 @@ func (s *Store) Reset(ctx context.Context) error {
 			return wrapf("reset", err)
 		}
 	}
+	// The counter's mutex is held across the commit: the commit frees the
+	// write connection, and a Begin waiting for it reads the counter right
+	// after. Holding the mutex makes that Begin read 1, not the value from
+	// before the reset, which it would also put back on rollback.
+	s.seqMu.Lock()
+	defer s.seqMu.Unlock()
 	if err := tx.Commit(); err != nil {
 		return wrapf("commit reset", err)
 	}
-
-	s.seqMu.Lock()
 	s.nextSeq = 1
-	s.seqMu.Unlock()
 	return nil
 }
