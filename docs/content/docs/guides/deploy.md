@@ -366,7 +366,15 @@ So is a paused server turning a request away, so a forgotten pause shows up.
 
 A transaction that reaches its idle timeout or its ceiling is rolled back by
 the server itself, with no request to log. It gets its own `warning` line
-instead, saying which limit was reached and how long the transaction lasted.
+instead, with the transaction's ticket, which limit was reached, and how long
+the transaction lasted:
+
+```
+tamarackdb-server: [WARNING] transaction a045ad63-5d4b-4847-8eb9-fbddb4e2d65b expired: idle timeout reached after 5.00s
+```
+
+If the application logs the ticket it gets for each command, this line tells
+you which command it was.
 
 An internal error or an unreachable store is `error`: a real failure.
 

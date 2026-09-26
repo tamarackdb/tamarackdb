@@ -73,8 +73,10 @@ type Config struct {
 
 	// OnExpire, if non-nil, is called after a transaction that reached
 	// its idle timeout or its ceiling was rolled back. No request is
-	// there to log it, so the caller logs it from here.
-	OnExpire func(limit Limit, lasted time.Duration)
+	// there to log it, so the caller logs it from here. ticket is already
+	// inactive by then: safe to log, so a client that logged the ticket it
+	// got can find which of its commands expired.
+	OnExpire func(ticket string, limit Limit, lasted time.Duration)
 }
 
 // Manager gives out tickets, runs calls inside the active transaction,
@@ -366,7 +368,7 @@ func (m *Manager) expire(t *transaction) {
 	}
 	m.finish(t, ReasonExpired)
 	if m.cfg.OnExpire != nil {
-		m.cfg.OnExpire(limit, now.Sub(t.since))
+		m.cfg.OnExpire(t.ticket, limit, now.Sub(t.since))
 	}
 }
 

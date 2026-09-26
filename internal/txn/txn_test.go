@@ -15,6 +15,7 @@ import (
 )
 
 type expiry struct {
+	ticket string
 	limit  Limit
 	lasted time.Duration
 }
@@ -38,7 +39,7 @@ func newTestEnv(t *testing.T, timeout, ceiling time.Duration) *testEnv {
 		Timeout:   timeout,
 		Ceiling:   ceiling,
 		PauseFile: env.pauseFile,
-		OnExpire:  func(limit Limit, lasted time.Duration) { env.expired <- expiry{limit, lasted} },
+		OnExpire:  func(ticket string, limit Limit, lasted time.Duration) { env.expired <- expiry{ticket, limit, lasted} },
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
@@ -227,6 +228,9 @@ func TestIdleTimeoutRollsBack(t *testing.T) {
 
 	select {
 	case e := <-env.expired:
+		if e.ticket != ticket {
+			t.Errorf("ticket = %q, want %q", e.ticket, ticket)
+		}
 		if e.limit != LimitIdleTimeout {
 			t.Errorf("limit = %q, want %q", e.limit, LimitIdleTimeout)
 		}

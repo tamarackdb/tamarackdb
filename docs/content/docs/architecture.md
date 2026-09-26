@@ -1028,7 +1028,9 @@ owning application. If that application itself serves many tenants, keeping them
 
 A ticket is not a credential. It identifies the active transaction, not the caller: the Bearer token, when on, is what
 authenticates each call. A ticket is a random UUID, so a caller can't guess the ticket of a transaction it didn't
-open, but it's never exposed anywhere else either, including `/debug` (see Queue and connection pool observability).
+open, and it's never exposed while its transaction is active, not even in `/debug` (see Queue and connection pool
+observability). The one place a ticket appears is the log line for an expired transaction (see Request logging), once
+the ticket can no longer be used.
 
 ### Dev mode
 
@@ -1070,8 +1072,11 @@ This wraps the whole routed handler, including authentication, so a request turn
 logged just like any other. `logLevel` sets the minimum severity a line is written at (see Configuration).
 
 A transaction rolled back because it reached its idle timeout or its ceiling has no request of its own to log. The
-deadline timer logs one line for it instead, at `warning`: which limit was reached, and how long the transaction
-lasted. It's the sign of a client that crashed, hung, or ran a command far longer than it should.
+deadline timer logs one line for it instead, at `warning`: the ticket, which limit was reached, and how long the
+transaction lasted, e.g. `tamarackdb-server: [WARNING] transaction a045ad63-... expired: idle timeout reached after
+5.00s`. It's the sign of a client that crashed, hung, or ran a command far longer than it should. The ticket is
+already inactive at that point, so logging it is safe, and it lets a client that logged its own tickets find the
+command that expired.
 
 ### Queue and connection pool observability
 

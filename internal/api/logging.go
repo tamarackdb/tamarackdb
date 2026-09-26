@@ -61,12 +61,16 @@ func (sw *statusWriter) Write(b []byte) (int, error) {
 // an expired transaction (txn.Config.OnExpire). No request is there to
 // log it, so it writes its own line, at warning level, when logLevel lets
 // warnings through. logLevel must be one of the four level names.
-func ExpiryLogger(logLevel string) func(limit txn.Limit, lasted time.Duration) {
+//
+// The line carries the ticket, the only place one is ever logged: the
+// transaction has already ended, so the ticket can't be used any more,
+// and it lets a client that logged its ticket find which command expired.
+func ExpiryLogger(logLevel string) func(ticket string, limit txn.Limit, lasted time.Duration) {
 	threshold, _ := parseLevel(logLevel)
-	return func(limit txn.Limit, lasted time.Duration) {
+	return func(ticket string, limit txn.Limit, lasted time.Duration) {
 		if levelWarning < threshold {
 			return
 		}
-		log.Printf("tamarackdb-server: [%s] transaction expired: %s reached after %.2fs", levelWarning, limit, lasted.Seconds())
+		log.Printf("tamarackdb-server: [%s] transaction %s expired: %s reached after %.2fs", levelWarning, ticket, limit, lasted.Seconds())
 	}
 }

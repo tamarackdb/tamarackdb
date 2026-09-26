@@ -51,6 +51,10 @@ curl -X POST http://127.0.0.1:8085/begin
 Every call that belongs to the transaction carries this ticket in the
 `X-Tamarackdb-Ticket` header.
 
+Log the ticket along with the command it belongs to. If the transaction
+expires (see [Deadline](#deadline)), the server logs a warning with that
+ticket, and your own log tells you which command it was.
+
 If another transaction is active, the request waits, with its connection held
 open, until its turn comes. Requests are served in the order they arrive. A
 waiting request can fail with:

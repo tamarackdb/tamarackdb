@@ -198,12 +198,13 @@ func TestExpiredTransactionIsLogged(t *testing.T) {
 	srv, _, _ := newTestServerWith(t, testOptions{logLevel: "warning", timeout: 30 * time.Millisecond, ceiling: time.Second})
 	buf := captureLog(t)
 
-	begin(t, srv)
+	ticket := begin(t, srv)
+	want := "[WARNING] transaction " + ticket + " expired: idle timeout reached after"
 	deadline := time.Now().Add(2 * time.Second)
-	for !strings.Contains(buf.String(), "transaction expired") && time.Now().Before(deadline) {
+	for !strings.Contains(buf.String(), want) && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
-	if out := buf.String(); !strings.Contains(out, "[WARNING] transaction expired: idle timeout reached after") {
-		t.Errorf("log output = %q, want a WARNING line for the expired transaction", out)
+	if out := buf.String(); !strings.Contains(out, want) {
+		t.Errorf("log output = %q, want a WARNING line for the expired transaction, with its ticket", out)
 	}
 }
