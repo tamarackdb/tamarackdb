@@ -57,7 +57,7 @@ func dsn(path string, extra string) string {
 // startup: main.go should log it and exit rather than retry.
 //
 // readPoolSize sets the size of the read connection pool, and so how many
-// /read requests can run concurrently before further ones wait for a
+// reads without a ticket can run concurrently before further ones wait for a
 // connection to free up. A value <= 0 falls back to a small built-in
 // default, for callers with no opinion on it.
 //

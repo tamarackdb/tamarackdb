@@ -13,7 +13,17 @@ func TestAuthRejectsEveryRoute(t *testing.T) {
 		method, path, body string
 	}{
 		{"QUERY", "/events", `{"query":"*"}`},
-		{"POST", "/write", `{"events":[{"type":"t","identifiers":{},"metadata":{},"payload":""}]}`},
+		{"POST", "/events", `{"events":[{"type":"t","identifiers":{},"metadata":{},"payload":""}]}`},
+		{"POST", "/commit", ""},
+		{"POST", "/rollback", ""},
+		{"GET", "/documents/user-profile/123", ""},
+		// /pause comes before /begin, so the valid-token /begin gets 503
+		// Paused instead of opening a transaction nothing would end.
+		{"POST", "/pause", ""},
+		{"POST", "/begin", ""},
+		{"POST", "/documents", `{"documents":[{"type":"t","id":"1","payload":"x"}]}`},
+		{"DELETE", "/documents", ""},
+		{"POST", "/resume", ""},
 		{"GET", "/health", ""},
 		{"GET", "/metrics", ""},
 		{"GET", "/debug", ""},

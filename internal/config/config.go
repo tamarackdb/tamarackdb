@@ -1,6 +1,6 @@
 // Package config loads TamarackDB's startup configuration: socket path or
 // bind address/port, TLS enablement and certificate/key paths, auth token,
-// data directory, and pagination/event-size limits.
+// data directory, transaction timeouts, and pagination/size/queue limits.
 //
 // Values come from a TOML file when present, with any field it omits (or
 // the whole file, if missing) filled in from TAMARACKDB_* environment
@@ -25,25 +25,32 @@ import (
 // Default values for Config's optional fields, exported so callers (such as
 // a -default-config flag) can print them without duplicating the numbers.
 const (
-	DefaultSocketPath           = "/var/run/tamarackdb-server.sock"
-	DefaultBindAddress          = "127.0.0.1"
-	DefaultPort                 = 8085
-	DefaultDataDir              = "data"
-	DefaultLimit                = 1000
-	DefaultMaxLimit             = 10000
-	DefaultEventSize            = 65536 // 64 KiB
-	DefaultMaxQueuedWriters     = 100
-	DefaultReadPoolSize         = 8
-	DefaultDocumentSize         = 65536 // 64 KiB
-	DefaultMaxDocumentsPerWrite = 100
-	DefaultLogLevel             = "warning"
+	DefaultSocketPath            = "/var/run/tamarackdb-server.sock"
+	DefaultBindAddress           = "127.0.0.1"
+	DefaultPort                  = 8085
+	DefaultDataDir               = "data"
+	DefaultLimit                 = 1000
+	DefaultMaxLimit              = 10000
+	DefaultEventSize             = 65536 // 64 KiB
+	DefaultMaxQueuedTransactions = 100
+	DefaultTransactionTimeout    = 5  // seconds
+	DefaultTransactionCeiling    = 15 // seconds
+	DefaultMaxTransactionWait    = 30 // seconds
+	DefaultReadPoolSize          = 8
+	DefaultDocumentSize          = 65536 // 64 KiB
+	DefaultMaxDocumentsPerWrite  = 100
+	DefaultLogLevel              = "warning"
 )
 
-// databaseFilename is the fixed filename TamarackDB uses within DataDir:
-// only the directory is configurable, not the file's name, the same
-// convention MySQL's own datadir uses. Unexported: DatabasePath is the
-// only supported way to get at this path.
-const databaseFilename = "tamarackdb.sqlite"
+// databaseFilename and pauseFilename are the fixed filenames TamarackDB
+// uses within DataDir: only the directory is configurable, not the files'
+// names, the same convention MySQL's own datadir uses. Unexported:
+// DatabasePath and PauseFilePath are the only supported way to get at
+// these paths.
+const (
+	databaseFilename = "tamarackdb.sqlite"
+	pauseFilename    = "tamarackdb.paused"
+)
 
 // Config is TamarackDB's startup configuration, resolved once from a TOML
 // file and/or environment variables and never mutated or reloaded while the
@@ -66,12 +73,13 @@ type Config struct {
 	AuthToken   string `toml:"authToken"`
 
 	// DataDir is the directory holding the SQLite database file
-	// (DatabasePath). Only the directory is configurable; the filename
-	// within it is fixed.
+	// (DatabasePath) and the pause file (PauseFilePath). Only the
+	// directory is configurable; the filenames within it are fixed.
 	DataDir string `toml:"dataDir"` // default: data
 
-	// DevMode, when true, registers the DELETE / endpoint, which wipes the
-	// entire database. Never enable this in production.
+	// DevMode, when true, registers POST /reset, which deletes every event
+	// and document, and the /debug/pprof/ profiling endpoints. Never
+	// enable this in production.
 	DevMode bool `toml:"devMode"`
 
 	// LogLevel is the minimum severity the per-request access log line is
@@ -88,31 +96,40 @@ type Config struct {
 	MaxEventSize int `toml:"maxEventSize"` // default: 65536 (64 KiB)
 
 	// MaxDocumentSize is the maximum UTF-8 byte size of one document's
-	// payload in a /write request; only checked when the payload is
-	// present (a deletion has none to bound). Optional; defaulted by Load
-	// when omitted.
+	// payload in a POST /documents request; only checked when the payload
+	// is present (a deletion has none to bound). Optional; defaulted by
+	// Load when omitted.
 	MaxDocumentSize int `toml:"maxDocumentSize"` // default: 65536 (64 KiB)
 
-	// MaxDocumentsPerWrite caps how many documents a single /write
-	// request may carry, independent of dcb.MaxEventsPerWrite: the two
-	// are unrelated limits, not a combined one. Optional; defaulted by
-	// Load when omitted.
+	// MaxDocumentsPerWrite caps how many documents a single
+	// POST /documents request may carry. Optional; defaulted by Load when
+	// omitted.
 	MaxDocumentsPerWrite int `toml:"maxDocumentsPerWrite"` // default: 100
 
-	// MaxQueuedWriters caps how many writers (POST /append or, in dev mode,
-	// DELETE /) may wait in the FIFO write-admission queue at once; a
-	// request arriving when the queue is already at this depth is rejected
-	// with 503 AppendQueueFull. Optional; defaulted by Load when omitted,
-	// like the three fields above. It is deliberately not "0 means uncapped":
-	// a queue with no cap at all would let a burst (or a misbehaving
-	// client) accumulate an unbounded number of blocked HTTP connections,
-	// so every deployment gets a bound whether it configures one or not.
-	MaxQueuedWriters int `toml:"maxQueuedWriters"` // default: 100
+	// TransactionTimeout is a transaction's idle timeout, in seconds: how
+	// long it may go without a call before it's rolled back, counted from
+	// the moment its ticket is given out, then from the end of each call.
+	// TransactionCeiling is the total time, in seconds, no transaction can
+	// exceed, however many calls it makes. The timeout can't be greater
+	// than the ceiling. Optional; defaulted by Load when omitted.
+	TransactionTimeout int `toml:"transactionTimeout"` // default: 5
+	TransactionCeiling int `toml:"transactionCeiling"` // default: 15
 
-	// ReadPoolSize is the number of SQLite connections available for /read
-	// requests, and so the number that can execute concurrently: further
-	// requests wait for one to free up. Optional; defaulted by Load when
-	// omitted, like the fields above.
+	// MaxTransactionWait caps how long, in seconds, a POST /begin or
+	// POST /pause may wait in the FIFO before getting 503
+	// TransactionWaitTimeout. MaxQueuedTransactions caps how many requests
+	// may wait in the FIFO at once; one more gets 503 TransactionQueueFull
+	// instead of joining. Optional; defaulted by Load when omitted.
+	// Neither is "0 means no limit": a FIFO with no bound would let a
+	// burst, or a broken client, pile up an unlimited number of blocked
+	// HTTP connections, so every deployment gets a bound.
+	MaxTransactionWait    int `toml:"maxTransactionWait"`    // default: 30
+	MaxQueuedTransactions int `toml:"maxQueuedTransactions"` // default: 100
+
+	// ReadPoolSize is the number of SQLite connections available for
+	// reads without a ticket, and so the number that can execute
+	// concurrently: further requests wait for one to free up. Optional;
+	// defaulted by Load when omitted, like the fields above.
 	ReadPoolSize int `toml:"readPoolSize"` // default: 8
 }
 
@@ -178,8 +195,17 @@ func Load(path string) (*Config, error) {
 	if cfg.MaxDocumentsPerWrite == 0 {
 		cfg.MaxDocumentsPerWrite = DefaultMaxDocumentsPerWrite
 	}
-	if cfg.MaxQueuedWriters == 0 {
-		cfg.MaxQueuedWriters = DefaultMaxQueuedWriters
+	if cfg.TransactionTimeout == 0 {
+		cfg.TransactionTimeout = DefaultTransactionTimeout
+	}
+	if cfg.TransactionCeiling == 0 {
+		cfg.TransactionCeiling = DefaultTransactionCeiling
+	}
+	if cfg.MaxTransactionWait == 0 {
+		cfg.MaxTransactionWait = DefaultMaxTransactionWait
+	}
+	if cfg.MaxQueuedTransactions == 0 {
+		cfg.MaxQueuedTransactions = DefaultMaxQueuedTransactions
 	}
 	if cfg.ReadPoolSize == 0 {
 		cfg.ReadPoolSize = DefaultReadPoolSize
@@ -311,13 +337,40 @@ func applyEnv(cfg *Config) error {
 			cfg.MaxDocumentsPerWrite = n
 		}
 	}
-	if cfg.MaxQueuedWriters == 0 {
-		if v, ok := os.LookupEnv("TAMARACKDB_MAX_QUEUED_WRITERS"); ok {
+	if cfg.TransactionTimeout == 0 {
+		if v, ok := os.LookupEnv("TAMARACKDB_TRANSACTION_TIMEOUT"); ok {
 			n, err := strconv.Atoi(v)
 			if err != nil {
-				return fmt.Errorf("invalid TAMARACKDB_MAX_QUEUED_WRITERS %q: %w", v, err)
+				return fmt.Errorf("invalid TAMARACKDB_TRANSACTION_TIMEOUT %q: %w", v, err)
 			}
-			cfg.MaxQueuedWriters = n
+			cfg.TransactionTimeout = n
+		}
+	}
+	if cfg.TransactionCeiling == 0 {
+		if v, ok := os.LookupEnv("TAMARACKDB_TRANSACTION_CEILING"); ok {
+			n, err := strconv.Atoi(v)
+			if err != nil {
+				return fmt.Errorf("invalid TAMARACKDB_TRANSACTION_CEILING %q: %w", v, err)
+			}
+			cfg.TransactionCeiling = n
+		}
+	}
+	if cfg.MaxTransactionWait == 0 {
+		if v, ok := os.LookupEnv("TAMARACKDB_MAX_TRANSACTION_WAIT"); ok {
+			n, err := strconv.Atoi(v)
+			if err != nil {
+				return fmt.Errorf("invalid TAMARACKDB_MAX_TRANSACTION_WAIT %q: %w", v, err)
+			}
+			cfg.MaxTransactionWait = n
+		}
+	}
+	if cfg.MaxQueuedTransactions == 0 {
+		if v, ok := os.LookupEnv("TAMARACKDB_MAX_QUEUED_TRANSACTIONS"); ok {
+			n, err := strconv.Atoi(v)
+			if err != nil {
+				return fmt.Errorf("invalid TAMARACKDB_MAX_QUEUED_TRANSACTIONS %q: %w", v, err)
+			}
+			cfg.MaxQueuedTransactions = n
 		}
 	}
 	if cfg.ReadPoolSize == 0 {
@@ -365,8 +418,16 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("maxDocumentSize must be positive, got %d", c.MaxDocumentSize)
 	case c.MaxDocumentsPerWrite <= 0:
 		return fmt.Errorf("maxDocumentsPerWrite must be positive, got %d", c.MaxDocumentsPerWrite)
-	case c.MaxQueuedWriters <= 0:
-		return fmt.Errorf("maxQueuedWriters must be positive, got %d", c.MaxQueuedWriters)
+	case c.TransactionTimeout <= 0:
+		return fmt.Errorf("transactionTimeout must be positive, got %d", c.TransactionTimeout)
+	case c.TransactionCeiling <= 0:
+		return fmt.Errorf("transactionCeiling must be positive, got %d", c.TransactionCeiling)
+	case c.TransactionTimeout > c.TransactionCeiling:
+		return fmt.Errorf("transactionTimeout (%d) must not exceed transactionCeiling (%d)", c.TransactionTimeout, c.TransactionCeiling)
+	case c.MaxTransactionWait <= 0:
+		return fmt.Errorf("maxTransactionWait must be positive, got %d", c.MaxTransactionWait)
+	case c.MaxQueuedTransactions <= 0:
+		return fmt.Errorf("maxQueuedTransactions must be positive, got %d", c.MaxQueuedTransactions)
 	case c.ReadPoolSize <= 0:
 		return fmt.Errorf("readPoolSize must be positive, got %d", c.ReadPoolSize)
 	}
@@ -377,4 +438,10 @@ func (c *Config) Validate() error {
 // documents: DataDir joined with its fixed filename.
 func (c Config) DatabasePath() string {
 	return filepath.Join(c.DataDir, databaseFilename)
+}
+
+// PauseFilePath is the pause file's path: DataDir joined with its fixed
+// filename. The file exists exactly while the server is paused.
+func (c Config) PauseFilePath() string {
+	return filepath.Join(c.DataDir, pauseFilename)
 }

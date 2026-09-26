@@ -55,12 +55,16 @@ func parseLevel(s string) (level, bool) {
 // ConcurrencyException or DocumentNotFound below, the server did what it
 // was supposed to do.
 var codeLevel = map[string]level{
-	"DocumentNotFound":     levelDebug,   // 404, exactly as designed
-	"ConcurrencyException": levelDebug,   // 409, exactly as designed
-	"InvalidRequest":       levelInfo,    // 400, client-side noise
-	"PayloadTooLarge":      levelInfo,    // 413, client-side noise
-	"Unauthorized":         levelInfo,    // 401, client-side noise
-	"AppendQueueFull":      levelWarning, // 503, real backpressure signal
-	"InternalError":        levelError,   // 500, real failure
-	"Unavailable":          levelError,   // 503, storage unreachable
+	"DocumentNotFound":       levelDebug,   // 404, exactly as designed
+	"ConcurrencyException":   levelDebug,   // 409, exactly as designed
+	"InvalidRequest":         levelInfo,    // 400, client-side noise
+	"PayloadTooLarge":        levelInfo,    // 413, client-side noise
+	"Unauthorized":           levelInfo,    // 401, client-side noise
+	"NotPaused":              levelInfo,    // 409, a call made at the wrong time
+	"TransactionNotActive":   levelInfo,    // 410, a call on a transaction that already ended
+	"TransactionQueueFull":   levelWarning, // 503, real capacity signal
+	"TransactionWaitTimeout": levelWarning, // 503, real capacity signal
+	"Paused":                 levelWarning, // 503, so a forgotten pause shows up
+	"InternalError":          levelError,   // 500, real failure
+	"Unavailable":            levelError,   // 503, storage unreachable
 }

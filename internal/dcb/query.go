@@ -43,13 +43,13 @@ func (i QueryItem) Validate() error {
 // only through QueryAll or NewQuery so the "all and items both set" and
 // "neither set" states are unrepresentable; the zero value is invalid
 // by design (see Validate) rather than silently meaning "all", since a
-// silent default to Query.all() would be a dangerous default for /read.
+// silent default to Query.all() would be a dangerous default for a read.
 //
 // Items that are exact duplicates of one another (same types, same
 // identifiers, same metadata, regardless of order) are silently
 // collapsed to one: they add nothing to the OR beyond a redundant SQL
 // clause. This applies wherever a Query is built, including a
-// condition.failIfEventsMatch on /append.
+// condition.failIfEventsMatch on POST /events.
 type Query struct {
 	all   bool
 	items []QueryItem
@@ -157,7 +157,7 @@ func (q Query) Validate() error {
 	return nil
 }
 
-// AppendCondition mirrors condition in POST /append: FailIfEventsMatch
+// AppendCondition mirrors condition in POST /events: FailIfEventsMatch
 // follows the same grammar as a read Query, and is itself optional
 // within a condition (an afterSequence-only condition is valid, used
 // for safe retries after a startup or crash). Defined in dcb rather than

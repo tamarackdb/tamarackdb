@@ -10,6 +10,7 @@ import (
 	"github.com/tamarackdb/tamarackdb/internal/document"
 	"github.com/tamarackdb/tamarackdb/internal/queue"
 	"github.com/tamarackdb/tamarackdb/internal/store"
+	"github.com/tamarackdb/tamarackdb/internal/txn"
 )
 
 // errorEnvelope is the exact wire shape for error responses:
@@ -36,10 +37,17 @@ func writeError(w http.ResponseWriter, status int, code, message string) {
 }
 
 // handleErr maps err to the right HTTP status/envelope and writes it, or
-// writes nothing at all if the client is already gone.
+// writes nothing at all if the client is already gone or the response has
+// already started (a read cut short partway through its NDJSON stream).
 func (s *Server) handleErr(w http.ResponseWriter, r *http.Request, err error) {
 	if err == nil {
 		return
+	}
+	if store.IsFatal(err) && s.opts.OnFatalStorageError != nil {
+		s.opts.OnFatalStorageError(err)
+	}
+	if errors.Is(err, store.ErrConcurrencyConflict) {
+		s.failedTotal.Add(1)
 	}
 
 	// If the request's own context is already Done, the connection may
@@ -49,6 +57,9 @@ func (s *Server) handleErr(w http.ResponseWriter, r *http.Request, err error) {
 	// wrapped by database/sql or the SQLite driver in ways that don't
 	// necessarily preserve %w all the way through.
 	if r.Context().Err() != nil {
+		return
+	}
+	if sw, ok := w.(*statusWriter); ok && sw.wroteHeader {
 		return
 	}
 
@@ -61,8 +72,8 @@ func (s *Server) handleErr(w http.ResponseWriter, r *http.Request, err error) {
 		// dcb.AppendCondition.Validate(), request-shape decode errors
 		// (see decodeJSON, which wraps those as *dcb.ValidationError
 		// too), and every API-layer-invented rule (limit, event/document
-		// count caps, duplicate document key) that isn't really a dcb
-		// domain rule but reuses this same 400 vehicle.
+		// count caps, duplicate document key, missing ticket) that isn't
+		// really a dcb domain rule but reuses this same 400 vehicle.
 		writeError(w, http.StatusBadRequest, "InvalidRequest", ve.Message)
 	case errors.As(err, &de):
 		// document.Data.Validate()'s own domain rules (missing type or
@@ -72,17 +83,23 @@ func (s *Server) handleErr(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.As(err, &oe):
 		writeError(w, http.StatusRequestEntityTooLarge, "PayloadTooLarge", oe.Error())
 	case errors.Is(err, store.ErrConcurrencyConflict):
-		s.failedTotal.Add(1)
 		writeError(w, http.StatusConflict, "ConcurrencyException", "")
+	case errors.Is(err, txn.ErrNotPaused):
+		// 409, not 503: the server isn't in the state the call requires.
+		// A 503 would suggest a temporary outage worth retrying.
+		writeError(w, http.StatusConflict, "NotPaused", "")
+	case errors.Is(err, txn.ErrNotActive):
+		writeError(w, http.StatusGone, "TransactionNotActive", "")
+	case errors.Is(err, txn.ErrPaused):
+		writeError(w, http.StatusServiceUnavailable, "Paused", "")
 	case errors.Is(err, queue.ErrFull):
+		writeError(w, http.StatusServiceUnavailable, "TransactionQueueFull", "")
+	case errors.Is(err, queue.ErrWaitTimeout):
 		w.Header().Set("Retry-After", "1")
-		writeError(w, http.StatusServiceUnavailable, "AppendQueueFull", "")
+		writeError(w, http.StatusServiceUnavailable, "TransactionWaitTimeout", "")
 	default:
-		// Everything else: queue.ErrClosed, and any other unexpected
-		// error, including fatal storage errors.
-		if store.IsFatal(err) && s.opts.OnFatalStorageError != nil {
-			s.opts.OnFatalStorageError(err)
-		}
+		// Everything else: a closed FIFO during shutdown, and any other
+		// unexpected error, including fatal storage errors.
 		writeError(w, http.StatusInternalServerError, "InternalError", "an unexpected error occurred")
 	}
 }
@@ -107,15 +124,21 @@ func decodeJSON(r *http.Request, v any) error {
 
 // api-layer validation sentinels: rules with no dcb.Validate() equivalent
 // to reuse, because they concern purely HTTP-layer/configured concepts
-// (limit, event size) or request-shape concerns dcb has no opinion about
-// (an empty events array).
+// (limit, event size, the ticket header) or request-shape concerns dcb has
+// no opinion about (an empty events array).
 var (
-	errEmptyWrite           = errors.New("api: write request carries no events or documents")
-	errTooManyEvents        = errors.New("api: write request exceeds the maximum events per write")
-	errTooManyDocuments     = errors.New("api: write request exceeds the maximum documents per write")
-	errDuplicateDocumentKey = errors.New("api: write request carries the same document type+id more than once")
+	errMissingTicket        = errors.New("api: missing ticket header")
+	errNoEvents             = errors.New("api: request carries no events")
+	errNoDocuments          = errors.New("api: request carries no documents")
+	errTooManyEvents        = errors.New("api: request exceeds the maximum events per call")
+	errTooManyDocuments     = errors.New("api: request exceeds the maximum documents per call")
+	errDuplicateDocumentKey = errors.New("api: request carries the same document type+id more than once")
 	errNegativeLimit        = errors.New("api: limit must be non-negative")
 	errZeroLimit            = errors.New("api: limit must be greater than zero")
 	errLimitExceedsMax      = errors.New("api: limit exceeds the configured maximum")
 	errInvalidTimeRange     = errors.New("api: time.from must be earlier than time.before")
 )
+
+// errMissingTicketValidation is the 400 for a call that requires a ticket
+// and carries none.
+var errMissingTicketValidation = &dcb.ValidationError{Err: errMissingTicket, Message: "missing " + TicketHeader + " header"}

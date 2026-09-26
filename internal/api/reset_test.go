@@ -1,120 +1,44 @@
 package api
 
-import (
-	"context"
-	"encoding/json"
-	"path/filepath"
-	"testing"
-	"time"
+import "testing"
 
-	"github.com/tamarackdb/tamarackdb/internal/queue"
-	"github.com/tamarackdb/tamarackdb/internal/store"
-)
+func TestResetDeletesEventsAndDocuments(t *testing.T) {
+	srv, _, _ := newTestServerWith(t, testOptions{devMode: true})
+	appendCommitted(t, srv, `{"events":[{"type":"t","payload":""}]}`)
+	writeDocumentsCommitted(t, srv, `{"documents":[{"type":"user-profile","id":"123","payload":"x"}]}`)
 
-// newDevModeTestServer is newTestServer with Options.DevMode set to true, so
-// DELETE /events is registered.
-func newDevModeTestServer(t *testing.T) (*Server, *store.Store) {
-	t.Helper()
-	srv, _, st := newDevModeTestServerWithMaxQueued(t, 0)
-	return srv, st
-}
-
-func newDevModeTestServerWithMaxQueued(t *testing.T, maxQueued int) (*Server, *queue.Manager, *store.Store) {
-	t.Helper()
-	path := filepath.Join(t.TempDir(), "test.db")
-	st, err := store.Open(context.Background(), path, 0)
-	if err != nil {
-		t.Fatalf("store.Open() error = %v", err)
-	}
-	t.Cleanup(func() { st.Close() })
-	qm := queue.New(maxQueued, 0)
-	t.Cleanup(qm.Close)
-	srv := New(qm, st, Options{
-		EnableAuth:           true,
-		AuthToken:            testToken,
-		DefaultLimit:         1000,
-		MaxLimit:             10000,
-		MaxEventSize:         65536,
-		MaxDocumentSize:      65536,
-		MaxDocumentsPerWrite: 100,
-		LogLevel:             "debug",
-		DevMode:              true,
-	})
-	return srv, qm, st
-}
-
-func TestResetWipesDatabase(t *testing.T) {
-	srv, _ := newDevModeTestServer(t)
-
-	appendRec := doRequest(t, srv, "POST", "/write", `{"events":[{"type":"t","payload":""}]}`)
-	if appendRec.Code != 200 {
-		t.Fatalf("append status = %d, body = %s", appendRec.Code, appendRec.Body.String())
+	rec := doRequest(t, srv, "POST", "/reset", "")
+	if rec.Code != 204 || rec.Body.Len() != 0 {
+		t.Fatalf("status = %d, body = %q, want 204 with no body", rec.Code, rec.Body.String())
 	}
 
-	rec := doRequest(t, srv, "DELETE", "/events", "")
-	if rec.Code != 204 {
-		t.Fatalf("status = %d, want 204, body = %s", rec.Code, rec.Body.String())
-	}
-	if rec.Body.Len() != 0 {
-		t.Errorf("body = %q, want empty", rec.Body.String())
-	}
-
-	readRec := doRequest(t, srv, "QUERY", "/events", `{"query":"*"}`)
-	if readRec.Code != 200 {
-		t.Fatalf("read status = %d, body = %s", readRec.Code, readRec.Body.String())
-	}
-	_, events := parseNDJSON(t, readRec.Body.String())
-	if len(events) != 0 {
+	if _, events := parseNDJSON(t, doRequest(t, srv, "QUERY", "/events", `{"query":"*"}`).Body.String()); len(events) != 0 {
 		t.Errorf("events after reset = %+v, want none", events)
 	}
+	if rec := doRequest(t, srv, "GET", "/documents/user-profile/123", ""); rec.Code != 404 {
+		t.Errorf("document after reset status = %d, want 404", rec.Code)
+	}
+	if resp := appendCommitted(t, srv, `{"events":[{"type":"t","payload":""}]}`); resp.Events[0].Sequence != 1 {
+		t.Errorf("first sequence after reset = %d, want 1", resp.Events[0].Sequence)
+	}
 }
 
-// TestResetNotRegisteredWithoutDevMode confirms DELETE /events isn't
-// registered when DevMode is false: 405, not 404, since QUERY /events is
-// still a known path, just not for DELETE (see router.go's no-catch-all
-// rationale).
+func TestResetCutsOffTheActiveTransaction(t *testing.T) {
+	srv, _, _ := newTestServerWith(t, testOptions{devMode: true})
+	ticket := begin(t, srv)
+	if rec := doRequest(t, srv, "POST", "/reset", ""); rec.Code != 204 {
+		t.Fatalf("reset status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if rec := doTicketRequest(t, srv, "POST", "/commit", ticket, ""); rec.Code != 410 {
+		t.Errorf("commit after reset status = %d, want 410", rec.Code)
+	}
+}
+
+// TestResetNotRegisteredWithoutDevMode confirms POST /reset doesn't exist
+// when DevMode is false.
 func TestResetNotRegisteredWithoutDevMode(t *testing.T) {
 	srv, _, _ := newTestServer(t)
-	rec := doRequest(t, srv, "DELETE", "/events", "")
-	if rec.Code != 405 {
-		t.Fatalf("status = %d, want 405, body = %s", rec.Code, rec.Body.String())
-	}
-}
-
-func TestResetReturns503WhenQueueFull(t *testing.T) {
-	srv, qm, _ := newDevModeTestServerWithMaxQueued(t, 1)
-
-	active, err := qm.Join(context.Background(), queue.KindTransaction)
-	if err != nil {
-		t.Fatalf("Join() error = %v", err)
-	}
-
-	queuedDone := make(chan struct{})
-	go func() {
-		ticket, err := qm.Join(context.Background(), queue.KindTransaction)
-		if err == nil {
-			ticket.Done()
-		}
-		close(queuedDone)
-	}()
-	time.Sleep(50 * time.Millisecond) // let the goroutine occupy the one queue slot
-	defer func() {
-		active.Done()
-		<-queuedDone
-	}()
-
-	rec := doRequest(t, srv, "DELETE", "/events", "")
-	if rec.Code != 503 {
-		t.Fatalf("status = %d, want 503, body = %s", rec.Code, rec.Body.String())
-	}
-	if ra := rec.Header().Get("Retry-After"); ra != "1" {
-		t.Errorf("Retry-After = %q, want \"1\"", ra)
-	}
-	var env errorEnvelope
-	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
-		t.Fatalf("decode error envelope: %v", err)
-	}
-	if env.Error != "AppendQueueFull" {
-		t.Errorf("error = %q, want AppendQueueFull", env.Error)
+	if rec := doRequest(t, srv, "POST", "/reset", ""); rec.Code != 404 {
+		t.Fatalf("status = %d, want 404, body = %s", rec.Code, rec.Body.String())
 	}
 }

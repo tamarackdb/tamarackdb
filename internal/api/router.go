@@ -1,5 +1,5 @@
 // Package api is TamarackDB's HTTP layer: routing, authentication, request
-// validation, and the error envelope around internal/queue and
+// validation, and the error envelope around internal/txn and
 // internal/store. It has no knowledge of internal/config; callers pass an
 // already-resolved Options.
 package api
@@ -9,8 +9,8 @@ import (
 	"net/http/pprof"
 	"sync/atomic"
 
-	"github.com/tamarackdb/tamarackdb/internal/queue"
 	"github.com/tamarackdb/tamarackdb/internal/store"
+	"github.com/tamarackdb/tamarackdb/internal/txn"
 )
 
 // Options configures a Server with values internal/config will have
@@ -29,12 +29,12 @@ type Options struct {
 	// present when EnableAuth is true. Unused otherwise.
 	AuthToken string
 
-	// DefaultLimit is the /read page size applied when a request omits
-	// limit. Default: 1000.
+	// DefaultLimit is the QUERY /events page size applied when a request
+	// omits limit. Default: 1000.
 	DefaultLimit int
 
-	// MaxLimit is the highest limit a /read request may ask for; above
-	// it, 400. Default: 10000.
+	// MaxLimit is the highest limit a QUERY /events request may ask for;
+	// above it, 400. Default: 10000.
 	MaxLimit int
 
 	// MaxEventSize is the maximum combined UTF-8 byte size
@@ -43,20 +43,18 @@ type Options struct {
 	MaxEventSize int
 
 	// MaxDocumentSize is the maximum UTF-8 byte size of one document's
-	// payload in a /write request; over it, 413. Only checked when the
-	// payload is present (a deletion has none to bound). Default: 65536
-	// (64 KiB).
+	// payload in a POST /documents request; over it, 413. Only checked
+	// when the payload is present (a deletion has none to bound).
+	// Default: 65536 (64 KiB).
 	MaxDocumentSize int
 
-	// MaxDocumentsPerWrite caps how many documents a single /write
-	// request may carry; over it, 400. Independent of
-	// dcb.MaxEventsPerWrite: the two are unrelated limits, not a
-	// combined one.
+	// MaxDocumentsPerWrite caps how many documents a single
+	// POST /documents request may carry; over it, 400.
 	MaxDocumentsPerWrite int
 
-	// DevMode, when true, registers DELETE /events, which wipes every
-	// event (documents are never touched). Never enable this in
-	// production.
+	// DevMode, when true, registers POST /reset, which deletes every event
+	// and document, and the /debug/pprof/ profiling endpoints. Never
+	// enable this in production.
 	DevMode bool
 
 	// LogLevel is the minimum severity the per-request access log line
@@ -76,30 +74,24 @@ type Options struct {
 }
 
 // Server is TamarackDB's HTTP API. It implements http.Handler directly, so
-// a future main.go can pass the result of New straight to
-// http.ListenAndServeTLS.
+// main.go can pass the result of New straight to http.Server.
 type Server struct {
-	qm   *queue.Manager
+	tm   *txn.Manager
 	st   *store.Store
 	opts Options
 
-	// failedTotal counts writes that failed with
-	// store.ErrConcurrencyConflict, exposed by GET /metrics. It lives
-	// here, not in internal/queue, because that failure is only known
-	// once store.Append runs, after the queue manager already admitted
-	// the writer.
+	// failedTotal counts POST /events calls that failed on their Append
+	// Condition, exposed by GET /metrics. It lives here, not in
+	// internal/txn, because only this layer knows why a call failed.
 	failedTotal atomic.Uint64
 
-	// admittedTotal counts writers admitted by joinWriteQueue, exposed by
-	// GET /metrics.
-	admittedTotal atomic.Uint64
-
-	// readHTTPOpen counts QUERY /events requests currently in flight,
-	// exposed by GET /debug. Unlike writes, reads have no FIFO queue to
-	// derive this from (internal/queue only tracks write admission), so
-	// handleEvents increments/decrements it directly around its whole
-	// lifetime, including NDJSON streaming.
-	readHTTPOpen atomic.Int64
+	// writeHTTPOpen and readHTTPOpen count requests in flight on each
+	// side, exposed by GET /debug. The write side is every request that
+	// waits in the FIFO or uses the write connection: POST /begin,
+	// POST /pause, calls with a ticket, and calls accepted only while
+	// paused. The read side is every read without a ticket.
+	writeHTTPOpen atomic.Int64
+	readHTTPOpen  atomic.Int64
 
 	// logThreshold is Options.LogLevel parsed once at construction; see
 	// withLogging.
@@ -108,19 +100,19 @@ type Server struct {
 	handler http.Handler
 }
 
-// New builds a Server ready to serve traffic. qm and st must already be
+// New builds a Server ready to serve traffic. tm and st must already be
 // constructed and are not owned by the returned Server; the caller
 // remains responsible for closing both.
 //
 // New panics on invalid static configuration (empty token, non-positive
-// limits, DefaultLimit > MaxLimit, nil qm/st): these are startup wiring
+// limits, DefaultLimit > MaxLimit, nil tm/st): these are startup wiring
 // bugs, not request-time conditions, the same "fail loud and immediately"
 // treatment store.Open gives a bad database file.
-func New(qm *queue.Manager, st *store.Store, opts Options) *Server {
+func New(tm *txn.Manager, st *store.Store, opts Options) *Server {
 	logThreshold, validLogLevel := parseLevel(opts.LogLevel)
 	switch {
-	case qm == nil:
-		panic("api: New: qm must not be nil")
+	case tm == nil:
+		panic("api: New: tm must not be nil")
 	case st == nil:
 		panic("api: New: st must not be nil")
 	case opts.DefaultLimit <= 0:
@@ -139,14 +131,20 @@ func New(qm *queue.Manager, st *store.Store, opts Options) *Server {
 		panic(`api: New: Options.LogLevel must be one of "debug", "info", "warning", "error"`)
 	}
 
-	s := &Server{qm: qm, st: st, opts: opts, logThreshold: logThreshold}
+	s := &Server{tm: tm, st: st, opts: opts, logThreshold: logThreshold}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("QUERY /events", s.handleEvents)
-	mux.HandleFunc("POST /write", s.handleWrite)
+	mux.HandleFunc("POST /begin", s.handleBegin)
+	mux.HandleFunc("POST /commit", s.handleCommit)
+	mux.HandleFunc("POST /rollback", s.handleRollback)
+	mux.HandleFunc("QUERY /events", s.handleReadEvents)
+	mux.HandleFunc("POST /events", s.handleAppendEvents)
 	mux.HandleFunc("GET /documents/{type}/{id}", s.handleGetDocument)
+	mux.HandleFunc("POST /documents", s.handleWriteDocuments)
 	mux.HandleFunc("DELETE /documents/{type}", s.handleDeleteDocumentsByType)
 	mux.HandleFunc("DELETE /documents", s.handleDeleteAllDocuments)
+	mux.HandleFunc("POST /pause", s.handlePause)
+	mux.HandleFunc("POST /resume", s.handleResume)
 	mux.HandleFunc("GET /health", s.handleHealth)
 	mux.HandleFunc("GET /metrics", s.handleMetrics)
 	mux.HandleFunc("GET /debug", s.handleDebug)
@@ -157,9 +155,8 @@ func New(qm *queue.Manager, st *store.Store, opts Options) *Server {
 	// matches). An unknown path gets the stdlib's plain-text 404; a known
 	// path with the wrong method correctly gets 405 + Allow.
 	if opts.DevMode {
-		// Deletes every event and document, see Store.Reset. A different
-		// method on the same path as "QUERY /events" above.
-		mux.HandleFunc("DELETE /events", s.handleReset)
+		// Deletes every event and document, see txn.Manager.Reset.
+		mux.HandleFunc("POST /reset", s.handleReset)
 
 		// Standard net/http/pprof registration, mounted on our own mux
 		// instead of relying on the package's http.DefaultServeMux side
@@ -167,7 +164,7 @@ func New(qm *queue.Manager, st *store.Store, opts Options) *Server {
 		// /debug/pprof/symbol for large symbol lookups, hence the
 		// second registration for that one path.
 		//
-		// DevMode-gated like DELETE /events above: CPU/heap profiles and
+		// DevMode-gated like POST /reset above: CPU/heap profiles and
 		// goroutine dumps can leak information about running queries
 		// and are never meant for a production deployment.
 		mux.HandleFunc("GET /debug/pprof/", pprof.Index)

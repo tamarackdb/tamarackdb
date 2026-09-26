@@ -48,7 +48,7 @@ func mustReadAll(t *testing.T, s *Store, f ReadFilter) ([]dcb.Event, bool) {
 
 // toDCBEvent decodes a ReadEvent's raw time/identifiers/metadata back into a
 // dcb.Event, so tests can keep asserting against the structured shape even
-// though production code (see internal/api/read.go) never does this decode.
+// though production code (see internal/api/events.go) never does this decode.
 func toDCBEvent(t *testing.T, re ReadEvent) dcb.Event {
 	t.Helper()
 	tm, err := time.Parse(timeLayout, re.Time)

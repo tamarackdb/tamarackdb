@@ -4,13 +4,15 @@ import (
 	"log"
 	"net/http"
 	"time"
+
+	"github.com/tamarackdb/tamarackdb/internal/txn"
 )
 
 // withLogging wraps next (the whole routed mux, auth included) and logs one
 // line per request: method, path, resulting status code, and duration,
 // tagged with a severity level. A request whose level falls below
 // s.logThreshold is not logged at all. It never logs request or response
-// bodies, so /read conditions and /append events never reach the log.
+// bodies, so queries, conditions, and events never reach the log.
 func (s *Server) withLogging(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
@@ -30,18 +32,35 @@ func (s *Server) withLogging(next http.Handler) http.Handler {
 // (200 OK) keep the defaults set above.
 type statusWriter struct {
 	http.ResponseWriter
-	status int
-	bytes  int
-	level  level
+	status      int
+	bytes       int
+	level       level
+	wroteHeader bool
 }
 
 func (sw *statusWriter) WriteHeader(status int) {
 	sw.status = status
+	sw.wroteHeader = true
 	sw.ResponseWriter.WriteHeader(status)
 }
 
 func (sw *statusWriter) Write(b []byte) (int, error) {
+	sw.wroteHeader = true
 	n, err := sw.ResponseWriter.Write(b)
 	sw.bytes += n
 	return n, err
+}
+
+// ExpiryLogger returns the function internal/txn calls when it rolls back
+// an expired transaction (txn.Config.OnExpire). No request is there to
+// log it, so it writes its own line, at warning level, when logLevel lets
+// warnings through. logLevel must be one of the four level names.
+func ExpiryLogger(logLevel string) func(limit txn.Limit, lasted time.Duration) {
+	threshold, _ := parseLevel(logLevel)
+	return func(limit txn.Limit, lasted time.Duration) {
+		if levelWarning < threshold {
+			return
+		}
+		log.Printf("tamarackdb-server: [%s] transaction expired: %s reached after %.2fs", levelWarning, limit, lasted.Seconds())
+	}
 }

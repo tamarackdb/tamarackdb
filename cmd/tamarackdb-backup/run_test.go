@@ -15,13 +15,18 @@ import (
 	"github.com/tamarackdb/tamarackdb/internal/api"
 	"github.com/tamarackdb/tamarackdb/internal/config"
 	"github.com/tamarackdb/tamarackdb/internal/dcb"
-	"github.com/tamarackdb/tamarackdb/internal/queue"
 	"github.com/tamarackdb/tamarackdb/internal/store"
+	"github.com/tamarackdb/tamarackdb/internal/txn"
 )
 
 func newSourceServer(t *testing.T, st *store.Store) *httptest.Server {
 	t.Helper()
-	srv := api.New(queue.New(100, 0), st, api.Options{
+	tm, err := txn.New(st, txn.Config{Timeout: 5 * time.Second, Ceiling: 15 * time.Second})
+	if err != nil {
+		t.Fatalf("txn.New() error = %v", err)
+	}
+	t.Cleanup(tm.Close)
+	srv := api.New(tm, st, api.Options{
 		DefaultLimit: 1000, MaxLimit: 10000, MaxEventSize: 65536, MaxDocumentSize: 65536, MaxDocumentsPerWrite: 100,
 		LogLevel: "debug",
 	})

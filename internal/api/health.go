@@ -8,6 +8,7 @@ import (
 type healthResponse struct {
 	Status  string `json:"status"`
 	Version string `json:"version"`
+	Paused  bool   `json:"paused"`
 }
 
 // handleHealth confirms the process is responsive and SQLite is reachable
@@ -16,6 +17,10 @@ type healthResponse struct {
 // readiness to a supervisor/load balancer, and 503 is the conventional
 // signal such tooling already expects for "not ready right now", distinct
 // from the 500 an ordinary in-request handler failure returns elsewhere.
+//
+// A paused server is healthy: it still responds 200, with paused set. A
+// supervisor restarting the process on a 503 would only restart it paused
+// again, in a loop, for the whole length of a rebuild.
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	if err := s.st.Ping(r.Context()); err != nil {
 		writeError(w, http.StatusServiceUnavailable, "Unavailable", "storage is not reachable")
@@ -23,5 +28,5 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(healthResponse{Status: "ok", Version: s.opts.Version})
+	_ = json.NewEncoder(w).Encode(healthResponse{Status: "ok", Version: s.opts.Version, Paused: s.tm.Paused()})
 }

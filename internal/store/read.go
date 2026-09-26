@@ -122,7 +122,7 @@ func scanEvent(rows *sql.Rows) (ReadEvent, error) {
 // query is exhausted; HasMore is only meaningful after that point (i.e.
 // once Next has returned false); before then it is always false.
 //
-// internal/api's /read handler drives this with Next()/Event()/Err(),
+// internal/api's QUERY /events handler drives this with Next()/Event()/Err(),
 // writing each event as it comes out of SQLite; the single underlying
 // query keeps the read transaction short-lived, to support live projection
 // rebuilds, never held open across pages.

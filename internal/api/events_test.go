@@ -11,26 +11,25 @@ import (
 	"github.com/tamarackdb/tamarackdb/internal/dcb"
 )
 
-// seedHTTPEvents appends n events via HTTP, batching by 100 per call to
-// respect dcb.MaxEventsPerWrite.
+// seedHTTPEvents appends n events via HTTP, in one transaction, batching
+// by 100 per call to respect dcb.MaxEventsPerWrite.
 func seedHTTPEvents(t *testing.T, srv *Server, n int) {
 	t.Helper()
+	ticket := begin(t, srv)
 	for n > 0 {
-		batch := n
-		if batch > 100 {
-			batch = 100
-		}
+		batch := min(n, 100)
 		var events []string
 		for i := 0; i < batch; i++ {
 			events = append(events, `{"type":"seed","identifiers":{},"metadata":{},"payload":""}`)
 		}
 		body := fmt.Sprintf(`{"events":[%s]}`, strings.Join(events, ","))
-		rec := doRequest(t, srv, "POST", "/write", body)
+		rec := doTicketRequest(t, srv, "POST", "/events", ticket, body)
 		if rec.Code != 200 {
 			t.Fatalf("seed append status = %d, body = %s", rec.Code, rec.Body.String())
 		}
 		n -= batch
 	}
+	commit(t, srv, ticket)
 }
 
 func TestReadPaginationOverHTTP(t *testing.T) {
@@ -136,5 +135,176 @@ func TestReadValidationFailures(t *testing.T) {
 				t.Errorf("error = %q, want InvalidRequest", env.Error)
 			}
 		})
+	}
+}
+
+func TestReadWithTicketSeesItsOwnEvents(t *testing.T) {
+	srv, _, _ := newTestServer(t)
+	seedHTTPEvents(t, srv, 1)
+
+	ticket := begin(t, srv)
+	if rec := doTicketRequest(t, srv, "POST", "/events", ticket,
+		`{"events":[{"type":"pending","identifiers":{},"metadata":{},"payload":""}]}`); rec.Code != 200 {
+		t.Fatalf("append status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+
+	inside := doTicketRequest(t, srv, "QUERY", "/events", ticket, `{"query":"*"}`)
+	if inside.Code != 200 {
+		t.Fatalf("read with ticket status = %d, body = %s", inside.Code, inside.Body.String())
+	}
+	if _, events := parseNDJSON(t, inside.Body.String()); len(events) != 2 || events[1].Type != "pending" {
+		t.Errorf("read with ticket = %+v, want the committed event then the pending one", events)
+	}
+
+	outside := doRequest(t, srv, "QUERY", "/events", `{"query":"*"}`)
+	if _, events := parseNDJSON(t, outside.Body.String()); len(events) != 1 {
+		t.Errorf("read without ticket = %d events, want 1 (committed only)", len(events))
+	}
+	commit(t, srv, ticket)
+}
+
+func TestReadWithTicketInvalidBodyRollsBack(t *testing.T) {
+	srv, _, _ := newTestServer(t)
+	ticket := begin(t, srv)
+	if rec := doTicketRequest(t, srv, "QUERY", "/events", ticket, `{"query":[]}`); rec.Code != 400 {
+		t.Fatalf("status = %d, want 400, body = %s", rec.Code, rec.Body.String())
+	}
+	if rec := doTicketRequest(t, srv, "POST", "/commit", ticket, ""); rec.Code != 410 {
+		t.Errorf("commit after a failed call status = %d, want 410", rec.Code)
+	}
+}
+
+func TestAppendReadRoundTrip(t *testing.T) {
+	srv, _, _ := newTestServer(t)
+	resp := appendCommitted(t, srv, `{"events":[
+		{"type":"user-created","identifiers":{"userId":"123"},"metadata":{"tenantId":"acme"},"payload":"a"},
+		{"type":"user-updated","identifiers":{"userId":"123"},"metadata":{},"payload":"b"}
+	]}`)
+	if len(resp.Events) != 2 {
+		t.Fatalf("got %d appended events, want 2", len(resp.Events))
+	}
+
+	readRec := doRequest(t, srv, "QUERY", "/events", `{"query":"*"}`)
+	if readRec.Code != 200 {
+		t.Fatalf("read status = %d, body = %s", readRec.Code, readRec.Body.String())
+	}
+	trailer, events := parseNDJSON(t, readRec.Body.String())
+	if trailer.HasMore {
+		t.Errorf("hasMore = true, want false")
+	}
+	if len(events) != 2 || events[0].Type != "user-created" || events[1].Type != "user-updated" {
+		t.Fatalf("events = %+v, want user-created then user-updated in sequence order", events)
+	}
+	for i, ev := range events {
+		if ev.Sequence != resp.Events[i].Sequence {
+			t.Errorf("event %d: sequence = %d, want %d from the append response", i, ev.Sequence, resp.Events[i].Sequence)
+		}
+		if got := ev.Time.UTC().Format(timeLayout); got != resp.Events[i].Time {
+			t.Errorf("event %d: read time = %q, want %q from the append response", i, got, resp.Events[i].Time)
+		}
+	}
+	if resp.Events[0].Time != resp.Events[1].Time {
+		t.Errorf("time differs within one append: %q vs %q", resp.Events[0].Time, resp.Events[1].Time)
+	}
+}
+
+func TestAppendRequiresTicket(t *testing.T) {
+	srv, _, _ := newTestServer(t)
+	rec := doRequest(t, srv, "POST", "/events", `{"events":[{"type":"t","identifiers":{},"metadata":{},"payload":""}]}`)
+	if rec.Code != 400 || errorCode(t, rec) != "InvalidRequest" {
+		t.Fatalf("status = %d, body = %s, want 400 InvalidRequest", rec.Code, rec.Body.String())
+	}
+}
+
+// TestAppendFailuresRollBack checks each kind of failed append, and that
+// every one of them ends the transaction.
+func TestAppendFailuresRollBack(t *testing.T) {
+	var identifiers strings.Builder
+	for i := 0; i < 21; i++ {
+		if i > 0 {
+			identifiers.WriteString(",")
+		}
+		fmt.Fprintf(&identifiers, `"id%d":"v"`, i)
+	}
+	var tooMany []string
+	for i := 0; i < 101; i++ {
+		tooMany = append(tooMany, `{"type":"t","identifiers":{},"metadata":{},"payload":""}`)
+	}
+
+	tests := []struct {
+		name       string
+		body       string
+		wantStatus int
+		wantError  string
+	}{
+		{"missing type", `{"events":[{"identifiers":{},"metadata":{},"payload":""}]}`, 400, "InvalidRequest"},
+		{"duplicate identifier", `{"events":[{"type":"t","identifiers":{"a":["1","1"]},"metadata":{},"payload":""}]}`, 400, "InvalidRequest"},
+		{"empty events", `{"events":[]}`, 400, "InvalidRequest"},
+		{"malformed json", `{"events":`, 400, "InvalidRequest"},
+		{"negative afterSequence in condition", `{"events":[{"type":"t","identifiers":{},"metadata":{},"payload":""}],"condition":{"afterSequence":-1}}`, 400, "InvalidRequest"},
+		{"too many identifiers", `{"events":[{"type":"t","identifiers":{` + identifiers.String() + `},"metadata":{},"payload":""}]}`, 400, "InvalidRequest"},
+		{"too many events", `{"events":[` + strings.Join(tooMany, ",") + `]}`, 400, "InvalidRequest"},
+		{"oversized event", fmt.Sprintf(`{"events":[{"type":"t","identifiers":{},"metadata":{},"payload":%q}]}`, strings.Repeat("x", 70000)), 413, "PayloadTooLarge"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv, _, _ := newTestServer(t)
+			ticket := begin(t, srv)
+			rec := doTicketRequest(t, srv, "POST", "/events", ticket, tt.body)
+			if rec.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d, body = %s", rec.Code, tt.wantStatus, rec.Body.String())
+			}
+			if got := errorCode(t, rec); got != tt.wantError {
+				t.Errorf("error = %q, want %q", got, tt.wantError)
+			}
+			if rec := doTicketRequest(t, srv, "POST", "/commit", ticket, ""); rec.Code != 410 {
+				t.Errorf("commit after the failed append status = %d, want 410", rec.Code)
+			}
+		})
+	}
+}
+
+func TestAppendConcurrencyConflictEndToEnd(t *testing.T) {
+	srv, _, _ := newTestServer(t)
+	appendCommitted(t, srv, `{"events":[{"type":"t","identifiers":{"userId":"123"},"metadata":{},"payload":""}]}`)
+
+	ticket := begin(t, srv)
+	body := `{"events":[{"type":"t","identifiers":{"userId":"999"},"metadata":{},"payload":""}],
+		"condition":{"failIfEventsMatch":[{"identifiers":[{"name":"userId","value":"123"}]}],"afterSequence":0}}`
+	rec := doTicketRequest(t, srv, "POST", "/events", ticket, body)
+	if rec.Code != 409 {
+		t.Fatalf("status = %d, want 409, body = %s", rec.Code, rec.Body.String())
+	}
+
+	// Must carry no "message" key at all.
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+		t.Fatalf("decode raw response: %v", err)
+	}
+	if _, ok := raw["message"]; ok {
+		t.Errorf("response has a \"message\" key, want none: %s", rec.Body.String())
+	}
+	if string(raw["error"]) != `"ConcurrencyException"` {
+		t.Errorf("error = %s, want \"ConcurrencyException\"", raw["error"])
+	}
+	if rec := doTicketRequest(t, srv, "POST", "/commit", ticket, ""); rec.Code != 410 {
+		t.Errorf("commit after a failed condition status = %d, want 410", rec.Code)
+	}
+}
+
+// TestAppendConditionSeesEventsAppendedEarlierInTransaction checks that
+// the Append Condition covers the transaction's own events.
+func TestAppendConditionSeesEventsAppendedEarlierInTransaction(t *testing.T) {
+	srv, _, _ := newTestServer(t)
+	ticket := begin(t, srv)
+	if rec := doTicketRequest(t, srv, "POST", "/events", ticket,
+		`{"events":[{"type":"t","identifiers":{"userId":"123"},"metadata":{},"payload":""}]}`); rec.Code != 200 {
+		t.Fatalf("first append status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	rec := doTicketRequest(t, srv, "POST", "/events", ticket,
+		`{"events":[{"type":"t","identifiers":{},"metadata":{},"payload":""}],
+		"condition":{"failIfEventsMatch":[{"identifiers":[{"name":"userId","value":"123"}]}],"afterSequence":0}}`)
+	if rec.Code != 409 {
+		t.Fatalf("second append status = %d, want 409, body = %s", rec.Code, rec.Body.String())
 	}
 }

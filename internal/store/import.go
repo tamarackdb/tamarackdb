@@ -7,7 +7,7 @@ import (
 )
 
 // Import writes pre-sequenced events (typically received from another
-// TamarackDB instance's /read endpoint) directly into storage, in one
+// TamarackDB instance's QUERY /events endpoint) directly into storage, in one
 // transaction, bypassing sequence reservation and append-condition checks
 // entirely. Unlike Append, callers are responsible for supplying events
 // whose Sequence values are already assigned by their origin. A duplicate

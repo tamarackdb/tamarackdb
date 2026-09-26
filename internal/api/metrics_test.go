@@ -6,47 +6,23 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/tamarackdb/tamarackdb/internal/queue"
 )
 
 func TestMetricsOutput(t *testing.T) {
-	srv, qm, _ := newTestServer(t)
+	srv, tm, _ := newTestServer(t)
 
-	// Trigger one ConcurrencyException to bump failedTotal, before setting
-	// up any active/queued state below: internal/queue enforces strict
-	// FIFO ordering, so any /append issued while another request is
-	// already queued would itself queue behind it and this synchronous
-	// httptest call would deadlock waiting for a Done that only happens
-	// at the end of this test.
-	first := doRequest(t, srv, "POST", "/write", `{"events":[{"type":"t","identifiers":{"userId":"1"},"metadata":{},"payload":""}]}`)
-	if first.Code != 200 {
-		t.Fatalf("seed append status = %d, body = %s", first.Code, first.Body.String())
-	}
-	conflict := doRequest(t, srv, "POST", "/write",
-		`{"events":[{"type":"t","identifiers":{"userId":"2"},"metadata":{},"payload":""}],"condition":{"failIfEventsMatch":[{"identifiers":[{"name":"userId","value":"1"}]}]}}`)
-	if conflict.Code != 409 {
-		t.Fatalf("conflict append status = %d, want 409, body = %s", conflict.Code, conflict.Body.String())
-	}
+	provokeConflict(t, srv) // one committed, one rolled back on error, one failed append
+	rolledBack := begin(t, srv)
+	doTicketRequest(t, srv, "POST", "/rollback", rolledBack, "")
 
-	active, err := qm.Join(context.Background(), queue.KindTransaction)
-	if err != nil {
-		t.Fatalf("Join() error = %v", err)
-	}
-
-	queuedDone := make(chan struct{})
+	holder := begin(t, srv)
+	queued := make(chan string, 1)
 	go func() {
-		ticket, err := qm.Join(context.Background(), queue.KindTransaction)
-		if err == nil {
-			ticket.Done()
-		}
-		close(queuedDone)
+		ticket, _ := tm.Begin(context.Background())
+		queued <- ticket
 	}()
-	time.Sleep(50 * time.Millisecond) // let the goroutine reach the queue
+	time.Sleep(50 * time.Millisecond) // let the goroutine reach the FIFO
 
-	// GET /metrics calls qm.Snapshot, a plain mutex-protected read that
-	// answers regardless of queue state, so this cannot deadlock behind
-	// the queued Join above.
 	rec := doRequest(t, srv, "GET", "/metrics", "")
 	if rec.Code != 200 {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
@@ -56,29 +32,36 @@ func TestMetricsOutput(t *testing.T) {
 	}
 
 	values := parseMetrics(t, rec.Body.String())
+	for name, want := range map[string]float64{
+		"tamarackdb_paused":                                           0,
+		"tamarackdb_transaction_active":                               1,
+		"tamarackdb_requests_queued":                                  1,
+		"tamarackdb_transactions_started_total":                       4,
+		"tamarackdb_transactions_committed_total":                     1,
+		`tamarackdb_transactions_rolled_back_total{reason="client"}`:  1,
+		`tamarackdb_transactions_rolled_back_total{reason="error"}`:   1,
+		`tamarackdb_transactions_rolled_back_total{reason="expired"}`: 0,
+		`tamarackdb_transaction_duration_seconds_bucket{le="+Inf"}`:   3,
+		"tamarackdb_transaction_duration_seconds_count":               3,
+		"tamarackdb_appends_failed_total":                             1,
+	} {
+		if got, ok := values[name]; !ok || got != want {
+			t.Errorf("%s = %v (present=%v), want %v", name, got, ok, want)
+		}
+	}
+	if values["tamarackdb_queue_longest_wait_seconds"] <= 0 {
+		t.Errorf("tamarackdb_queue_longest_wait_seconds = %v, want > 0", values["tamarackdb_queue_longest_wait_seconds"])
+	}
 
-	if values["tamarackdb_writer_active"] != 1 {
-		t.Errorf("tamarackdb_writer_active = %v, want 1", values["tamarackdb_writer_active"])
+	commit(t, srv, holder)
+	if ticket := <-queued; ticket != "" {
+		tm.Rollback(ticket)
 	}
-	if values["tamarackdb_requests_queued"] != 1 {
-		t.Errorf("tamarackdb_requests_queued = %v, want 1", values["tamarackdb_requests_queued"])
-	}
-	if values["tamarackdb_appends_failed_total"] != 1 {
-		t.Errorf("tamarackdb_appends_failed_total = %v, want 1", values["tamarackdb_appends_failed_total"])
-	}
-	if values["tamarackdb_writes_admitted_total"] < 2 {
-		t.Errorf("tamarackdb_writes_admitted_total = %v, want >= 2 (seed append + this active writer)", values["tamarackdb_writes_admitted_total"])
-	}
-	if values["tamarackdb_queue_longest_wait_seconds"] < 0 {
-		t.Errorf("tamarackdb_queue_longest_wait_seconds = %v, want >= 0", values["tamarackdb_queue_longest_wait_seconds"])
-	}
-
-	active.Done()
-	<-queuedDone
 }
 
 // parseMetrics extracts "name value" lines from Prometheus text output,
-// ignoring "# HELP"/"# TYPE" comment lines.
+// ignoring "# HELP"/"# TYPE" comment lines. A labeled sample keeps its
+// labels in its name.
 func parseMetrics(t *testing.T, body string) map[string]float64 {
 	t.Helper()
 	values := map[string]float64{}
@@ -87,15 +70,15 @@ func parseMetrics(t *testing.T, body string) map[string]float64 {
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-		parts := strings.SplitN(line, " ", 2)
-		if len(parts) != 2 {
+		i := strings.LastIndex(line, " ")
+		if i < 0 {
 			t.Fatalf("malformed metric line: %q", line)
 		}
-		v, err := strconv.ParseFloat(parts[1], 64)
+		v, err := strconv.ParseFloat(line[i+1:], 64)
 		if err != nil {
 			t.Fatalf("malformed metric value in line %q: %v", line, err)
 		}
-		values[parts[0]] = v
+		values[line[:i]] = v
 	}
 	return values
 }

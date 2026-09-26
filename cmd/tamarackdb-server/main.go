@@ -1,7 +1,7 @@
-// Command tamarackdb runs the TamarackDB HTTPS server: it loads the TOML
-// configuration file, opens the SQLite store, starts the queue manager, and
-// serves the HTTP API until an OS shutdown signal or a fatal storage error
-// is observed.
+// Command tamarackdb runs the TamarackDB HTTP server: it loads the TOML
+// configuration file, opens the SQLite store, starts the transaction
+// manager, and serves the HTTP API until an OS shutdown signal or a fatal
+// storage error is observed.
 package main
 
 import (
@@ -20,8 +20,8 @@ import (
 	"github.com/tamarackdb/tamarackdb/internal/api"
 	"github.com/tamarackdb/tamarackdb/internal/buildinfo"
 	"github.com/tamarackdb/tamarackdb/internal/config"
-	"github.com/tamarackdb/tamarackdb/internal/queue"
-	"github.com/tamarackdb/tamarackdb/internal/store"
+		"github.com/tamarackdb/tamarackdb/internal/store"
+	"github.com/tamarackdb/tamarackdb/internal/txn"
 )
 
 // banner is printed to stdout on startup, generated with `figlet TamarackDB`
@@ -33,7 +33,7 @@ const banner = " _____                                    _    ____  ____\n" +
 	"  |_|\\__,_|_| |_| |_|\\__,_|_|  \\__,_|\\___|_|\\_\\____/|____/\n"
 
 // optimizeInterval is how often the server runs PRAGMA optimize against the
-// write connection (see store.Store.Optimize).
+// write connection, through the FIFO (see txn.Manager.Optimize).
 const optimizeInterval = time.Hour
 
 func main() {
@@ -75,7 +75,10 @@ func main() {
 	fmt.Printf("maxEventSize: %d\n", cfg.MaxEventSize)
 	fmt.Printf("maxDocumentSize: %d\n", cfg.MaxDocumentSize)
 	fmt.Printf("maxDocumentsPerWrite: %d\n", cfg.MaxDocumentsPerWrite)
-	fmt.Printf("maxQueuedWriters: %d\n", cfg.MaxQueuedWriters)
+	fmt.Printf("transactionTimeout: %d\n", cfg.TransactionTimeout)
+	fmt.Printf("transactionCeiling: %d\n", cfg.TransactionCeiling)
+	fmt.Printf("maxTransactionWait: %d\n", cfg.MaxTransactionWait)
+	fmt.Printf("maxQueuedTransactions: %d\n", cfg.MaxQueuedTransactions)
 	fmt.Printf("readPoolSize: %d\n\n", cfg.ReadPoolSize)
 
 	st, err := store.Open(context.Background(), cfg.DatabasePath(), cfg.ReadPoolSize)
@@ -85,10 +88,23 @@ func main() {
 	// st.Close() is not deferred: shutdown is ordered explicitly below,
 	// not left to main's return.
 
-	qm := queue.New(cfg.MaxQueuedWriters, 0)
+	tm, err := txn.New(st, txn.Config{
+		Timeout:   time.Duration(cfg.TransactionTimeout) * time.Second,
+		Ceiling:   time.Duration(cfg.TransactionCeiling) * time.Second,
+		MaxQueued: cfg.MaxQueuedTransactions,
+		MaxWait:   time.Duration(cfg.MaxTransactionWait) * time.Second,
+		PauseFile: cfg.PauseFilePath(),
+		OnExpire:  api.ExpiryLogger(cfg.LogLevel),
+	})
+	if err != nil {
+		log.Fatalf("tamarackdb-server: %v", err)
+	}
+	if tm.Paused() {
+		log.Printf("tamarackdb-server: starting paused (%s exists)", cfg.PauseFilePath())
+	}
 
 	fatalCh := make(chan error, 1)
-	srv := api.New(qm, st, api.Options{
+	srv := api.New(tm, st, api.Options{
 		Version:              buildinfo.Version,
 		EnableAuth:           cfg.EnableAuth,
 		AuthToken:            cfg.AuthToken,
@@ -158,7 +174,7 @@ func main() {
 			case <-signalCtx.Done():
 				return
 			case <-optimizeTicker.C:
-				if err := st.Optimize(signalCtx); err != nil {
+				if err := tm.Optimize(signalCtx); err != nil {
 					log.Printf("tamarackdb-server: PRAGMA optimize: %v", err)
 				}
 			}
@@ -184,7 +200,7 @@ func main() {
 	if err := httpServer.Shutdown(shutdownCtx); err != nil {
 		log.Printf("tamarackdb-server: graceful shutdown error: %v", err)
 	}
-	qm.Close()
+	tm.Close() // turns away the FIFO, then rolls back the active transaction
 	if err := st.Close(); err != nil {
 		log.Printf("tamarackdb-server: store close error: %v", err)
 	}
@@ -216,7 +232,10 @@ const defaultConfigTemplate = `[server]
 # maxEventSize = %d
 # maxDocumentSize = %d
 # maxDocumentsPerWrite = %d
-# maxQueuedWriters = %d
+# transactionTimeout = %d
+# transactionCeiling = %d
+# maxTransactionWait = %d
+# maxQueuedTransactions = %d
 # readPoolSize = %d
 `
 
@@ -228,5 +247,7 @@ func printDefaultConfig() {
 		config.DefaultLogLevel,
 		config.DefaultLimit, config.DefaultMaxLimit, config.DefaultEventSize,
 		config.DefaultDocumentSize, config.DefaultMaxDocumentsPerWrite,
-		config.DefaultMaxQueuedWriters, config.DefaultReadPoolSize)
+		config.DefaultTransactionTimeout, config.DefaultTransactionCeiling,
+		config.DefaultMaxTransactionWait, config.DefaultMaxQueuedTransactions,
+		config.DefaultReadPoolSize)
 }
