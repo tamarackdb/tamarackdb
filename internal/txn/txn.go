@@ -151,6 +151,13 @@ func (m *Manager) Begin(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if err := ctx.Err(); err != nil {
+		// The client left just as its turn came: nobody would ever learn
+		// the ticket, and the transaction would hold the turn until its
+		// idle timeout.
+		turn.Done()
+		return "", err
+	}
 
 	m.mu.Lock()
 	closed, paused := m.closed, m.paused
@@ -384,6 +391,9 @@ func (m *Manager) Pause(ctx context.Context) error {
 		return err
 	}
 	defer turn.Done()
+	if err := ctx.Err(); err != nil {
+		return err // the client left just as its turn came: no pause
+	}
 
 	m.pauseMu.Lock()
 	defer m.pauseMu.Unlock()
