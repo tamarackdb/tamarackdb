@@ -489,7 +489,7 @@ A document is always read by `type` and `id`. There is no query over documents.
 
 A document with a `payload` is created, or replaced if it exists. A document with a `null` payload is deleted;
 deleting a document that doesn't exist does nothing. The same `type` + `id` can't appear twice in one call: that's a
-`400 Bad Request`. A call may carry at most `maxDocumentsPerWrite` documents, and each payload at most
+`400 Bad Request`. A call carries at least one document and at most `maxDocumentsPerWrite`, and each payload at most
 `maxDocumentSize` bytes (see Configuration). On success, it responds `204 No Content`.
 
 There's no version and no concurrency check on documents. None is needed: a projector reads a document inside the
@@ -636,7 +636,9 @@ anywhere the Query grammar needs a non-empty one (see Query grammar), a non-inte
 `limit` above the configured maximum (see Pagination), an invalid `time.from` / `time.before` timestamp, an event
 missing its `type`, an event carrying a duplicate identifier or metadata value, more than 20 identifiers/metadata
 entries (see Metadata), a `POST /events` call with no event or more than 100 events (see Appending events), a
-`POST /documents` call with a duplicate `type` + `id` or more than `maxDocumentsPerWrite` documents, and so on.
+`POST /documents` call with no document, a duplicate `type` + `id`, or more than `maxDocumentsPerWrite` documents,
+and so on. A call that needs a ticket (`POST /events`, `POST /commit`, `POST /rollback`) and carries none gets
+`400 Bad Request` too: it names no transaction, so there's none to report as inactive.
 
 Validation is hand-written in Go, not driven by a JSON Schema: the request surface is small, several rules are about
 meaning rather than pure structure (a valid ATOM timestamp, a consistent `time.from`/`time.before` range, the full DCB
@@ -692,8 +694,8 @@ since the Sequence Position counter lives in TamarackDB's memory (see Concurrenc
 
 ### Principle: the transaction FIFO
 
-A queue manager gives out the single active turn, strictly in the order requests arrive. Two kinds of requests join
-its FIFO: `POST /begin` and `POST /pause`. It knows nothing about what a transaction will read or append. Only
+A queue manager gives out the single active turn, strictly in the order requests arrive. Three kinds of requests join
+its FIFO: `POST /begin`, `POST /pause`, and the hourly `PRAGMA optimize` (see Storage: SQLite). It knows nothing about what a transaction will read or append. Only
 two states exist: **Active** (at most one transaction at a time, the only one allowed to touch the write connection)
 and **Queued** (every other request, waiting its turn in line).
 
@@ -705,10 +707,11 @@ and **Queued** (every other request, waiting its turn in line).
    disconnects, the request leaves the line right away, and everyone behind it moves up one spot. If it waits longer
    than the configured maximum, it leaves the line with `503 TransactionWaitTimeout`.
 4. When it reaches the head of the line:
-   - If the server is paused, it gets `503 Paused`, and the next request moves up.
+   - If it's a `POST /begin` and the server is paused, it gets `503 Paused`, and the next request moves up.
+   - If it's a `POST /begin` otherwise, the handler runs `BEGIN IMMEDIATE` on the write connection, creates a
+     ticket, sets the transaction's deadline and ceiling, and responds with the ticket.
    - If it's a `POST /pause`, the server writes the pause file, switches to paused, and the next request moves up.
-   - If it's a `POST /begin`, the handler runs `BEGIN IMMEDIATE` on the write connection, creates a ticket,
-     sets the transaction's deadline and ceiling, and responds with the ticket.
+   - If it's `PRAGMA optimize`, it runs, then the next request moves up.
 5. The transaction stays active after the `POST /begin` response: the queue manager holds it in memory, keyed
    by its ticket, until it ends (see Ending a transaction). Then the next request moves up.
 
@@ -958,8 +961,10 @@ The write connection opens every transaction with `BEGIN IMMEDIATE` (`_txlock=im
 write lock at the start of the transaction, rather than waiting until the first write statement runs. For a
 transaction opened by `POST /begin`, that's the moment the ticket is given out: reads, checks, and inserts all
 run under the lock, with no window where another connection could slip in between them. A call accepted only while
-paused (`POST /documents` without a ticket, `DELETE /documents`) runs its own short `BEGIN IMMEDIATE` ... `COMMIT`,
-under the same mutex as any call (see Principle: the transaction FIFO). The write connection also sets
+paused (`POST /documents` without a ticket, `DELETE /documents`) runs its own short `BEGIN IMMEDIATE` ... `COMMIT`.
+No transaction can be active while paused, and the pause can't end while such a call runs: it has the write
+connection to itself, apart from a `PRAGMA optimize` that waits its turn on the same single connection. The write
+connection also sets
 `_busy_timeout = 5000` (five seconds). Since `writeDB.SetMaxOpenConns(1)` already forces every write onto one
 connection, and the FIFO already lets only one transaction run at a time, the busy timeout only guards against
 something else briefly holding the file (a passive checkpoint, an external `sqlite3` shell), not against another
@@ -1129,7 +1134,8 @@ value is what `GET /health` reports in its `version` field above.
 ### Request logging
 
 Every request logs one line to stdout once its handler finishes: HTTP method, path, resulting status code, response
-size in bytes, and how long it took, e.g. `tamarackdb-server: POST /events 200 42B 1.23ms`. This wraps the whole
+size in bytes, and how long it took, tagged with its level, e.g.
+`tamarackdb-server: [DEBUG] POST /events 200 42B 1.23ms`. This wraps the whole
 routed handler, including authentication, so a request turned away with `401 Unauthorized` gets logged just like any
 other. `logLevel` sets the minimum severity a line is written at (see Configuration).
 
@@ -1201,7 +1207,7 @@ from the pause file's modification time, so it still reports when the pause actu
 `write.active` describes the active transaction, if any (`null` otherwise): when its ticket was given out, its current
 deadline and fixed ceiling, and how many calls it has made so far. It never carries the ticket itself (see Security),
 nor the transaction's queries, conditions, or events: the queue manager never knows them. `write.queued` lists every
-request still waiting, oldest first, with its `kind` (`transaction` or `pause`), and `waitSeconds` instead of
+request still waiting, oldest first, with its `kind` (`transaction`, `pause`, or `optimize`), and `waitSeconds` instead of
 `ageSeconds`. `write.queued` is always present, never `null`, even when empty.
 
 `httpOpen` is how many requests are currently in flight on each side: on the write side, requests waiting in the FIFO
@@ -1221,6 +1227,7 @@ nothing about it lets you end a transaction, cancel a read, or otherwise change 
 
 ## Implementation
 
-The concrete Go code behind the queue manager, the Query-to-SQL translation, and the backup tool live in
-`internal/queue`, `internal/store`, and `cmd/tamarackdb-backup`. The document
+The concrete Go code lives in `internal/queue` (the FIFO), `internal/txn` (tickets, deadlines, the pause, and reset),
+`internal/store` (the transaction on the write connection and the Query-to-SQL translation), and
+`cmd/tamarackdb-backup` (the backup tool). The document
 wire shape and its validation rules live in `internal/document`, independent of `internal/dcb`.

@@ -399,7 +399,7 @@ curl -X POST http://127.0.0.1:8085/documents \
 - A document with a `null` payload is deleted. Deleting a document that
   doesn't exist does nothing.
 - The same `type` + `id` can't appear twice in one call.
-- A call carries at most `maxDocumentsPerWrite` documents (100 out of the box),
+- A call carries at least one document, and at most `maxDocumentsPerWrite` (100 out of the box),
   each payload at most `maxDocumentSize` bytes (64 KiB out of the box).
 
 It responds `204 No Content`.
@@ -522,7 +522,7 @@ transaction back.
 
 | Status | `error` | Meaning |
 |---|---|---|
-| 400 | `InvalidRequest` | Malformed or invalid request body: bad JSON, invalid query shape, `limit` over the configured maximum, an invalid `time` bound, an event missing `type`, a duplicate identifier or metadata value, no event or more than 100 events in one `POST /events`, too many documents or a repeated document `type` + `id` in one `POST /documents`, and so on |
+| 400 | `InvalidRequest` | Malformed or invalid request body: bad JSON, invalid query shape, `limit` over the configured maximum, an invalid `time` bound, an event missing `type`, a duplicate identifier or metadata value, no event or more than 100 events in one `POST /events`, no document, too many documents, or a repeated document `type` + `id` in one `POST /documents`, a call that needs a ticket and carries none, and so on |
 | 401 | `Unauthorized` | Missing or invalid Bearer token (only when `enableAuth` is on) |
 | 404 | `DocumentNotFound` | `GET /documents/{type}/{id}` only: no document exists at that `type` + `id`. Doesn't end the transaction |
 | 409 | `ConcurrencyException` | The Append Condition of a `POST /events` call failed |

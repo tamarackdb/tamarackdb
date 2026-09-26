@@ -81,6 +81,9 @@ func main() {
 	fmt.Printf("maxQueuedTransactions: %d\n", cfg.MaxQueuedTransactions)
 	fmt.Printf("readPoolSize: %d\n\n", cfg.ReadPoolSize)
 
+	if err := os.MkdirAll(cfg.DataDir, 0o755); err != nil {
+		log.Fatalf("tamarackdb-server: create data directory: %v", err)
+	}
 	st, err := store.Open(context.Background(), cfg.DatabasePath(), cfg.ReadPoolSize)
 	if err != nil {
 		log.Fatalf("tamarackdb-server: %v", err)

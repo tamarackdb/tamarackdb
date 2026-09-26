@@ -155,7 +155,7 @@ an error. There's no "no limit" value: every deployment gets a bound.
 
 Once running, the server logs one line per request to stdout, tagged with a
 severity level: method, path, status code, response size, and time taken,
-e.g. `tamarackdb-server: [WARNING] POST /begin 503 38B 30.00s`. Only lines
+e.g. `tamarackdb-server: [WARNING] POST /begin 503 35B 30001.52ms`. Only lines
 at or above `logLevel` are printed; by default that's `warning`, so a plain
 successful request or an expected rejection like a concurrency conflict
 stays quiet, and only capacity issues and real failures show up. See
@@ -333,7 +333,7 @@ an aggregate, use `/debug/pprof/trace?seconds=30` with `go tool trace`.
 
 The server logs one line per request to stdout, tagged with a severity level:
 method, path, status code, response size, and time taken, e.g.
-`tamarackdb-server: [WARNING] POST /begin 503 38B 30.00s`. By default only
+`tamarackdb-server: [WARNING] POST /begin 503 35B 30001.52ms`. By default only
 `warning` and `error` lines print; set `logLevel` to `debug` to see every
 request, including successful ones, while testing an integration.
 

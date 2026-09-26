@@ -2,10 +2,9 @@
 // synthetic, schema-agnostic dataset. Each event has a random type, 1 or 2
 // identifiers, a tenantId metadata entry, and a garbage-text payload. Each
 // document has a random type, a numeric id, and a longer garbage-text
-// payload, and is created at version 1. It exists to exercise /events,
-// /documents and storage at scale rather than to model any particular
-// domain. Build it via `make tamarackdb-demo`, producing
-// bin/tamarackdb-demo.
+// payload. It exists to exercise /events, /documents and storage at scale
+// rather than to model any particular domain. Build it via
+// `make tamarackdb-demo`, producing bin/tamarackdb-demo.
 package main
 
 import (
@@ -55,9 +54,9 @@ var documentTypes = []string{
 const garbageAlphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
 func main() {
-	dataDir := flag.String("data-dir", "", "directory holding the SQLite database files to seed")
+	dataDir := flag.String("data-dir", "", "directory holding the SQLite database file to seed")
 	events := flag.Int("events", 1_000_000, "number of events to append")
-	documents := flag.Int("documents", 0, "number of documents to create")
+	documents := flag.Int("documents", 0, "number of documents to write")
 	seed := flag.Int64("seed", 1, "random seed, for reproducible datasets")
 	showVersion := flag.Bool("version", false, "print the version and exit")
 	flag.Parse()
