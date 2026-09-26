@@ -28,7 +28,7 @@ func (s *Server) handleGetDocument(w http.ResponseWriter, r *http.Request) {
 	var err error
 	if ticket, ok := ticketFrom(r); ok {
 		defer s.trackWrite()()
-		err = s.tm.Do(ticket, func(tx *store.Tx) error {
+		err = s.doInTx(w, ticket, func(tx *store.Tx) error {
 			payload, found, err = tx.GetDocument(r.Context(), typ, id)
 			return err
 		})
@@ -71,7 +71,7 @@ func (s *Server) handleWriteDocuments(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	if ticket, ok := ticketFrom(r); ok {
-		err = s.tm.Do(ticket, func(tx *store.Tx) error {
+		err = s.doInTx(w, ticket, func(tx *store.Tx) error {
 			return write(func(docs []document.Data) error { return tx.WriteDocuments(r.Context(), docs) })
 		})
 	} else {

@@ -233,6 +233,20 @@ func (m *Manager) Do(ticket string, fn func(tx *store.Tx) error) error {
 	return nil
 }
 
+// Ceiling returns the ceiling of the transaction identified by ticket, or
+// ok=false when ticket isn't active. A caller uses it to bound what a call
+// may spend waiting on the network: nothing can cut a call short once it
+// runs, so the call itself must not outlive the ceiling.
+func (m *Manager) Ceiling(ticket string) (ceiling time.Time, ok bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	t := m.active
+	if t == nil || subtle.ConstantTimeCompare([]byte(t.ticket), []byte(ticket)) != 1 {
+		return time.Time{}, false
+	}
+	return t.ceiling, true
+}
+
 // Commit ends the transaction identified by ticket. The ticket stops
 // being active first, then the transaction commits, then the next request
 // in the FIFO gets its turn. If the commit fails, the transaction is

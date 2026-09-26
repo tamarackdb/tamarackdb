@@ -726,6 +726,11 @@ A call that was already running when the deadline passed finishes normally; if i
 wins. The next call with that ticket gets `410 TransactionNotActive`. Every call with the ticket resets the timer
 when it ends, up to the ceiling.
 
+**A call can't outlive the ceiling.** Since the timer waits for a running call, a call stuck on the network (a client
+that stops reading a streamed page, or sends its body very slowly) would hold the write lock with no bound. Every call
+with a ticket therefore sets its connection's read and write deadlines to the transaction's ceiling, and clears them
+when it ends. A stuck call fails at the ceiling at the latest, which rolls the transaction back.
+
 **A failed call ends the transaction.** A call that returns an error (other than `404 DocumentNotFound`), panics, or
 whose client disconnects before it finishes, rolls the transaction back and gives the turn to the next request. The
 rollback runs in a deferred call, set up before the handler touches the write connection, so it runs no matter how

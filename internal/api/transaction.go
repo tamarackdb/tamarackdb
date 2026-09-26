@@ -3,6 +3,9 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"time"
+
+	"github.com/tamarackdb/tamarackdb/internal/store"
 )
 
 // TicketHeader carries the ticket of the transaction a call belongs to.
@@ -26,6 +29,29 @@ func (s *Server) requireTicket(w http.ResponseWriter, r *http.Request) (string, 
 		s.handleErr(w, r, errMissingTicketValidation)
 	}
 	return ticket, ok
+}
+
+// doInTx runs fn inside ticket's transaction (see txn.Manager.Do), with the
+// connection's read and write deadlines set to the transaction's ceiling.
+// A call holds the write lock while it runs, and nothing can cut it short:
+// a client that stops reading a streamed page, or sends its body very
+// slowly, would otherwise hold the lock with no bound. With the deadlines,
+// such a call fails at the ceiling at the latest, which rolls the
+// transaction back. The deadlines are cleared when fn returns, so they
+// never carry over to the next request on the same connection.
+func (s *Server) doInTx(w http.ResponseWriter, ticket string, fn func(tx *store.Tx) error) error {
+	if ceiling, ok := s.tm.Ceiling(ticket); ok {
+		rc := http.NewResponseController(w)
+		// Setting a deadline fails only when the ResponseWriter doesn't
+		// support it (a test recorder): there's no connection to bound.
+		_ = rc.SetReadDeadline(ceiling)
+		_ = rc.SetWriteDeadline(ceiling)
+		defer func() {
+			_ = rc.SetReadDeadline(time.Time{})
+			_ = rc.SetWriteDeadline(time.Time{})
+		}()
+	}
+	return s.tm.Do(ticket, fn)
 }
 
 // trackWrite counts a request on the write side for GET /debug. Callers

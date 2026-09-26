@@ -60,7 +60,7 @@ type readEventWire struct {
 func (s *Server) handleReadEvents(w http.ResponseWriter, r *http.Request) {
 	if ticket, ok := ticketFrom(r); ok {
 		defer s.trackWrite()()
-		err := s.tm.Do(ticket, func(tx *store.Tx) error {
+		err := s.doInTx(w, ticket, func(tx *store.Tx) error {
 			filter, err := s.parseReadRequest(r)
 			if err != nil {
 				return err
@@ -249,7 +249,7 @@ func (s *Server) handleAppendEvents(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var resp appendResponse
-	err := s.tm.Do(ticket, func(tx *store.Tx) error {
+	err := s.doInTx(w, ticket, func(tx *store.Tx) error {
 		var req appendRequest
 		if err := decodeJSON(r, &req); err != nil {
 			return err
