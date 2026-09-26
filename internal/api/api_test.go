@@ -31,7 +31,7 @@ func newTestServerWithMaxQueued(t *testing.T, maxQueued int) (*Server, *queue.Ma
 		t.Fatalf("store.Open() error = %v", err)
 	}
 	t.Cleanup(func() { st.Close() })
-	qm := queue.New(maxQueued)
+	qm := queue.New(maxQueued, 0)
 	t.Cleanup(qm.Close)
 	srv := New(qm, st, Options{
 		EnableAuth:           true,

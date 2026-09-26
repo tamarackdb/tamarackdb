@@ -90,6 +90,10 @@ type Server struct {
 	// the writer.
 	failedTotal atomic.Uint64
 
+	// admittedTotal counts writers admitted by joinWriteQueue, exposed by
+	// GET /metrics.
+	admittedTotal atomic.Uint64
+
 	// readHTTPOpen counts QUERY /events requests currently in flight,
 	// exposed by GET /debug. Unlike writes, reads have no FIFO queue to
 	// derive this from (internal/queue only tracks write admission), so

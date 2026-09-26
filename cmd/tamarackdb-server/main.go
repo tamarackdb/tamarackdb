@@ -85,7 +85,7 @@ func main() {
 	// st.Close() is not deferred: shutdown is ordered explicitly below,
 	// not left to main's return.
 
-	qm := queue.New(cfg.MaxQueuedWriters)
+	qm := queue.New(cfg.MaxQueuedWriters, 0)
 
 	fatalCh := make(chan error, 1)
 	srv := api.New(qm, st, api.Options{

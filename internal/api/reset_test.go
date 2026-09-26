@@ -27,7 +27,7 @@ func newDevModeTestServerWithMaxQueued(t *testing.T, maxQueued int) (*Server, *q
 		t.Fatalf("store.Open() error = %v", err)
 	}
 	t.Cleanup(func() { st.Close() })
-	qm := queue.New(maxQueued)
+	qm := queue.New(maxQueued, 0)
 	t.Cleanup(qm.Close)
 	srv := New(qm, st, Options{
 		EnableAuth:           true,
@@ -84,14 +84,14 @@ func TestResetNotRegisteredWithoutDevMode(t *testing.T) {
 func TestResetReturns503WhenQueueFull(t *testing.T) {
 	srv, qm, _ := newDevModeTestServerWithMaxQueued(t, 1)
 
-	active, err := qm.Join(context.Background())
+	active, err := qm.Join(context.Background(), queue.KindTransaction)
 	if err != nil {
 		t.Fatalf("Join() error = %v", err)
 	}
 
 	queuedDone := make(chan struct{})
 	go func() {
-		ticket, err := qm.Join(context.Background())
+		ticket, err := qm.Join(context.Background(), queue.KindTransaction)
 		if err == nil {
 			ticket.Done()
 		}

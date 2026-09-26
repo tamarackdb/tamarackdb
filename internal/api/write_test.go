@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/tamarackdb/tamarackdb/internal/queue"
 )
 
 func TestAppendReadRoundTrip(t *testing.T) {
@@ -164,14 +166,14 @@ func TestAppendConcurrencyConflictEndToEnd(t *testing.T) {
 func TestAppendReturns503WhenQueueFull(t *testing.T) {
 	srv, qm, _ := newTestServerWithMaxQueued(t, 1)
 
-	active, err := qm.Join(context.Background())
+	active, err := qm.Join(context.Background(), queue.KindTransaction)
 	if err != nil {
 		t.Fatalf("Join() error = %v", err)
 	}
 
 	queuedDone := make(chan struct{})
 	go func() {
-		ticket, err := qm.Join(context.Background())
+		ticket, err := qm.Join(context.Background(), queue.KindTransaction)
 		if err == nil {
 			ticket.Done()
 		}

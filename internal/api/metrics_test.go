@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/tamarackdb/tamarackdb/internal/queue"
 )
 
 func TestMetricsOutput(t *testing.T) {
@@ -27,14 +29,14 @@ func TestMetricsOutput(t *testing.T) {
 		t.Fatalf("conflict append status = %d, want 409, body = %s", conflict.Code, conflict.Body.String())
 	}
 
-	active, err := qm.Join(context.Background())
+	active, err := qm.Join(context.Background(), queue.KindTransaction)
 	if err != nil {
 		t.Fatalf("Join() error = %v", err)
 	}
 
 	queuedDone := make(chan struct{})
 	go func() {
-		ticket, err := qm.Join(context.Background())
+		ticket, err := qm.Join(context.Background(), queue.KindTransaction)
 		if err == nil {
 			ticket.Done()
 		}

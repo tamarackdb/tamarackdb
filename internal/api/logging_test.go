@@ -36,7 +36,7 @@ func newTestServerWithLogLevel(t *testing.T, logLevel string) (*Server, *queue.M
 		t.Fatalf("store.Open() error = %v", err)
 	}
 	t.Cleanup(func() { st.Close() })
-	qm := queue.New(1)
+	qm := queue.New(1, 0)
 	t.Cleanup(qm.Close)
 	srv := New(qm, st, Options{
 		EnableAuth:           true,
@@ -118,13 +118,13 @@ func TestAccessLogLevelPerOutcome(t *testing.T) {
 			level: "WARNING",
 			serve: func(t *testing.T) *httptest.ResponseRecorder {
 				srv, qm, _ := newTestServerWithMaxQueued(t, 1)
-				active, err := qm.Join(context.Background())
+				active, err := qm.Join(context.Background(), queue.KindTransaction)
 				if err != nil {
 					t.Fatalf("Join() error = %v", err)
 				}
 				queuedDone := make(chan struct{})
 				go func() {
-					ticket, err := qm.Join(context.Background())
+					ticket, err := qm.Join(context.Background(), queue.KindTransaction)
 					if err == nil {
 						ticket.Done()
 					}
@@ -190,13 +190,13 @@ func TestAccessLogAtOrAboveThresholdIsLogged(t *testing.T) {
 	srv, qm, _ := newTestServerWithLogLevel(t, "warning")
 	buf := captureLog(t)
 
-	active, err := qm.Join(context.Background())
+	active, err := qm.Join(context.Background(), queue.KindTransaction)
 	if err != nil {
 		t.Fatalf("Join() error = %v", err)
 	}
 	queuedDone := make(chan struct{})
 	go func() {
-		ticket, err := qm.Join(context.Background())
+		ticket, err := qm.Join(context.Background(), queue.KindTransaction)
 		if err == nil {
 			ticket.Done()
 		}

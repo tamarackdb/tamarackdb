@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/tamarackdb/tamarackdb/internal/queue"
 )
 
 func TestDebugReflectsActiveWriter(t *testing.T) {
 	srv, qm, _ := newTestServer(t)
 
-	ticket, err := qm.Join(context.Background())
+	ticket, err := qm.Join(context.Background(), queue.KindTransaction)
 	if err != nil {
 		t.Fatalf("Join() error = %v", err)
 	}
