@@ -794,12 +794,6 @@ file, events included. The server never runs one: it's run by hand, with `sqlite
 same way as a full `ANALYZE` (see below). Stopping the server costs a few seconds, on top of a rebuild's downtime that's
 already accepted, and keeps the server free of a long operation it would have to coordinate with reads still in flight.
 
-A file-level copy is not the only way to back up an instance. `tamarackdb-backup` reads events over `QUERY /events`
-from a live source and writes them into a local file through `Store.Import`, a variant of `Append` that skips sequence
-reservation and the append-condition check, since the sequences it receives are already assigned by the source. The
-result is a plain SQLite file built through the same `store.Open` schema path used everywhere else, so unlike a raw
-file copy, it can be opened and served as a live instance in its own right.
-
 **Enforcing single-writer at the OS level:** `writeDB.SetMaxOpenConns(1)`, WAL, and `_busy_timeout` only keep writes
 in order *inside* one process: nothing stops a second `tamarackdb-server` process from opening the same database file
 and racing the first. `store.Open` closes that gap directly: before touching the SQLite file, it takes an exclusive,
@@ -915,6 +909,33 @@ A database file that doesn't exist yet is created fresh, with the schema above s
 existing file whose version doesn't match (older, from a schema that's since changed, or newer, from a downgraded
 binary) is fatal: the process logs it and refuses to start, the same treatment as any other storage integrity failure
 (see Startup, shutdown, and crash behavior). The TamarackDB server never changes its own schema.
+
+## Backup
+
+`tamarackdb-backup` keeps a standing copy of an instance's events in a local SQLite file. It does one catch-up run and
+exits; a scheduler runs it again (see [Backup](/docs/guides/backup/)). Each run:
+
+1. Opens the local file with `store.Open`, the same path the server uses: the file gets the server's schema, and the
+   run holds the file's `.lock` (see Storage: SQLite). A backup file can't be updated while a server is serving it.
+2. Reads the highest Sequence Position already in the file.
+3. Pages through the source's `QUERY /events`, without a ticket, with `afterSequence` set to that position and `limit`
+   set to `pageLimit`. A read without a ticket sees committed events only, and never waits for the source's active
+   transaction.
+4. Writes each page with `Store.Import`, in one SQLite transaction per page. `Import` is a variant of `Append` that
+   skips sequence reservation and the Append Condition check: each event keeps the `sequence` and `time` the source
+   gave it. It then moves the local Sequence Position counter past the highest sequence imported.
+5. Stops once a page's trailer reads `hasMore: false`.
+
+A page cut short (a response that ends without its trailer, see Response format) fails the run instead of importing a
+partial page. There's no retry inside a run: the error goes to stderr, with a non-zero exit code. Every page imported
+before the failure is already committed, so the next run resumes right after it.
+
+The backup copies events only. Documents are left out on purpose: every document can be rebuilt from events (see
+Projection rebuilds), so the backup file's `documents` table stays empty.
+
+The result is a regular TamarackDB database file. Unlike a raw copy of the source's file, which can miss commits still
+in the WAL, it can be opened and served by `tamarackdb-server` as a live instance. The source must be reachable over
+HTTP: the tool can't connect to a unix socket.
 
 ## Configuration
 

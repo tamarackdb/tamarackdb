@@ -54,33 +54,22 @@ needs `bindAddress`/`port` set: `tamarackdb-backup` has no way to reach a
 source running only on its default unix socket (see
 [Deployment](/docs/guides/deployment/#configure)).
 
-## How it works
+## What the backup holds
 
-Each run reads the highest Sequence Position already in the local file, then
-pages through the source's `QUERY /events` with `afterSequence` set to that
-value, writing every event it gets straight into local storage: not through
-`POST /events`, but through the same code path `store.Open` always uses to
-build a database file, so the schema comes out identical. See
-[Architecture](/docs/architecture/#storage-sqlite) for why that matters: the backup file
-can be pointed at directly with `tamarackdb-server --config ...` if the source ever
-needs replacing.
+The backup file is a regular TamarackDB database. If the source is ever lost,
+point `tamarackdb-server` at the backup file and serve it as the new instance.
 
-Each event is copied as is, `sequence` and `time` included. `time` is when the
-source appended the event, not when the backup copied it.
+It holds events only, not documents. Before an application uses a restored
+backup, it must rebuild its projections (see
+[Integration](/docs/guides/integration/#projection-rebuilds)).
 
-`tamarackdb-backup` only ever copies events. It never reads a source's
-documents, and the backup file's documents table stays empty. This is
-deliberate, not a gap: every document is reproducible from events (see
-[Architecture](/docs/architecture/#documents)). If you ever point
-`tamarackdb-server` at a restored backup file, the application must rebuild
-its projections before it's used again (see
-[Integration](/docs/guides/integration/#projection-rebuilds)). Nothing
-rebuilds them on its own.
+Don't serve the backup file while `tamarackdb-backup` still writes to it: the
+two can't hold the file at the same time.
 
-There's no retry inside a run: if one fails partway, nothing is retried in
-process, and the error goes to stderr with a non-zero exit code. Events
-already imported before the failure stay in the local file, so the next
-scheduled run resumes from the last successfully imported page.
+A run that fails exits with a non-zero code and writes the error to stderr.
+The next run resumes where the failed one stopped.
+
+See [Architecture](/docs/architecture/#backup) for how a run works.
 
 ## Scheduling
 
