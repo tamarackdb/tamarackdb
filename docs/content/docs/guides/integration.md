@@ -240,9 +240,9 @@ polling picks up new events as they are committed. `tamarackdb-backup` (see
 `/events` with `afterSequence` set to the last sequence it saved locally, and
 stops once `hasMore` reads `false`.
 
-`limit` defaults to whatever the server operator set (`defaultLimit`, 1000 out of
-the box) and is capped at `maxLimit` (10000 out of the box). Asking for more than
-that gets you `400 Bad Request`.
+`limit` defaults to whatever the server operator set (`defaultEventsPerPage`,
+1000 out of the box) and is capped at `maxEventsPerPage` (10000 out of the
+box). Asking for more than that gets you `400 Bad Request`.
 
 ## Appending events
 
@@ -399,7 +399,8 @@ curl -X POST http://127.0.0.1:8085/documents \
 - A document with a `null` payload is deleted. Deleting a document that
   doesn't exist does nothing.
 - The same `type` + `id` can't appear twice in one call.
-- A call carries at least one document, and at most `maxDocumentsPerWrite` (100 out of the box),
+- A call carries at least one document, and at most `maxDocumentsPerRequest`
+  (100 out of the box),
   each payload at most `maxDocumentSize` bytes (64 KiB out of the box).
 
 It responds `204 No Content`.

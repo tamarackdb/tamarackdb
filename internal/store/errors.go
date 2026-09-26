@@ -22,10 +22,10 @@ var ErrDatabaseLocked = errors.New("store: database file is locked by another ta
 // SQLITE_IOERR_WRITE = SQLITE_IOERR | (3<<8)); IsFatal masks with & 0xff
 // before comparing.
 const (
-	sqliteIOErr      = 10
-	sqliteCorrupt    = 11
-	sqliteCantOpen   = 14
-	sqliteNotADB     = 26
+	sqliteIOErr    = 10
+	sqliteCorrupt  = 11
+	sqliteCantOpen = 14
+	sqliteNotADB   = 26
 )
 
 // IsFatal reports whether err indicates the SQLite file itself may be

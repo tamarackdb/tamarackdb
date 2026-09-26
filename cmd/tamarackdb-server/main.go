@@ -20,7 +20,7 @@ import (
 	"github.com/tamarackdb/tamarackdb/internal/api"
 	"github.com/tamarackdb/tamarackdb/internal/buildinfo"
 	"github.com/tamarackdb/tamarackdb/internal/config"
-		"github.com/tamarackdb/tamarackdb/internal/store"
+	"github.com/tamarackdb/tamarackdb/internal/store"
 	"github.com/tamarackdb/tamarackdb/internal/txn"
 )
 
@@ -70,13 +70,13 @@ func main() {
 	fmt.Printf("dataDir: %s\n", cfg.DataDir)
 	fmt.Printf("devMode: %t\n", cfg.DevMode)
 	fmt.Printf("logLevel: %s\n", cfg.LogLevel)
-	fmt.Printf("defaultLimit: %d\n", cfg.DefaultLimit)
-	fmt.Printf("maxLimit: %d\n", cfg.MaxLimit)
+	fmt.Printf("defaultEventsPerPage: %d\n", cfg.DefaultEventsPerPage)
+	fmt.Printf("maxEventsPerPage: %d\n", cfg.MaxEventsPerPage)
 	fmt.Printf("maxEventSize: %d\n", cfg.MaxEventSize)
 	fmt.Printf("maxDocumentSize: %d\n", cfg.MaxDocumentSize)
-	fmt.Printf("maxDocumentsPerWrite: %d\n", cfg.MaxDocumentsPerWrite)
+	fmt.Printf("maxDocumentsPerRequest: %d\n", cfg.MaxDocumentsPerRequest)
 	fmt.Printf("transactionTimeout: %d\n", cfg.TransactionTimeout)
-	fmt.Printf("transactionCeiling: %d\n", cfg.TransactionCeiling)
+	fmt.Printf("maxTransactionDuration: %d\n", cfg.MaxTransactionDuration)
 	fmt.Printf("maxTransactionWait: %d\n", cfg.MaxTransactionWait)
 	fmt.Printf("maxQueuedTransactions: %d\n", cfg.MaxQueuedTransactions)
 	fmt.Printf("readPoolSize: %d\n\n", cfg.ReadPoolSize)
@@ -93,7 +93,7 @@ func main() {
 
 	tm, err := txn.New(st, txn.Config{
 		Timeout:   time.Duration(cfg.TransactionTimeout) * time.Second,
-		Ceiling:   time.Duration(cfg.TransactionCeiling) * time.Second,
+		Ceiling:   time.Duration(cfg.MaxTransactionDuration) * time.Second,
 		MaxQueued: cfg.MaxQueuedTransactions,
 		MaxWait:   time.Duration(cfg.MaxTransactionWait) * time.Second,
 		PauseFile: cfg.PauseFilePath(),
@@ -108,16 +108,16 @@ func main() {
 
 	fatalCh := make(chan error, 1)
 	srv := api.New(tm, st, api.Options{
-		Version:              buildinfo.Version,
-		EnableAuth:           cfg.EnableAuth,
-		AuthToken:            cfg.AuthToken,
-		DefaultLimit:         cfg.DefaultLimit,
-		MaxLimit:             cfg.MaxLimit,
-		MaxEventSize:         cfg.MaxEventSize,
-		MaxDocumentSize:      cfg.MaxDocumentSize,
-		MaxDocumentsPerWrite: cfg.MaxDocumentsPerWrite,
-		DevMode:              cfg.DevMode,
-		LogLevel:             cfg.LogLevel,
+		Version:                buildinfo.Version,
+		EnableAuth:             cfg.EnableAuth,
+		AuthToken:              cfg.AuthToken,
+		DefaultEventsPerPage:   cfg.DefaultEventsPerPage,
+		MaxEventsPerPage:       cfg.MaxEventsPerPage,
+		MaxEventSize:           cfg.MaxEventSize,
+		MaxDocumentSize:        cfg.MaxDocumentSize,
+		MaxDocumentsPerRequest: cfg.MaxDocumentsPerRequest,
+		DevMode:                cfg.DevMode,
+		LogLevel:               cfg.LogLevel,
 		OnFatalStorageError: func(err error) {
 			select {
 			case fatalCh <- err:
@@ -230,14 +230,14 @@ const defaultConfigTemplate = `[server]
 # dataDir = "%s"
 # devMode = false
 # logLevel = "%s"
-# defaultLimit = %d
-# maxLimit = %d
-# maxEventSize = %d
-# maxDocumentSize = %d
-# maxDocumentsPerWrite = %d
-# transactionTimeout = %d
-# transactionCeiling = %d
-# maxTransactionWait = %d
+# defaultEventsPerPage = %d
+# maxEventsPerPage = %d
+# maxEventSize = %d # bytes
+# maxDocumentSize = %d # bytes
+# maxDocumentsPerRequest = %d
+# transactionTimeout = %d # seconds
+# maxTransactionDuration = %d # seconds
+# maxTransactionWait = %d # seconds
 # maxQueuedTransactions = %d
 # readPoolSize = %d
 `
@@ -248,9 +248,9 @@ func printDefaultConfig() {
 	fmt.Printf(defaultConfigTemplate,
 		config.DefaultSocketPath, config.DefaultBindAddress, config.DefaultPort, config.DefaultDataDir,
 		config.DefaultLogLevel,
-		config.DefaultLimit, config.DefaultMaxLimit, config.DefaultEventSize,
-		config.DefaultDocumentSize, config.DefaultMaxDocumentsPerWrite,
-		config.DefaultTransactionTimeout, config.DefaultTransactionCeiling,
+		config.DefaultEventsPerPage, config.DefaultMaxEventsPerPage, config.DefaultEventSize,
+		config.DefaultDocumentSize, config.DefaultMaxDocumentsPerRequest,
+		config.DefaultTransactionTimeout, config.DefaultMaxTransactionDuration,
 		config.DefaultMaxTransactionWait, config.DefaultMaxQueuedTransactions,
 		config.DefaultReadPoolSize)
 }

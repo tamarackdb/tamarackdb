@@ -25,21 +25,21 @@ import (
 // Default values for Config's optional fields, exported so callers (such as
 // a -default-config flag) can print them without duplicating the numbers.
 const (
-	DefaultSocketPath            = "/var/run/tamarackdb-server.sock"
-	DefaultBindAddress           = "127.0.0.1"
-	DefaultPort                  = 8085
-	DefaultDataDir               = "data"
-	DefaultLimit                 = 1000
-	DefaultMaxLimit              = 10000
-	DefaultEventSize             = 65536 // 64 KiB
-	DefaultMaxQueuedTransactions = 100
-	DefaultTransactionTimeout    = 5  // seconds
-	DefaultTransactionCeiling    = 15 // seconds
-	DefaultMaxTransactionWait    = 30 // seconds
-	DefaultReadPoolSize          = 8
-	DefaultDocumentSize          = 65536 // 64 KiB
-	DefaultMaxDocumentsPerWrite  = 100
-	DefaultLogLevel              = "warning"
+	DefaultSocketPath             = "/var/run/tamarackdb-server.sock"
+	DefaultBindAddress            = "127.0.0.1"
+	DefaultPort                   = 8085
+	DefaultDataDir                = "data"
+	DefaultEventsPerPage          = 1000
+	DefaultMaxEventsPerPage       = 10000
+	DefaultEventSize              = 65536 // 64 KiB
+	DefaultMaxQueuedTransactions  = 100
+	DefaultTransactionTimeout     = 5  // seconds
+	DefaultMaxTransactionDuration = 15 // seconds
+	DefaultMaxTransactionWait     = 30 // seconds
+	DefaultReadPoolSize           = 8
+	DefaultDocumentSize           = 65536 // 64 KiB
+	DefaultMaxDocumentsPerRequest = 100
+	DefaultLogLevel               = "warning"
 )
 
 // databaseFilename and pauseFilename are the fixed filenames TamarackDB
@@ -91,9 +91,9 @@ type Config struct {
 
 	// Optional; defaulted by Load when omitted (zero value in the file and
 	// unset in the environment).
-	DefaultLimit int `toml:"defaultLimit"` // default: 1000
-	MaxLimit     int `toml:"maxLimit"`     // default: 10000
-	MaxEventSize int `toml:"maxEventSize"` // default: 65536 (64 KiB)
+	DefaultEventsPerPage int `toml:"defaultEventsPerPage"` // default: 1000
+	MaxEventsPerPage     int `toml:"maxEventsPerPage"`     // default: 10000
+	MaxEventSize         int `toml:"maxEventSize"`         // default: 65536 (64 KiB)
 
 	// MaxDocumentSize is the maximum UTF-8 byte size of one document's
 	// payload in a POST /documents request; only checked when the payload
@@ -101,19 +101,19 @@ type Config struct {
 	// Load when omitted.
 	MaxDocumentSize int `toml:"maxDocumentSize"` // default: 65536 (64 KiB)
 
-	// MaxDocumentsPerWrite caps how many documents a single
+	// MaxDocumentsPerRequest caps how many documents a single
 	// POST /documents request may carry. Optional; defaulted by Load when
 	// omitted.
-	MaxDocumentsPerWrite int `toml:"maxDocumentsPerWrite"` // default: 100
+	MaxDocumentsPerRequest int `toml:"maxDocumentsPerRequest"` // default: 100
 
 	// TransactionTimeout is a transaction's idle timeout, in seconds: how
 	// long it may go without a call before it's rolled back, counted from
 	// the moment its ticket is given out, then from the end of each call.
-	// TransactionCeiling is the total time, in seconds, no transaction can
+	// MaxTransactionDuration is the total time, in seconds, no transaction can
 	// exceed, however many calls it makes. The timeout can't be greater
 	// than the ceiling. Optional; defaulted by Load when omitted.
-	TransactionTimeout int `toml:"transactionTimeout"` // default: 5
-	TransactionCeiling int `toml:"transactionCeiling"` // default: 15
+	TransactionTimeout     int `toml:"transactionTimeout"`     // default: 5
+	MaxTransactionDuration int `toml:"maxTransactionDuration"` // default: 15
 
 	// MaxTransactionWait caps how long, in seconds, a POST /begin or
 	// POST /pause may wait in the FIFO before getting 503
@@ -180,11 +180,11 @@ func Load(path string) (*Config, error) {
 	if cfg.LogLevel == "" {
 		cfg.LogLevel = DefaultLogLevel
 	}
-	if cfg.DefaultLimit == 0 {
-		cfg.DefaultLimit = DefaultLimit
+	if cfg.DefaultEventsPerPage == 0 {
+		cfg.DefaultEventsPerPage = DefaultEventsPerPage
 	}
-	if cfg.MaxLimit == 0 {
-		cfg.MaxLimit = DefaultMaxLimit
+	if cfg.MaxEventsPerPage == 0 {
+		cfg.MaxEventsPerPage = DefaultMaxEventsPerPage
 	}
 	if cfg.MaxEventSize == 0 {
 		cfg.MaxEventSize = DefaultEventSize
@@ -192,14 +192,14 @@ func Load(path string) (*Config, error) {
 	if cfg.MaxDocumentSize == 0 {
 		cfg.MaxDocumentSize = DefaultDocumentSize
 	}
-	if cfg.MaxDocumentsPerWrite == 0 {
-		cfg.MaxDocumentsPerWrite = DefaultMaxDocumentsPerWrite
+	if cfg.MaxDocumentsPerRequest == 0 {
+		cfg.MaxDocumentsPerRequest = DefaultMaxDocumentsPerRequest
 	}
 	if cfg.TransactionTimeout == 0 {
 		cfg.TransactionTimeout = DefaultTransactionTimeout
 	}
-	if cfg.TransactionCeiling == 0 {
-		cfg.TransactionCeiling = DefaultTransactionCeiling
+	if cfg.MaxTransactionDuration == 0 {
+		cfg.MaxTransactionDuration = DefaultMaxTransactionDuration
 	}
 	if cfg.MaxTransactionWait == 0 {
 		cfg.MaxTransactionWait = DefaultMaxTransactionWait
@@ -292,22 +292,22 @@ func applyEnv(cfg *Config) error {
 			cfg.DevMode = b
 		}
 	}
-	if cfg.DefaultLimit == 0 {
-		if v, ok := os.LookupEnv("TAMARACKDB_DEFAULT_LIMIT"); ok {
+	if cfg.DefaultEventsPerPage == 0 {
+		if v, ok := os.LookupEnv("TAMARACKDB_DEFAULT_EVENTS_PER_PAGE"); ok {
 			n, err := strconv.Atoi(v)
 			if err != nil {
-				return fmt.Errorf("invalid TAMARACKDB_DEFAULT_LIMIT %q: %w", v, err)
+				return fmt.Errorf("invalid TAMARACKDB_DEFAULT_EVENTS_PER_PAGE %q: %w", v, err)
 			}
-			cfg.DefaultLimit = n
+			cfg.DefaultEventsPerPage = n
 		}
 	}
-	if cfg.MaxLimit == 0 {
-		if v, ok := os.LookupEnv("TAMARACKDB_MAX_LIMIT"); ok {
+	if cfg.MaxEventsPerPage == 0 {
+		if v, ok := os.LookupEnv("TAMARACKDB_MAX_EVENTS_PER_PAGE"); ok {
 			n, err := strconv.Atoi(v)
 			if err != nil {
-				return fmt.Errorf("invalid TAMARACKDB_MAX_LIMIT %q: %w", v, err)
+				return fmt.Errorf("invalid TAMARACKDB_MAX_EVENTS_PER_PAGE %q: %w", v, err)
 			}
-			cfg.MaxLimit = n
+			cfg.MaxEventsPerPage = n
 		}
 	}
 	if cfg.MaxEventSize == 0 {
@@ -328,13 +328,13 @@ func applyEnv(cfg *Config) error {
 			cfg.MaxDocumentSize = n
 		}
 	}
-	if cfg.MaxDocumentsPerWrite == 0 {
-		if v, ok := os.LookupEnv("TAMARACKDB_MAX_DOCUMENTS_PER_WRITE"); ok {
+	if cfg.MaxDocumentsPerRequest == 0 {
+		if v, ok := os.LookupEnv("TAMARACKDB_MAX_DOCUMENTS_PER_REQUEST"); ok {
 			n, err := strconv.Atoi(v)
 			if err != nil {
-				return fmt.Errorf("invalid TAMARACKDB_MAX_DOCUMENTS_PER_WRITE %q: %w", v, err)
+				return fmt.Errorf("invalid TAMARACKDB_MAX_DOCUMENTS_PER_REQUEST %q: %w", v, err)
 			}
-			cfg.MaxDocumentsPerWrite = n
+			cfg.MaxDocumentsPerRequest = n
 		}
 	}
 	if cfg.TransactionTimeout == 0 {
@@ -346,13 +346,13 @@ func applyEnv(cfg *Config) error {
 			cfg.TransactionTimeout = n
 		}
 	}
-	if cfg.TransactionCeiling == 0 {
-		if v, ok := os.LookupEnv("TAMARACKDB_TRANSACTION_CEILING"); ok {
+	if cfg.MaxTransactionDuration == 0 {
+		if v, ok := os.LookupEnv("TAMARACKDB_MAX_TRANSACTION_DURATION"); ok {
 			n, err := strconv.Atoi(v)
 			if err != nil {
-				return fmt.Errorf("invalid TAMARACKDB_TRANSACTION_CEILING %q: %w", v, err)
+				return fmt.Errorf("invalid TAMARACKDB_MAX_TRANSACTION_DURATION %q: %w", v, err)
 			}
-			cfg.TransactionCeiling = n
+			cfg.MaxTransactionDuration = n
 		}
 	}
 	if cfg.MaxTransactionWait == 0 {
@@ -406,24 +406,24 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("dataDir must not be empty")
 	case c.LogLevel != "debug" && c.LogLevel != "info" && c.LogLevel != "warning" && c.LogLevel != "error":
 		return fmt.Errorf("logLevel must be one of \"debug\", \"info\", \"warning\", \"error\", got %q", c.LogLevel)
-	case c.DefaultLimit <= 0:
-		return fmt.Errorf("defaultLimit must be positive, got %d", c.DefaultLimit)
-	case c.MaxLimit <= 0:
-		return fmt.Errorf("maxLimit must be positive, got %d", c.MaxLimit)
-	case c.DefaultLimit > c.MaxLimit:
-		return fmt.Errorf("defaultLimit (%d) must not exceed maxLimit (%d)", c.DefaultLimit, c.MaxLimit)
+	case c.DefaultEventsPerPage <= 0:
+		return fmt.Errorf("defaultEventsPerPage must be positive, got %d", c.DefaultEventsPerPage)
+	case c.MaxEventsPerPage <= 0:
+		return fmt.Errorf("maxEventsPerPage must be positive, got %d", c.MaxEventsPerPage)
+	case c.DefaultEventsPerPage > c.MaxEventsPerPage:
+		return fmt.Errorf("defaultEventsPerPage (%d) must not exceed maxEventsPerPage (%d)", c.DefaultEventsPerPage, c.MaxEventsPerPage)
 	case c.MaxEventSize <= 0:
 		return fmt.Errorf("maxEventSize must be positive, got %d", c.MaxEventSize)
 	case c.MaxDocumentSize <= 0:
 		return fmt.Errorf("maxDocumentSize must be positive, got %d", c.MaxDocumentSize)
-	case c.MaxDocumentsPerWrite <= 0:
-		return fmt.Errorf("maxDocumentsPerWrite must be positive, got %d", c.MaxDocumentsPerWrite)
+	case c.MaxDocumentsPerRequest <= 0:
+		return fmt.Errorf("maxDocumentsPerRequest must be positive, got %d", c.MaxDocumentsPerRequest)
 	case c.TransactionTimeout <= 0:
 		return fmt.Errorf("transactionTimeout must be positive, got %d", c.TransactionTimeout)
-	case c.TransactionCeiling <= 0:
-		return fmt.Errorf("transactionCeiling must be positive, got %d", c.TransactionCeiling)
-	case c.TransactionTimeout > c.TransactionCeiling:
-		return fmt.Errorf("transactionTimeout (%d) must not exceed transactionCeiling (%d)", c.TransactionTimeout, c.TransactionCeiling)
+	case c.MaxTransactionDuration <= 0:
+		return fmt.Errorf("maxTransactionDuration must be positive, got %d", c.MaxTransactionDuration)
+	case c.TransactionTimeout > c.MaxTransactionDuration:
+		return fmt.Errorf("transactionTimeout (%d) must not exceed maxTransactionDuration (%d)", c.TransactionTimeout, c.MaxTransactionDuration)
 	case c.MaxTransactionWait <= 0:
 		return fmt.Errorf("maxTransactionWait must be positive, got %d", c.MaxTransactionWait)
 	case c.MaxQueuedTransactions <= 0:

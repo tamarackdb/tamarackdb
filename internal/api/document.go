@@ -63,7 +63,7 @@ func (s *Server) handleWriteDocuments(w http.ResponseWriter, r *http.Request) {
 		if err := decodeJSON(r, &req); err != nil {
 			return err
 		}
-		if err := validateDocumentsRequest(req, s.opts.MaxDocumentSize, s.opts.MaxDocumentsPerWrite); err != nil {
+		if err := validateDocumentsRequest(req, s.opts.MaxDocumentSize, s.opts.MaxDocumentsPerRequest); err != nil {
 			return err
 		}
 		return writeFn(req.Documents)
@@ -87,17 +87,17 @@ func (s *Server) handleWriteDocuments(w http.ResponseWriter, r *http.Request) {
 }
 
 // validateDocumentsRequest checks request-shape rules (between 1 and
-// maxDocumentsPerWrite documents), then, per document,
+// maxDocumentsPerRequest documents), then, per document,
 // document.Data.Validate() and its size limit, rejecting a repeated
 // type+id pair within the same request rather than leaving its outcome to
 // write order.
-func validateDocumentsRequest(req documentsRequest, maxDocumentSize, maxDocumentsPerWrite int) error {
+func validateDocumentsRequest(req documentsRequest, maxDocumentSize, maxDocumentsPerRequest int) error {
 	if len(req.Documents) == 0 {
 		return &dcb.ValidationError{Err: errNoDocuments, Message: "request must carry at least one document"}
 	}
-	if len(req.Documents) > maxDocumentsPerWrite {
+	if len(req.Documents) > maxDocumentsPerRequest {
 		return &dcb.ValidationError{Err: errTooManyDocuments, Message: fmt.Sprintf(
-			"request carries %d documents, more than the maximum of %d", len(req.Documents), maxDocumentsPerWrite)}
+			"request carries %d documents, more than the maximum of %d", len(req.Documents), maxDocumentsPerRequest)}
 	}
 	seen := make(map[[2]string]struct{}, len(req.Documents))
 	for i, d := range req.Documents {

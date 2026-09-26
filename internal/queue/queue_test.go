@@ -11,7 +11,7 @@ const testTimeout = 2 * time.Second
 
 type joinOutcome struct {
 	turn *Turn
-	err    error
+	err  error
 }
 
 func joinResultChan(t *testing.T, m *Manager, ctx context.Context) <-chan joinOutcome {

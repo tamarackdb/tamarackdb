@@ -29,13 +29,13 @@ type Options struct {
 	// present when EnableAuth is true. Unused otherwise.
 	AuthToken string
 
-	// DefaultLimit is the QUERY /events page size applied when a request
+	// DefaultEventsPerPage is the QUERY /events page size applied when a request
 	// omits limit. Default: 1000.
-	DefaultLimit int
+	DefaultEventsPerPage int
 
-	// MaxLimit is the highest limit a QUERY /events request may ask for;
+	// MaxEventsPerPage is the highest limit a QUERY /events request may ask for;
 	// above it, 400. Default: 10000.
-	MaxLimit int
+	MaxEventsPerPage int
 
 	// MaxEventSize is the maximum combined UTF-8 byte size
 	// (dcb.EventData.Size()) of one appended event; over it, 413.
@@ -48,9 +48,9 @@ type Options struct {
 	// Default: 65536 (64 KiB).
 	MaxDocumentSize int
 
-	// MaxDocumentsPerWrite caps how many documents a single
+	// MaxDocumentsPerRequest caps how many documents a single
 	// POST /documents request may carry; over it, 400.
-	MaxDocumentsPerWrite int
+	MaxDocumentsPerRequest int
 
 	// DevMode, when true, registers POST /reset, which deletes every event
 	// and document, and the /debug/pprof/ profiling endpoints. Never
@@ -105,7 +105,7 @@ type Server struct {
 // remains responsible for closing both.
 //
 // New panics on invalid static configuration (empty token, non-positive
-// limits, DefaultLimit > MaxLimit, nil tm/st): these are startup wiring
+// limits, DefaultEventsPerPage > MaxEventsPerPage, nil tm/st): these are startup wiring
 // bugs, not request-time conditions, the same "fail loud and immediately"
 // treatment store.Open gives a bad database file.
 func New(tm *txn.Manager, st *store.Store, opts Options) *Server {
@@ -115,18 +115,18 @@ func New(tm *txn.Manager, st *store.Store, opts Options) *Server {
 		panic("api: New: tm must not be nil")
 	case st == nil:
 		panic("api: New: st must not be nil")
-	case opts.DefaultLimit <= 0:
-		panic("api: New: Options.DefaultLimit must be positive")
-	case opts.MaxLimit <= 0:
-		panic("api: New: Options.MaxLimit must be positive")
-	case opts.DefaultLimit > opts.MaxLimit:
-		panic("api: New: Options.DefaultLimit must not exceed Options.MaxLimit")
+	case opts.DefaultEventsPerPage <= 0:
+		panic("api: New: Options.DefaultEventsPerPage must be positive")
+	case opts.MaxEventsPerPage <= 0:
+		panic("api: New: Options.MaxEventsPerPage must be positive")
+	case opts.DefaultEventsPerPage > opts.MaxEventsPerPage:
+		panic("api: New: Options.DefaultEventsPerPage must not exceed Options.MaxEventsPerPage")
 	case opts.MaxEventSize <= 0:
 		panic("api: New: Options.MaxEventSize must be positive")
 	case opts.MaxDocumentSize <= 0:
 		panic("api: New: Options.MaxDocumentSize must be positive")
-	case opts.MaxDocumentsPerWrite <= 0:
-		panic("api: New: Options.MaxDocumentsPerWrite must be positive")
+	case opts.MaxDocumentsPerRequest <= 0:
+		panic("api: New: Options.MaxDocumentsPerRequest must be positive")
 	case !validLogLevel:
 		panic(`api: New: Options.LogLevel must be one of "debug", "info", "warning", "error"`)
 	}

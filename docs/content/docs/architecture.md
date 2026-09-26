@@ -328,10 +328,11 @@ The response carries a `hasMore` boolean, so the client never has to guess wheth
 fetches `limit + 1` rows. If it gets that many, it trims the result back to `limit` and returns `hasMore: true`.
 Otherwise it returns everything it got and `hasMore: false`.
 
-Both the default `limit` (used when a request leaves it out) and the server-enforced maximum (the highest `limit` a
-request may ask for) are configuration, not fixed constants (see Configuration). How fast an application's
-projections can process a batch of events (see Projection rebuilds) varies enough between applications, and even
-between projections in the same application, that one fixed page size wouldn't fit all of them.
+Both the default `limit` (`defaultEventsPerPage`, used when a request leaves it out) and the server-enforced maximum
+(`maxEventsPerPage`, the highest `limit` a request may ask for) are configuration, not fixed constants (see
+Configuration). How fast an application's projections can process a batch of events (see Projection rebuilds) varies
+enough between applications, and even between projections in the same application, that one fixed page size wouldn't fit
+all of them.
 
 Left unset, `limit` falls back to a default of **1,000**, with a server-enforced maximum of **10,000**. That's sized
 so a default page is easy to buffer client-side, and a page at the maximum still finishes in a matter of seconds even
@@ -463,7 +464,7 @@ A document is always read by `type` and `id`. There is no query over documents.
 
 A document with a `payload` is created, or replaced if it exists. A document with a `null` payload is deleted;
 deleting a document that doesn't exist does nothing. The same `type` + `id` can't appear twice in one call: that's a
-`400 Bad Request`. A call carries at least one document and at most `maxDocumentsPerWrite`, and each payload at most
+`400 Bad Request`. A call carries at least one document and at most `maxDocumentsPerRequest`, and each payload at most
 `maxDocumentSize` bytes (see Configuration). On success, it responds `204 No Content`.
 
 There's no version and no concurrency check on documents. None is needed: a projector reads a document inside the
@@ -602,7 +603,7 @@ anywhere the Query grammar needs a non-empty one (see Query grammar), a non-inte
 `limit` above the configured maximum (see Pagination), an invalid `time.from` / `time.before` timestamp, an event
 missing its `type`, an event carrying a duplicate identifier or metadata value, more than 20 identifiers/metadata
 entries (see Metadata), a `POST /events` call with no event or more than 100 events (see Appending events), a
-`POST /documents` call with no document, a duplicate `type` + `id`, or more than `maxDocumentsPerWrite` documents,
+`POST /documents` call with no document, a duplicate `type` + `id`, or more than `maxDocumentsPerRequest` documents,
 and so on. A call that needs a ticket (`POST /events`, `POST /commit`, `POST /rollback`) and carries none gets
 `400 Bad Request` too: it names no transaction, so there's none to report as inactive.
 
@@ -924,9 +925,9 @@ transaction timeouts, pagination/size limits, and the FIFO depth) comes from thr
    under a `[server]` section, so the same file can also hold `tamarackdb-backup`'s `[backup]` section (see
    [Backup](/docs/guides/backup/)); each binary reads only its own section.
 2. `TAMARACKDB_*` environment variables, one per configuration key.
-3. Built-in defaults, for the keys that have one (`socketPath`, `dataDir`, `logLevel`, `defaultLimit`, `maxLimit`,
-   `maxEventSize`, `maxDocumentSize`, `maxDocumentsPerWrite`, `transactionTimeout`, `transactionCeiling`,
-   `maxTransactionWait`, `maxQueuedTransactions`, `readPoolSize`).
+3. Built-in defaults, for the keys that have one (`socketPath`, `dataDir`, `logLevel`, `defaultEventsPerPage`,
+   `maxEventsPerPage`, `maxEventSize`, `maxDocumentSize`, `maxDocumentsPerRequest`, `transactionTimeout`,
+   `maxTransactionDuration`, `maxTransactionWait`, `maxQueuedTransactions`, `readPoolSize`).
 
 A value set in the configuration file always wins over the matching environment variable. The configuration file
 itself is optional: an application deployed as one instance per environment, each with its own file, uses it as the
@@ -946,13 +947,13 @@ instead.
 | `dataDir` | `TAMARACKDB_DATA_DIR` | `data` |
 | `logLevel` | `TAMARACKDB_LOG_LEVEL` | `warning` |
 | `devMode` | `TAMARACKDB_DEV_MODE` | `false` |
-| `defaultLimit` | `TAMARACKDB_DEFAULT_LIMIT` | `1000` |
-| `maxLimit` | `TAMARACKDB_MAX_LIMIT` | `10000` |
+| `defaultEventsPerPage` | `TAMARACKDB_DEFAULT_EVENTS_PER_PAGE` | `1000` |
+| `maxEventsPerPage` | `TAMARACKDB_MAX_EVENTS_PER_PAGE` | `10000` |
 | `maxEventSize` | `TAMARACKDB_MAX_EVENT_SIZE` | `65536` (64 KiB) |
 | `maxDocumentSize` | `TAMARACKDB_MAX_DOCUMENT_SIZE` | `65536` (64 KiB) |
-| `maxDocumentsPerWrite` | `TAMARACKDB_MAX_DOCUMENTS_PER_WRITE` | `100` |
+| `maxDocumentsPerRequest` | `TAMARACKDB_MAX_DOCUMENTS_PER_REQUEST` | `100` |
 | `transactionTimeout` | `TAMARACKDB_TRANSACTION_TIMEOUT` | `5` (seconds) |
-| `transactionCeiling` | `TAMARACKDB_TRANSACTION_CEILING` | `15` (seconds) |
+| `maxTransactionDuration` | `TAMARACKDB_MAX_TRANSACTION_DURATION` | `15` (seconds) |
 | `maxTransactionWait` | `TAMARACKDB_MAX_TRANSACTION_WAIT` | `30` (seconds) |
 | `maxQueuedTransactions` | `TAMARACKDB_MAX_QUEUED_TRANSACTIONS` | `100` |
 | `readPoolSize` | `TAMARACKDB_READ_POOL_SIZE` | `8` |
@@ -961,15 +962,15 @@ instead.
 `tamarackdb.paused` (see Pause). Only the directory is configurable, the same convention MySQL's own `datadir` uses:
 the filenames within it are fixed.
 
-`maxDocumentSize` bounds one document's payload the same way `maxEventSize` bounds one event. `maxDocumentsPerWrite`
+`maxDocumentSize` bounds one document's payload the same way `maxEventSize` bounds one event. `maxDocumentsPerRequest`
 caps how many documents one `POST /documents` call may carry. Unlike the fixed 100-events-per-call limit, it's
 configuration, not an architectural boundary: document volume needs vary more between applications, especially for a
 rebuild's calls.
 
-`transactionTimeout` is a transaction's idle timeout: how long it may go without a call before it's rolled back,
-counted from the moment its ticket is given out, then from the end of each call made with the ticket.
-`transactionCeiling` is the total time no transaction can exceed, however many calls it makes (see Deadline and
-ceiling). `transactionTimeout` can't be greater than `transactionCeiling`: `Load` rejects that configuration.
+`transactionTimeout` is a transaction's idle timeout: how long it may go without a call before it's rolled back, counted
+from the moment its ticket is given out, then from the end of each call made with the ticket. `maxTransactionDuration`
+is the ceiling: the total time no transaction can exceed, however many calls it makes (see Deadline and ceiling).
+`transactionTimeout` can't be greater than `maxTransactionDuration`: `Load` rejects that configuration.
 
 `maxTransactionWait` caps how long a request may wait in the FIFO before getting `503 TransactionWaitTimeout`.
 `maxQueuedTransactions` caps how many requests may wait in the FIFO at once. A request that arrives when the FIFO is

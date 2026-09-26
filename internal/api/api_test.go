@@ -63,15 +63,15 @@ func newTestServerWith(t *testing.T, o testOptions) (*Server, *txn.Manager, *sto
 	}
 	t.Cleanup(tm.Close) // runs before st.Close
 	srv := New(tm, st, Options{
-		EnableAuth:           true,
-		AuthToken:            testToken,
-		DefaultLimit:         1000,
-		MaxLimit:             10000,
-		MaxEventSize:         65536,
-		MaxDocumentSize:      65536,
-		MaxDocumentsPerWrite: 100,
-		LogLevel:             o.logLevel,
-		DevMode:              o.devMode,
+		EnableAuth:             true,
+		AuthToken:              testToken,
+		DefaultEventsPerPage:   1000,
+		MaxEventsPerPage:       10000,
+		MaxEventSize:           65536,
+		MaxDocumentSize:        65536,
+		MaxDocumentsPerRequest: 100,
+		LogLevel:               o.logLevel,
+		DevMode:                o.devMode,
 	})
 	return srv, tm, st
 }

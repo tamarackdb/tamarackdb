@@ -53,9 +53,9 @@ file works whether you run one binary or both.
 : Env: `TAMARACKDB_DATA_DIR`
 : Default: `data`
 
-`defaultLimit` / `maxLimit`
-: Default and maximum page size for `QUERY /events`.
-: Env: `TAMARACKDB_DEFAULT_LIMIT` / `TAMARACKDB_MAX_LIMIT`
+`defaultEventsPerPage` / `maxEventsPerPage`
+: Events per `QUERY /events` page: the `limit` used when a request leaves it out, and the highest `limit` a request may ask for.
+: Env: `TAMARACKDB_DEFAULT_EVENTS_PER_PAGE` / `TAMARACKDB_MAX_EVENTS_PER_PAGE`
 : Default: `1000` / `10000`
 
 `maxEventSize`
@@ -68,9 +68,9 @@ file works whether you run one binary or both.
 : Env: `TAMARACKDB_MAX_DOCUMENT_SIZE`
 : Default: `65536` (64 KiB)
 
-`maxDocumentsPerWrite`
+`maxDocumentsPerRequest`
 : Maximum documents in a single `POST /documents` call.
-: Env: `TAMARACKDB_MAX_DOCUMENTS_PER_WRITE`
+: Env: `TAMARACKDB_MAX_DOCUMENTS_PER_REQUEST`
 : Default: `100`
 
 `transactionTimeout`
@@ -78,9 +78,9 @@ file works whether you run one binary or both.
 : Env: `TAMARACKDB_TRANSACTION_TIMEOUT`
 : Default: `5`
 
-`transactionCeiling`
+`maxTransactionDuration`
 : Seconds a transaction may last in total, however many calls it makes. Must be at least `transactionTimeout`.
-: Env: `TAMARACKDB_TRANSACTION_CEILING`
+: Env: `TAMARACKDB_MAX_TRANSACTION_DURATION`
 : Default: `15`
 
 `maxTransactionWait`
@@ -139,8 +139,8 @@ is usually empty or short.
 
 The limits matter when a client fails. A client that crashed holds its
 transaction until `transactionTimeout`. A client that keeps calling but never
-ends its transaction holds it until `transactionCeiling`. A request waiting
-behind `N` such transactions may wait up to `N` times `transactionCeiling`.
+ends its transaction holds it until `maxTransactionDuration`. A request waiting
+behind `N` such transactions may wait up to `N` times `maxTransactionDuration`.
 
 Size `maxQueuedTransactions` and `maxTransactionWait` against how many users
 the application serves at once, and how long you'd rather they wait than get

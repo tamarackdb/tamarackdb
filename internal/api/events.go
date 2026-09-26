@@ -113,7 +113,7 @@ func (s *Server) parseReadRequest(r *http.Request) (store.ReadFilter, error) {
 		}
 	}
 
-	filter := store.ReadFilter{Query: req.Query, AfterSequence: req.AfterSequence, Limit: s.opts.DefaultLimit}
+	filter := store.ReadFilter{Query: req.Query, AfterSequence: req.AfterSequence, Limit: s.opts.DefaultEventsPerPage}
 
 	if req.Limit != nil {
 		switch {
@@ -124,9 +124,9 @@ func (s *Server) parseReadRequest(r *http.Request) (store.ReadFilter, error) {
 			// can never determine hasMore meaningfully, so it's rejected
 			// rather than silently falling back to the default.
 			return store.ReadFilter{}, &dcb.ValidationError{Err: errZeroLimit, Message: "limit must be greater than zero"}
-		case *req.Limit > s.opts.MaxLimit:
+		case *req.Limit > s.opts.MaxEventsPerPage:
 			return store.ReadFilter{}, &dcb.ValidationError{Err: errLimitExceedsMax, Message: fmt.Sprintf(
-				"limit %d exceeds the configured maximum of %d", *req.Limit, s.opts.MaxLimit)}
+				"limit %d exceeds the configured maximum of %d", *req.Limit, s.opts.MaxEventsPerPage)}
 		}
 		filter.Limit = *req.Limit
 	}
