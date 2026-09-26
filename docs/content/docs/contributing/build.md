@@ -27,7 +27,7 @@ builds only that one.
 
 The running build's version comes from `git describe --tags --always --dirty`,
 evaluated at build time. It is baked into every binary at build time, not read at
-runtime. See [Architecture](/docs/architecture/#versioning) for how that works.
+runtime: the Makefile sets `internal/buildinfo.Version` through `-ldflags "-X ..."`.
 
 `--version` prints the running build's version and exits, without loading a config
 file or opening the database. Every TamarackDB binary accepts it.

@@ -6,10 +6,9 @@ weight: 2
 
 ## Context
 
-TamarackDB is an event store in Go. It follows the
-[DCB (Dynamic Consistency Boundaries) specification](https://dcb.events/specification/), is reachable over HTTP, and
-uses SQLite as its storage engine. The service runs as a single instance ("single brain"), not a multi-instance
-cluster.
+TamarackDB is an event store in Go. It follows the [DCB (Dynamic Consistency Boundaries)
+specification](https://dcb.events/specification/), is reachable over HTTP, and uses SQLite as its storage engine. The
+service runs as a single instance ("single brain"), not a multi-instance cluster.
 
 It also stores documents: projections an application reads and updates in the same transaction as the events that
 changed them (see Documents). An application that keeps its projections elsewhere never has to touch this mechanism.
@@ -27,12 +26,11 @@ which you rebuild current state by replaying them.
 
 ### Scope
 
-TamarackDB serves applications with modest throughput and few concurrent writers: a handful of users at a time, where
-two changes in the same second are rare. Every design choice here follows from that scope: one SQLite file, one
-transaction at a time, no clustering.
+TamarackDB serves applications with modest throughput and few concurrent users. Every design choice here follows from
+that scope: one SQLite file, one transaction at a time, no clustering.
 
-It trades speed for simplicity, on purpose. The short version is "maybe slow, but dead simple". A system that needs
-high write throughput, or that is built around eventual consistency, is not a good fit for TamarackDB.
+It trades speed for simplicity, on purpose. A system that needs high write throughput, or that is built around eventual
+consistency, is not a good fit for TamarackDB.
 
 ### Transactional model
 
@@ -118,18 +116,6 @@ configuration, for the same reason as the cap on events per `POST /events` call 
 should stay a short, meaningful statement, not a container for a large list of values. A `POST /events` call that
 breaks this rule gets `400 Bad Request`.
 
-### Two categories of data associated with an event
-
-| Category | Role | Examples |
-|---|---|---|
-| **Identifiers** | Business identifiers, the main way to filter in DCB | `courseId`, `userId` as a subject |
-| **Metadata** | Everything else about the event, also queryable | `tenantId`, `userId` (author), `correlation_id` |
-
-### Volume context
-
-Volume stays well within SQLite's normal limits with btree indexing: several million rows across the identifiers and
-metadata tables, at 1 to 2 identifiers per event, based on real production numbers.
-
 ## Query grammar (per the DCB spec)
 
 A `Query` is an **array of `QueryItem`**, combined with **OR**:
@@ -157,11 +143,8 @@ For each `QueryItem`:
 Negation (`<>`, and so on) is not allowed. It's left out on purpose: a negation describes an unlimited set of matching
 events ("anything that isn't X"), so there's no way to guarantee that no future event could break the condition.
 
-Two special cases from the spec, worth calling out:
-- **`Query.all()`**: a Query can mean "all events", with no keys to list. Used both to read the whole store, and as
-  `failIfEventsMatch` for an Append Condition that must fail if *any* event exists past `afterSequence`.
-- **`afterSequence` can be past the last matching event**: this number is just what the client had seen, not
-  necessarily a real event. The concurrency check compares `sequence > afterSequence` against matching events.
+`afterSequence` can be past the last matching event: this number is just what the client had seen, not necessarily
+a real event. The concurrency check compares `sequence > afterSequence` against matching events.
 
 Every array in this grammar (the top-level `query`, or a `QueryItem`'s `types`, `identifiers`, or `metadata`) must be
 non-empty when present. An empty array gets `400 Bad Request`, rather than meaning something special. To leave an axis
@@ -169,8 +152,7 @@ open within a `QueryItem`, leave that key out entirely, instead of sending `[]`.
 place of `query`, instead of an empty array.
 
 A `QueryItem` must specify at least one of `types`, `identifiers`, or `metadata`. An empty item (`{}`) is invalid and
-gets `400 Bad Request`: it poses no constraint, and isn't the documented way to say "all events" either, that's what
-`"*"` is for at the whole-query level, not something an item can express on its own.
+gets `400 Bad Request`: it poses no constraint.
 
 If two `QueryItem` in the same array are exact duplicates (same types, identifiers, and metadata, in any order),
 TamarackDB silently keeps one and drops the rest: a repeated item adds nothing to the OR beyond a wasted clause. This
@@ -240,8 +222,8 @@ so how long one client may hold it is the operator's decision: it's what every o
 
 #### Calls inside a transaction
 
-Every call inside a transaction carries the ticket in the `X-Tamarackdb-Ticket` header. A call with a ticket that
-isn't active (unknown, already committed, rolled back, or expired) gets `410 TransactionNotActive`.
+A call with a ticket that isn't active (unknown, already committed, rolled back, or expired) gets
+`410 TransactionNotActive`.
 
 A call that fails inside a transaction ends it: the transaction is rolled back, and the ticket stops being active.
 This covers every error response: a malformed request, a failed Append Condition, a payload over its size limit, an
@@ -269,7 +251,10 @@ A commit never fails with `409`: every Append Condition was already checked when
 If the connection drops before the `POST /commit` response reaches the client, the ticket is already inactive and the
 next transaction can take its turn. The client can't tell whether its data was committed. This is the same
 lost-acknowledgment problem as any request/response protocol. It's rare enough that TamarackDB leaves it to the
-application's user experience: reloading the page shows whether the change was applied.
+application's user experience: reloading the page shows whether the change was applied. A client that wants to retry
+such a command safely can append with an Append Condition: an `afterSequence` on its own is enough. If the original
+commit went through, the Sequence Position has already moved past it, so the retry fails with
+`409 ConcurrencyException` instead of appending a duplicate event.
 
 ### Reading events
 
@@ -303,9 +288,6 @@ the literal string `"*"` for `Query.all()`, plus optional `afterSequence` / `tim
   }
 }
 ```
-
-`Query.all()` is the literal string `"*"` in place of the `query` array: no `QueryItem` to filter by means every event
-matches.
 
 `afterSequence` limits the read to events with a Sequence Position strictly greater than the given value, the same
 `sequence > afterSequence` rule used by the Append Condition's concurrency check. It's optional: leaving it out reads
@@ -353,8 +335,7 @@ between projections in the same application, that one fixed page size wouldn't f
 
 Left unset, `limit` falls back to a default of **1,000**, with a server-enforced maximum of **10,000**. That's sized
 so a default page is easy to buffer client-side, and a page at the maximum still finishes in a matter of seconds even
-for a fast projection. Without a ticket, this also keeps each SQLite read transaction short (see Projection
-rebuilds). Asking for more than the configured maximum gets `400 Bad Request` (see Error responses).
+for a fast projection. Asking for more than the configured maximum gets `400 Bad Request` (see Error responses).
 
 ### Response format
 
@@ -394,10 +375,6 @@ reference value, not something meant for display. Converting to local time is le
 
 `payload` is an opaque string: the store never parses or checks it. Its real format (JSON, XML, or anything else) is
 a convention owned by the writing application, based on the event's `type`. The store has no notion of it.
-
-Response compression (gzip, negotiated the normal way through `Accept-Encoding`, above a minimum body size) is a
-nice-to-have, not built yet. Request compression isn't planned at all: appending a large batch of events at once isn't
-a `POST /events` use case.
 
 ### Appending events
 
@@ -452,9 +429,6 @@ If the Append Condition fails, the server responds `409 Conflict`, and the trans
 ```json
 { "error": "ConcurrencyException" }
 ```
-
-A malformed request gets `400 Bad Request`. An event over its size limit gets `413 Payload Too Large` (see Event size
-limit and Error responses). Both roll the transaction back too (see Calls inside a transaction).
 
 ### Documents
 
@@ -564,11 +538,6 @@ snapshot in place for as long as the rebuild runs, blocking WAL checkpointing th
 document writes keep piling up in the WAL file. Paging keeps each read transaction short, so the WAL checkpoints
 normally between pages.
 
-Fetch time isn't always small next to processing time: some projections process events fast enough that the per-page
-round trip becomes a real, if still secondary, share of total rebuild time. This is exactly why the page size and its
-ceiling are configuration, not a fixed constant: a slow projection can use a small `limit` and pay almost nothing for
-it, while a fast one benefits from a larger `limit` that spreads the round-trip cost over more events per page.
-
 Reclaiming the disk space of deleted documents with `VACUUM` is a separate, manual step, run while the server is
 stopped (see Storage: SQLite).
 
@@ -595,9 +564,6 @@ The limit is deliberate, not a technical ceiling to raise later: it keeps an eve
 the world, rather than a data transport container, and keeps Decision Model replay fast (which can reload hundreds of
 thousands of events). Larger content (files, documents) belongs in external storage, referenced from the event
 instead of embedded in it.
-
-Real-world event sizes stay well under the limit, with room to spare over real usage, rather than the limit being a
-ceiling anything currently pushes against.
 
 The default of 64 KiB is configurable (see Configuration).
 
@@ -640,11 +606,6 @@ entries (see Metadata), a `POST /events` call with no event or more than 100 eve
 and so on. A call that needs a ticket (`POST /events`, `POST /commit`, `POST /rollback`) and carries none gets
 `400 Bad Request` too: it names no transaction, so there's none to report as inactive.
 
-Validation is hand-written in Go, not driven by a JSON Schema: the request surface is small, several rules are about
-meaning rather than pure structure (a valid ATOM timestamp, a consistent `time.from`/`time.before` range, the full DCB
-`QueryItem` grammar), and a generic schema validator's error messages don't map cleanly onto the `{error, message}`
-shape above.
-
 ## Append Condition and concurrency
 
 Standard DCB flow:
@@ -686,18 +647,14 @@ transaction, TamarackDB uses the widest boundary possible, the whole store, with
 stronger, not weaker. The Append Condition stays fully supported, for the optimistic flow above and for any client
 that relies on it.
 
-The Append Condition doesn't guard against another connection to the SQLite file. It doesn't need to:
-`BEGIN IMMEDIATE` blocks any outside write while a transaction is active, and outside writes aren't supported anyway,
-since the Sequence Position counter lives in TamarackDB's memory (see Concurrency handling in Go).
-
 ## Concurrency handling in Go
 
 ### Principle: the transaction FIFO
 
 A queue manager gives out the single active turn, strictly in the order requests arrive. Three kinds of requests join
-its FIFO: `POST /begin`, `POST /pause`, and the hourly `PRAGMA optimize` (see Storage: SQLite). It knows nothing about what a transaction will read or append. Only
-two states exist: **Active** (at most one transaction at a time, the only one allowed to touch the write connection)
-and **Queued** (every other request, waiting its turn in line).
+its FIFO: `POST /begin`, `POST /pause`, and the hourly `PRAGMA optimize` (see Storage: SQLite). It knows nothing about
+what a transaction will read or append. Only two states exist: **Active** (at most one transaction at a time, the only
+one allowed to touch the write connection) and **Queued** (every other request, waiting its turn in line).
 
 **Flow for a request in the FIFO:**
 1. The HTTP handler asks the queue manager to join the line.
@@ -731,16 +688,6 @@ that stops reading a streamed page, or sends its body very slowly) would hold th
 with a ticket therefore sets its connection's read and write deadlines to the transaction's ceiling, and clears them
 when it ends. A stuck call fails at the ceiling at the latest, which rolls the transaction back.
 
-**A failed call ends the transaction.** A call that returns an error (other than `404 DocumentNotFound`), panics, or
-whose client disconnects before it finishes, rolls the transaction back and gives the turn to the next request. The
-rollback runs in a deferred call, set up before the handler touches the write connection, so it runs no matter how
-the handler exits. A transaction never stays active because of a failure.
-
-**No conflict checking.** The queue manager never looks at a transaction's queries, conditions, or events. Every
-request joins the line purely by arrival order: there's no conflict matrix, and no split between conflicting and
-non-conflicting transactions. Two transactions touching unrelated events still run one after the other. This is the
-scope's trade-off (see Scope): a simpler model, at the cost of throughput.
-
 ### Application-controlled Sequence Position
 
 Since only one transaction ever touches the write connection, TamarackDB assigns the Sequence Position itself, in
@@ -773,21 +720,11 @@ changes how the decision is reached, never the decision itself, or anything in t
 
 ### Reads
 
-Reads take one of two paths, depending on the ticket.
-
-**Without a ticket**, a read doesn't go through the queue manager. It runs on the read connection pool. Consistency
+A read without a ticket doesn't go through the queue manager. It runs on the read connection pool. Consistency
 comes from SQLite's **MVCC** mode (WAL): a read sees a steady snapshot of committed data from the moment it starts,
 and never sees an active transaction's changes. It's never blocked by the active transaction, however long that one
 runs. A read that starts just before a commit simply won't see the new events, which is fine: a client that then
 appends with an Append Condition uses the Sequence Position it actually read as `afterSequence`.
-
-**With a ticket**, a read is a call inside the transaction, like any other: it runs on the write connection, inside
-the SQLite transaction, under the mutex. It sees everything the transaction has appended or written so far, plus
-everything committed before the transaction started.
-
-**Write atomicity:** appending an event touches several tables (the `events` row, one or more identifier rows, one or
-more metadata rows). All of it happens inside the transaction's single SQLite transaction, so readers without a ticket
-see an event, its identifiers, and its metadata together, and only once committed.
 
 ### Startup, shutdown, and crash behavior
 
@@ -796,12 +733,10 @@ address, port, the TLS and auth flags and file paths (`authToken` itself is neve
 the transaction timeouts, and the pagination/event-size/queue-depth limits. This is a plain operational aid, for
 checking at a glance what a given instance is actually set up to do, not a machine-readable format meant for parsing.
 
-Opening the store checks `PRAGMA user_version` against the schema version built into the binary, then reads the
-current highest `sequence` in the `events` table into the in-memory Sequence Position counter (see
-Application-controlled Sequence Position above). The process then checks for the pause file in `dataDir`, and
-starts paused if it
-exists (see Pause). All of this finishes before the process gives out any ticket; reads without a ticket can be
-served as soon as the store is open.
+Opening the store checks the schema version (see Schema), then reads the current highest `sequence` in the `events`
+table into the in-memory Sequence Position counter (see Application-controlled Sequence Position above). The process
+then checks for the pause file in `dataDir`, and starts paused if it exists (see Pause). All of this finishes before the
+process gives out any ticket; reads without a ticket can be served as soon as the store is open.
 
 On `SIGINT` or `SIGTERM`, the process shuts down in order: the HTTP server stops taking new connections and finishes
 requests already in flight (`http.Server.Shutdown`, capped at 10 seconds), requests still waiting in the FIFO are
@@ -819,7 +754,7 @@ because they have to match what's on disk: the Sequence Position counter, read f
 state, read from the pause file.
 
 A panic in one request handler is caught by the HTTP server, without crashing the process. The handler's deferred
-rollback and release still run during the panic's unwind (see A failed call ends the transaction), so no transaction
+rollback and release still run during the panic's unwind (see Calls inside a transaction), so no transaction
 stays active forever. A full process crash (an unrecovered panic, SIGKILL, an out-of-memory kill) takes the whole
 in-memory state down with it, so there's nothing left to leak either way.
 
@@ -827,27 +762,20 @@ SQLite's own atomicity guarantees the store itself: a crash during an active tra
 transaction, discarded the next time a connection opens. Neither the transaction's events nor its documents ever
 become visible, in whole or in part. The counter, read back from the database, matches.
 
-None of this tells a client whether its commit actually happened, when the crash (or any dropped connection) lands
-after SQLite commits but before the `POST /commit` response reaches it (see Ending a transaction). A client that wants
-to retry such a command safely can append with an Append Condition, even one with no `failIfEventsMatch`: an
-`afterSequence` on its own is enough. If the original commit went through, the Sequence Position has already moved
-past it, so the retry fails with `409 ConcurrencyException` instead of appending a duplicate event.
-
 **Fatal storage errors:** a SQLite error that suggests the file itself may be damaged (an I/O error, detected
-corruption, failure to open the database file) is treated as fatal: the process logs it and exits, instead of trying
-to keep serving requests against a store it can no longer trust. This is deliberately simple: no per-error recovery
-logic, just a clean restart, which is cheap and safe given the transient state described above, and which `/health`
-and a process supervisor are already set up to catch and act on. A temporary, non-fatal SQLite error (a busy lock
-during a WAL checkpoint, say) doesn't count as fatal: it fails that one call, which rolls its transaction back (see A
-failed call ends the transaction), instead of taking the whole process down for every other client.
+corruption, failure to open the database file) is treated as fatal: the process logs it and exits, instead of trying to
+keep serving requests against a store it can no longer trust. This is deliberately simple: no per-error recovery logic,
+just a clean restart, which is cheap and safe given the transient state described above, and which `/health` and a
+process supervisor are already set up to catch and act on. A temporary, non-fatal SQLite error (a busy lock during a WAL
+checkpoint, say) doesn't count as fatal: it fails that one call, which rolls its transaction back (see Calls inside a
+transaction), instead of taking the whole process down for every other client.
 
 ## Storage: SQLite
 
 SQLite is used as the storage engine, for these reasons:
 - Volume (several million rows across the identifiers and metadata tables) fits comfortably within SQLite's limits,
   with `name + value` indexes
-- No external network or process to depend on, in line with the goal of keeping state centralized in memory on the Go
-  side
+- No external network or process to depend on
 - Single-writer behavior, in line with the single-process model ("single brain"): the process is the only writer for
   as long as it runs
 - WAL mode allows reads without a ticket to happen at the same time as the active transaction, without blocking
@@ -855,19 +783,15 @@ SQLite is used as the storage engine, for these reasons:
   format, and backed up the same way, through SQLite's own backup tools (for example `.backup`, `VACUUM INTO`) instead
   of a raw copy of the file, which can miss commits still sitting in the WAL
 
-Events and documents live in one file, `tamarackdb.sqlite`, so one SQLite transaction covers both. Documents are
-larger than events and are rewritten in place, so they make the WAL grow faster than events alone would. This stays
-small in practice: only one transaction writes at a time anyway, and a command writes about ten documents, once,
-right before its commit (see Documents). The one heavy case is a projection rebuild, which writes every rebuilt
-document, but it runs while the server is paused, with no other writer (see Projection rebuilds). SQLite reuses the space
-of deleted documents for later writes on its own. Giving that space back to the operating system takes a `VACUUM`,
-which rewrites the whole file, events included. The server never runs one: it's run by hand, with `sqlite3`, while
-the server is stopped, the same way as a full `ANALYZE` (see below). Stopping the server costs a few seconds, on top
-of a rebuild's downtime that's already accepted, and keeps the server free of a long operation it would have to
-coordinate with reads still in flight.
-
-`tamarackdb-backup` only ever copies events (see [Backup](/docs/guides/backup/)): a document is reproducible from
-events, so it doesn't need its own backup copy. A raw copy of the database file, by contrast, includes the documents.
+Events and documents live in one file, `tamarackdb.sqlite`, so one SQLite transaction covers both. Documents are larger
+than events and are rewritten in place, so they make the WAL grow faster than events alone would. This stays small in
+practice: only one transaction writes at a time anyway, and a command writes about ten documents, once, right before its
+commit (see Documents). The one heavy case is a projection rebuild, which writes every rebuilt document, but it runs
+while the server is paused, with no other writer (see Projection rebuilds). SQLite reuses the space of deleted documents
+for later writes on its own. Giving that space back to the operating system takes a `VACUUM`, which rewrites the whole
+file, events included. The server never runs one: it's run by hand, with `sqlite3`, while the server is stopped, the
+same way as a full `ANALYZE` (see below). Stopping the server costs a few seconds, on top of a rebuild's downtime that's
+already accepted, and keeps the server free of a long operation it would have to coordinate with reads still in flight.
 
 A file-level copy is not the only way to back up an instance. `tamarackdb-backup` reads events over `QUERY /events`
 from a live source and writes them into a local file through `Store.Import`, a variant of `Append` that skips sequence
@@ -947,9 +871,7 @@ directly, with `event_sequence` included so the index alone can answer the scan.
 `identifiers`/`metadata` tables. A read hands these two columns to the client exactly as stored: it never decodes them
 into Go values and re-encodes them, since the stored bytes already are the response bytes. Those tables stay what the
 DCB matching check and a read's own filtering use, keyed for lookup by `name`/`value`; the columns on `events` are
-keyed by nothing but the event itself, meant for handing the whole set back at once. A column and a table can share a
-name in SQLite without conflict: `events.identifiers` names the column, a bare `identifiers` in a `FROM` clause names
-the table.
+keyed by nothing but the event itself, meant for handing the whole set back at once.
 
 The `events(sequence)` foreign key on both tables is enforced by turning on `PRAGMA foreign_keys = ON` on every
 connection at startup: SQLite reads foreign key declarations, but doesn't enforce them by default. Turning this on
@@ -963,17 +885,15 @@ volume that cost doesn't matter, and it buys the strongest durability SQLite off
 application, its single source of truth with no backup copy running behind it.
 
 The write connection opens every transaction with `BEGIN IMMEDIATE` (`_txlock=immediate` in the DSN), taking SQLite's
-write lock at the start of the transaction, rather than waiting until the first write statement runs. For a
-transaction opened by `POST /begin`, that's the moment the ticket is given out: reads, checks, and inserts all
-run under the lock, with no window where another connection could slip in between them. A call accepted only while
-paused (`POST /documents` without a ticket, `DELETE /documents`) runs its own short `BEGIN IMMEDIATE` ... `COMMIT`.
-No transaction can be active while paused, and the pause can't end while such a call runs: it has the write
-connection to itself, apart from a `PRAGMA optimize` that waits its turn on the same single connection. The write
-connection also sets
-`_busy_timeout = 5000` (five seconds). Since `writeDB.SetMaxOpenConns(1)` already forces every write onto one
-connection, and the FIFO already lets only one transaction run at a time, the busy timeout only guards against
-something else briefly holding the file (a passive checkpoint, an external `sqlite3` shell), not against another
-transaction.
+write lock at the start of the transaction, rather than waiting until the first write statement runs. For a transaction
+opened by `POST /begin`, that's the moment the ticket is given out: reads, checks, and inserts all run under the lock,
+with no window where another connection could slip in between them. A call accepted only while paused (`POST /documents`
+without a ticket, `DELETE /documents`) runs its own short `BEGIN IMMEDIATE` ... `COMMIT`. No transaction can be active
+while paused, and the pause can't end while such a call runs: it has the write connection to itself, apart from a
+`PRAGMA optimize` that waits its turn on the same single connection. The write connection also sets `_busy_timeout =
+5000` (five seconds). Since `writeDB.SetMaxOpenConns(1)` already forces every write onto one connection, and the FIFO
+already lets only one transaction run at a time, the busy timeout only guards against something else briefly holding the
+file (a passive checkpoint, an external `sqlite3` shell), not against another transaction.
 
 Checkpointing relies on SQLite's own automatic passive checkpoint (triggered on its own once the WAL crosses its
 default size, without blocking any reader or writer), instead of a separate checkpoint goroutine or schedule. Two
@@ -1011,8 +931,7 @@ transaction timeouts, pagination/size limits, and the FIFO depth) comes from thr
 A value set in the configuration file always wins over the matching environment variable. The configuration file
 itself is optional: an application deployed as one instance per environment, each with its own file, uses it as the
 single source of truth. A container deployment with no file at all is set up entirely through the environment
-instead. Both paths produce the same `Config`, and every field is checked the same way regardless of where it came
-from.
+instead.
 
 | Key | Environment variable | Default |
 |---|---|---|
@@ -1056,9 +975,7 @@ ceiling). `transactionTimeout` can't be greater than `transactionCeiling`: `Load
 `maxQueuedTransactions` caps how many requests may wait in the FIFO at once. A request that arrives when the FIFO is
 already at that depth gets `503 TransactionQueueFull` instead of joining. Neither is "0 means no limit": a FIFO with no
 bound would let a burst, or a broken client, pile up an unlimited number of blocked HTTP connections, so every
-deployment gets a bound whether it sets one or not. Beyond the defaults, there's no single right value: size them
-against how many concurrent users the owning application expects, and how long its commands take. A request waiting
-behind `N` transactions may wait up to `N` times `transactionCeiling` in the worst case.
+deployment gets a bound whether it sets one or not.
 
 ## Security
 
@@ -1097,11 +1014,7 @@ open, but it's never exposed anywhere else either, including `/debug` (see Queue
 and test environments, never a production instance: `POST /reset`, and Go's standard profiling endpoints under
 `/debug/pprof/` (CPU, heap, goroutine, and so on). Neither exists at all unless `devMode` is `true`. Left at its
 default of `false`, a request to either gets the stdlib's plain `404`, like any other unregistered path. That keeps
-them out of reach in a normal deployment, instead of reachable-but-guarded, matching the "fail loud, keep it simple"
-stance used throughout: there's no separate permission or confirmation step once `devMode` is on.
-
-`POST /reset` deletes every event and every document, sets the Sequence Position counter back to zero, and cuts off
-the active transaction, if any (see Reset). The schema itself stays in place.
+them out of reach in a normal deployment, instead of reachable-but-guarded.
 
 The profiling endpoints are read-only and outside the FIFO: they inspect the running process (CPU samples, memory
 allocations, goroutine stacks), not the database, so they carry none of `POST /reset`'s data-loss risk. They're still
@@ -1112,9 +1025,9 @@ production deployment shouldn't expose to whoever can reach the port.
 
 ### Health check
 
-A lightweight `GET /health` endpoint confirms the process is responding and SQLite is reachable (with a trivial
-`SELECT 1` on the read pool), for a process supervisor or load balancer to check. Even for a single-instance service, a
-health check still helps restart and alerting logic. On success it responds `200 OK` with a small JSON body:
+A lightweight `GET /health` endpoint confirms the process is responding and SQLite is reachable (with a trivial `SELECT
+1` on the read pool), for a process supervisor or load balancer to check. On success it responds `200 OK` with a small
+JSON body:
 
 ```json
 {"status": "ok", "version": "1.2.3", "paused": false}
@@ -1127,22 +1040,12 @@ elsewhere in the API.
 A paused server is healthy: `/health` still responds `200 OK`, with `"paused": true`. A supervisor that restarted the
 process on a `503` would only restart it paused again (see Pause), in a loop, for the whole length of a rebuild.
 
-### Versioning
-
-The running build's version is a single value, derived from the closest Git tag with
-`git describe --tags --always --dirty` and baked into every binary at build time, via
-`-ldflags "-X github.com/tamarackdb/tamarackdb/internal/buildinfo.Version=..."`. It's not something a process reads
-or reloads while running. Every TamarackDB binary accepts `--version`, printing that value and exiting right away,
-before doing anything else (loading a configuration file, opening the store, reaching out over the network). That same
-value is what `GET /health` reports in its `version` field above.
-
 ### Request logging
 
-Every request logs one line to stdout once its handler finishes: HTTP method, path, resulting status code, response
-size in bytes, and how long it took, tagged with its level, e.g.
-`tamarackdb-server: [DEBUG] POST /events 200 42B 1.23ms`. This wraps the whole
-routed handler, including authentication, so a request turned away with `401 Unauthorized` gets logged just like any
-other. `logLevel` sets the minimum severity a line is written at (see Configuration).
+Every request logs one line to stdout once its handler finishes: HTTP method, path, resulting status code, response size
+in bytes, and how long it took, tagged with its level, e.g. `tamarackdb-server: [DEBUG] POST /events 200 42B 1.23ms`.
+This wraps the whole routed handler, including authentication, so a request turned away with `401 Unauthorized` gets
+logged just like any other. `logLevel` sets the minimum severity a line is written at (see Configuration).
 
 A transaction rolled back because it reached its idle timeout or its ceiling has no request of its own to log. The
 deadline timer logs one line for it instead, at `warning`: which limit was reached, and how long the transaction
@@ -1212,8 +1115,8 @@ from the pause file's modification time, so it still reports when the pause actu
 `write.active` describes the active transaction, if any (`null` otherwise): when its ticket was given out, its current
 deadline and fixed ceiling, and how many calls it has made so far. It never carries the ticket itself (see Security),
 nor the transaction's queries, conditions, or events: the queue manager never knows them. `write.queued` lists every
-request still waiting, oldest first, with its `kind` (`transaction`, `pause`, or `optimize`), and `waitSeconds` instead of
-`ageSeconds`. `write.queued` is always present, never `null`, even when empty.
+request still waiting, oldest first, with its `kind` (`transaction`, `pause`, or `optimize`), and `waitSeconds` instead
+of `ageSeconds`. `write.queued` is always present, never `null`, even when empty.
 
 `httpOpen` is how many requests are currently in flight on each side: on the write side, requests waiting in the FIFO
 plus calls with a ticket; on the read side, reads without a ticket. `sqliteInUse` and `sqliteMax` are the underlying
@@ -1227,12 +1130,11 @@ connection. A sustained gap between the two is a sign that `readPoolSize` (see
 
 Since the queue manager serializes access to its own state behind a mutex, separate from the write connection's
 mutex, and the SQLite pool stats come straight from `database/sql`'s own counters, answering a `GET /debug` request is
-always a quick, non-blocking read: never stuck behind a queued request or a running call. The endpoint is read-only:
-nothing about it lets you end a transaction, cancel a read, or otherwise change either pool's state.
+always a quick, non-blocking read: never stuck behind a queued request or a running call.
 
 ## Implementation
 
 The concrete Go code lives in `internal/queue` (the FIFO), `internal/txn` (tickets, deadlines, the pause, and reset),
-`internal/store` (the transaction on the write connection and the Query-to-SQL translation), and
-`cmd/tamarackdb-backup` (the backup tool). The document
-wire shape and its validation rules live in `internal/document`, independent of `internal/dcb`.
+`internal/store` (the transaction on the write connection and the Query-to-SQL translation), and `cmd/tamarackdb-backup`
+(the backup tool). The document wire shape and its validation rules live in `internal/document`, independent of
+`internal/dcb`.
