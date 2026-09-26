@@ -92,8 +92,11 @@ curl -X POST http://127.0.0.1:8085/commit \
   -H "X-Tamarackdb-Ticket: a045ad63-5d4b-4847-8eb9-fbddb4e2d65b"
 ```
 
-Roll back with `POST /rollback`, for example when one of your event handlers
-throws:
+Roll back with `POST /rollback` as soon as the command fails, for example when
+one of your event handlers throws. The server would roll the transaction back
+on its own once the idle timeout is reached (see [Deadline](#deadline)), but
+until then it keeps the write lock, and every other client waits. Rolling back
+yourself frees it right away:
 
 ```sh
 curl -X POST http://127.0.0.1:8085/rollback \
