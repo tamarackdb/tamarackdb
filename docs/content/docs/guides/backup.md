@@ -40,11 +40,12 @@ Generate a starter config and adjust it as needed:
 : Default: `data/tamarackdb-backup.sqlite`
 
 `pageLimit`
-: Page size used when reading from the source.
+: Page size used when reading from the source. It must not exceed the source's `maxEventsPerPage`, or every run fails with `400 Bad Request`.
 : Env: `TAMARACKDB_BACKUP_PAGE_LIMIT`
 : Default: `1000`
 
-The config file is TOML, with these keys under a `[backup]` section. That
+The config file is TOML, with these keys under a `[backup]` section. An
+unknown key in it stops the run with an error naming the key. That
 section can live in its own file, as shown above, or share one file with the
 server's `[server]` section (see [Deployment](/docs/guides/deployment/#configure)); either
 way `tamarackdb-backup` reads only `[backup]`.
@@ -57,7 +58,12 @@ source running only on its default unix socket (see
 ## What the backup holds
 
 The backup file is a regular TamarackDB database. If the source is ever lost,
-point `tamarackdb-server` at the backup file and serve it as the new instance.
+serve it as the new instance:
+
+1. Wait for any `tamarackdb-backup` run to finish, and stop scheduling new ones.
+2. Copy the backup file into an empty directory, under the name
+   `tamarackdb.sqlite`: the server only opens that name inside its `dataDir`.
+3. Start `tamarackdb-server` with `dataDir` set to that directory.
 
 It holds events only, not projections. Before an application uses a restored
 backup, it must rebuild its projections (see

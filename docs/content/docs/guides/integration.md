@@ -124,7 +124,9 @@ A transaction also ends, rolled back, when:
 
 - any call made with its ticket returns an error, except `404
   ProjectionNotFound` (see [Projections](#projections));
-- the client closes the connection while a call with its ticket is running;
+- the client closes the connection while a call with its ticket is running,
+  and the call fails because of it (a call that already finished its work
+  still succeeds, and a `POST /commit` may still commit);
 - the idle timeout or the total ceiling is reached (see [Deadline](#deadline)).
 
 Once a transaction has ended, its ticket is no longer active: any call with it
@@ -628,14 +630,15 @@ transaction back.
 
 | Status | `error` | Meaning |
 |---|---|---|
-| 400 | `InvalidRequest` | Malformed or invalid request body: bad JSON, invalid query shape, `limit` over the configured maximum, an invalid `time` bound, an event missing `type`, a duplicate identifier or metadata value, a missing `events` field or more than 100 events in one `POST /events`, a `POST /projections` body with none of `create`, `replace`, `delete`, an unknown key in it, a projection missing its `payload` or `version`, too many projections, or a repeated projection `type` + `id`, a call that needs a ticket and carries none, and so on |
+| 400 | `InvalidRequest` | Malformed or invalid request body: bad JSON, trailing text after the JSON value, invalid query shape, `limit` below 1 or over the configured maximum, an invalid `time` bound, a `time.from` not earlier than `time.before`, an event missing `type`, a duplicate identifier or metadata value, a missing `events` field or more than 100 events in one `POST /events`, a `POST /projections` body with none of `create`, `replace`, `delete`, an unknown key in it, a projection missing its `payload` or `version`, too many projections, or a repeated projection `type` + `id`, a call that needs a ticket and carries none, and so on |
 | 401 | `Unauthorized` | Missing or invalid Bearer token (only when `enableAuth` is on) |
 | 404 | `ProjectionNotFound` | `GET /projections/{type}/{id}` only: no projection exists at that `type` + `id`. Doesn't end the transaction |
 | 409 | `ConcurrencyException` | The Append Condition of a `POST /events` call failed, or a `POST /projections` entry doesn't match the stored projection (see [Versions](#versions)) |
 | 409 | `NotPaused` | `DELETE /projections`, `DELETE /projections/{type}`, or `POST /projections` without a ticket, while the server isn't paused |
 | 410 | `TicketNotActive` | The ticket isn't the active one: it's unknown, or its transaction has already ended |
-| 413 | `PayloadTooLarge` | An event, or a projection's `payload`, is bigger than the configured maximum size |
+| 413 | `PayloadTooLarge` | An event, or a projection's `payload`, is bigger than the configured maximum size, or the request body is over 8 MiB |
 | 500 | `InternalError` | Unexpected server-side failure |
 | 503 | `TransactionQueueFull` | `POST /begin` or `POST /pause`: too many requests are already waiting |
 | 503 | `Paused` | `POST /begin` while the server is paused |
+| 503 | `ShuttingDown` | `POST /begin` or `POST /pause` while the server shuts down |
 | 503 | `Unavailable` | `GET /health` only: storage is unreachable |

@@ -4,6 +4,31 @@ This file follows [Keep a Changelog](https://keepachangelog.com), and
 TamarackDB follows [Semantic Versioning](https://semver.org). Before 1.0, a
 minor version may break the API.
 
+## [Unreleased]
+
+### Added
+
+- The Docker image is published for `linux/arm64` as well as
+  `linux/amd64`.
+
+### Changed
+
+- An unknown key in `config.toml`, or a key outside any section, stops
+  `tamarackdb-server` and `tamarackdb-backup` at startup with an error
+  naming it. It used to be ignored.
+- A request body over 8 MiB gets `413 PayloadTooLarge`.
+- A request body with anything but whitespace after its JSON value gets
+  `400 InvalidRequest`.
+- A request turned away because the server is shutting down gets
+  `503 ShuttingDown` instead of `500 InternalError`.
+
+### Fixed
+
+- A client sending a `POST /projections` body slowly during a rebuild no
+  longer holds off `POST /resume`.
+- A configuration error no longer names `config.toml` when no such file
+  exists.
+
 ## [0.19.1] - 2026-09-27
 
 ### Fixed
@@ -67,5 +92,6 @@ minor version may break the API.
   incremental backups of the events, and `tamarackdb-demo` to seed a large
   made-up dataset.
 
+[Unreleased]: https://github.com/tamarackdb/tamarackdb/compare/v0.19.1...HEAD
 [0.19.1]: https://github.com/tamarackdb/tamarackdb/releases/tag/v0.19.1
 [0.19.0]: https://github.com/tamarackdb/tamarackdb/releases/tag/v0.19.0

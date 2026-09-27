@@ -617,24 +617,30 @@ the problem, left out when it wouldn't add anything (as with a failed Append Con
 | `409` | `ConcurrencyException` | The Append Condition of a `POST /events` call failed, or a `POST /projections` entry doesn't match the stored projection (see Projections) |
 | `409` | `NotPaused` | A call accepted only while paused, made outside a pause |
 | `410` | `TicketNotActive` | The ticket isn't the active one: it's unknown, or its transaction has already ended |
-| `413` | `PayloadTooLarge` | An event or a projection payload over its size limit |
+| `413` | `PayloadTooLarge` | An event or a projection payload over its size limit, or a request body over 8 MiB |
 | `500` | `InternalError` | An unexpected server-side failure |
 | `503` | `TransactionQueueFull` | `POST /begin` or `POST /pause` while the FIFO is at its configured depth |
 | `503` | `Paused` | A request reached the head of the FIFO while the server is paused |
+| `503` | `ShuttingDown` | A request waiting in the FIFO, or arriving after it closed, while the server shuts down |
 | `503` | `Unavailable` | `GET /health` only: SQLite can't be reached (see Health check) |
 
 Inside a transaction, every error except `404 ProjectionNotFound` rolls the transaction back (see Calls inside a
 transaction).
 
 `QUERY /events`, `POST /events`, and `POST /projections` respond `400 Bad Request` for any malformed or invalid body:
-invalid JSON, a `query` / `condition.failIfEventsMatch` that isn't an array of `QueryItem` or `"*"`, an empty array
-anywhere the Query grammar needs a non-empty one (see Query grammar), a non-integer `afterSequence` or `limit`, a
-`limit` above the configured maximum (see Pagination), an invalid `time.from` / `time.before` timestamp, an event
+invalid JSON, anything after the JSON value other than whitespace, a `query` / `condition.failIfEventsMatch` that
+isn't an array of `QueryItem` or `"*"`, an empty array anywhere the Query grammar needs a non-empty one (see Query
+grammar), a non-integer `afterSequence` or `limit`, a `limit` below 1 or above the configured maximum (see
+Pagination), an invalid `time.from` / `time.before` timestamp, a `time.from` that isn't earlier than `time.before`, an event
 missing its `type`, an event carrying a duplicate identifier or metadata value, more than 20 identifiers/metadata
 entries (see Metadata), a `POST /events` call missing its `events` field or carrying more than 100 events (see Appending events), a
 `POST /projections` body with none of `create`, `replace`, `delete` or with an unknown key, a projection missing its `payload` or `version`, a duplicate `type` + `id`, or more than `maxProjectionsPerRequest` projections,
 and so on. A call that needs a ticket (`POST /events`, `POST /commit`, `POST /rollback`) and carries none gets
 `400 Bad Request` too: it names no transaction, so there's none to report as inactive.
+
+Every request body is capped at 8 MiB, a fixed limit well above the largest valid body (100 events of 64 KiB). The
+server stops reading past it and responds `413 Payload Too Large`, so a client can't make it read an unbounded body
+into memory before the per-event and per-projection limits are checked.
 
 ## Append Condition and concurrency
 
@@ -773,7 +779,7 @@ process gives out any ticket; reads without a ticket can be served as soon as th
 
 On `SIGINT` or `SIGTERM`, the process shuts down in order. The HTTP server stops taking new connections
 (`http.Server.Shutdown`, capped at 10 seconds). At the same moment, the queue manager closes: requests still waiting
-in the FIFO are turned away, no new ticket is given out, and the active transaction, if any, is rolled back once a
+in the FIFO are turned away with `503 ShuttingDown`, no new ticket is given out, and the active transaction, if any, is rolled back once a
 call already running with it finishes. The HTTP server then finishes the requests still in flight, and the SQLite
 store closes last, releasing its connections and the `.lock` file. The FIFO has to close first: a request waiting in
 it only ends once it gets its turn, so the HTTP server would otherwise wait for it, and hand out tickets that no
@@ -989,7 +995,9 @@ transaction timeouts, pagination/size limits, and the FIFO depth) comes from thr
    `maxEventsPerPage`, `maxEventSize`, `maxProjectionSize`, `maxProjectionsPerRequest`, `transactionTimeout`,
    `maxTransactionDuration`, `maxQueuedTransactions`, `readPoolSize`).
 
-A value set in the configuration file always wins over the matching environment variable. The configuration file
+A value set in the configuration file always wins over the matching environment variable. The file is checked as a
+whole, `[server]` and `[backup]` sections included: an unknown key, or a key outside any section, is fatal at startup
+and named in the error, so a misspelled setting never silently keeps its default. The configuration file
 itself is optional: an application deployed as one instance per environment, each with its own file, uses it as the
 single source of truth. A container deployment with no file at all is set up entirely through the environment
 instead.

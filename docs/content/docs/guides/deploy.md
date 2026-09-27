@@ -123,6 +123,9 @@ same host, or on a private network segment or VPN.
 `config.toml` is optional. Any field it leaves out, or the whole file if it's
 missing, falls back to the matching `TAMARACKDB_*` environment variable, then to a
 built-in default. A value set in `config.toml` always wins over the environment.
+An unknown key in the file, or a key outside any section, stops the server at
+startup with an error naming it, so a typo never silently leaves a setting at its
+default.
 Use a `config.toml` file per instance in production. In Docker, plain environment
 variables cover a deployment with no file at all.
 
@@ -170,10 +173,22 @@ never changes the schema on its own (see
 
 ## Docker
 
+Each release publishes an image for `linux/amd64` and `linux/arm64`:
+
+```sh
+docker run -d -p 8085:8085 -v tamarackdb-data:/data ghcr.io/tamarackdb/tamarackdb:latest
+```
+
+Use a version tag, such as `ghcr.io/tamarackdb/tamarackdb:v0.19.1`, to pin a
+release. To build the image from source instead:
+
 ```sh
 docker build -t tamarackdb .
 docker run -d -p 8085:8085 -v tamarackdb-data:/data tamarackdb
 ```
+
+The examples below use the local `tamarackdb` image; replace it with the
+published one if that's what you run.
 
 The image is set up entirely through `TAMARACKDB_*` environment variables (see
 Configure above); no `config.toml` is needed inside the container. It sets
@@ -346,6 +361,7 @@ Each outcome carries a fixed level, not derived from the status code alone:
 | Missing or invalid bearer token | 401 | `info` |
 | Call only accepted while paused | 409 | `info` |
 | Transaction no longer active | 410 | `info` |
+| Server shutting down | 503 | `info` |
 | Transaction queue full | 503 | `warning` |
 | Server paused | 503 | `warning` |
 | Transaction expired | none | `warning` |
@@ -356,7 +372,8 @@ A successful request and an expected rejection, such as a concurrency
 conflict or a projection that doesn't exist, are both `debug`: the server did
 exactly what it was supposed to do. A malformed or oversized request, a bad
 token, a call made at the wrong time, or a call on a transaction that already
-ended is `info`: not the server's fault, but worth knowing about. A full or
+ended is `info`: not the server's fault, but worth knowing about. So is a
+request turned away because the server is shutting down. A full or
 slow transaction queue is `warning`: a real signal of capacity or contention.
 So is a paused server turning a request away, so a forgotten pause shows up.
 
