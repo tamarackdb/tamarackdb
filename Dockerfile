@@ -21,7 +21,9 @@ RUN export CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH && \
 
 FROM alpine:3.20
 
-RUN addgroup -S tamarackdb && adduser -S tamarackdb -G tamarackdb
+# A fixed UID and GID, so a host directory mounted on /data, or a socket
+# shared with another container, can be given to them ahead of time.
+RUN addgroup -S -g 10001 tamarackdb && adduser -S -u 10001 -G tamarackdb tamarackdb
 WORKDIR /app
 
 COPY --from=builder /out/tamarackdb-server /out/tamarackdb-init ./
