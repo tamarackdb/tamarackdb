@@ -341,11 +341,14 @@ append in between. The condition can only fail because of events appended
 earlier in the same transaction, by another model or an event handler. Each
 model can send its own `POST /events` with its own condition.
 
-**Optimistic.** Read without a ticket, decide, then open a transaction only to
-append, with `afterSequence` set to the last Sequence Position you read and the
-same query as `failIfEventsMatch`. The write lock is held only for the append
-itself. If another client appended a matching event in between, you get `409
-ConcurrencyException`: open a new transaction, read again, and retry.
+**Optimistic.** Read without a ticket and decide, then open a transaction,
+append with `afterSequence` set to the last Sequence Position you read and the
+same query as `failIfEventsMatch`, run your event handlers, and commit. Only
+the command's own read and decision happen outside the write lock; event
+handlers still run inside the transaction and read with the ticket. If another
+client appended a matching event in between, you get `409
+ConcurrencyException`: read again, decide again, and retry in a new
+transaction.
 
 ## Documents
 

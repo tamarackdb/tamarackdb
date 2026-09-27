@@ -625,9 +625,11 @@ make its own `POST /events` call with its own condition: the transaction, not a 
 whole command atomic.
 
 **Optimistic.** Step 1 runs without a ticket, outside any transaction, on committed data. The client decides, then
-opens a transaction only for step 3, with `afterSequence` set to the last Sequence Position it read. The write lock is
-held only for the append itself. If another transaction appended a matching event in between, the condition fails
-with `409 ConcurrencyException`, and the client can read again and retry.
+opens a transaction for step 3, with `afterSequence` set to the last Sequence Position it read. Event handlers then run
+inside that transaction, as in any other, and read with the ticket, so a processor always decides on data that
+includes the command's append. Only the command's own read and decision happen outside the write lock. If another
+transaction appended a matching event in between, the condition fails with `409 ConcurrencyException`, and the
+client can read again and retry.
 
 The Append Condition is checked in the same SQLite transaction as the insert, against every event visible to it.
 Only one transaction is ever active (see Concurrency handling in Go), so nothing can slip in between the check and
