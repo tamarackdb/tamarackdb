@@ -4,7 +4,7 @@ This file follows [Keep a Changelog](https://keepachangelog.com), and
 TamarackDB follows [Semantic Versioning](https://semver.org). Before 1.0, a
 minor version may break the API.
 
-## [Unreleased]
+## [0.19.1] - 2026-09-27
 
 ### Fixed
 
@@ -67,5 +67,5 @@ minor version may break the API.
   incremental backups of the events, and `tamarackdb-demo` to seed a large
   made-up dataset.
 
-[Unreleased]: https://github.com/tamarackdb/tamarackdb/compare/v0.19.0...HEAD
+[0.19.1]: https://github.com/tamarackdb/tamarackdb/releases/tag/v0.19.1
 [0.19.0]: https://github.com/tamarackdb/tamarackdb/releases/tag/v0.19.0
