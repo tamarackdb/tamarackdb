@@ -292,13 +292,19 @@ file created by another user, such as root, is one the server can't open, and
 it refuses to start. The examples below assume the server runs as a user named
 `tamarackdb`:
 
+The default socket sits in `/run/tamarackdb`, which must exist and belong to
+that user before the server starts:
+
 ```sh
+sudo install -d -o tamarackdb -g tamarackdb -m 755 /run/tamarackdb
 sudo -u tamarackdb ./bin/tamarackdb-init --data-dir /path/to/data
 sudo -u tamarackdb ./bin/tamarackdb-server --config /path/to/config.toml
 ```
 
-Under systemd, set `User=tamarackdb` in the service unit instead of using
-`sudo`.
+`/run` is emptied at every reboot, so a directory created by hand is gone the
+next time the machine starts. For a lasting service, use the systemd unit in
+[Production](#production): `User=tamarackdb` replaces `sudo`, and
+`RuntimeDirectory=tamarackdb` creates the directory at every start.
 
 Once running, the server logs one line per request to stdout, tagged with a
 severity level: method, path, status code, response size, and time taken,
