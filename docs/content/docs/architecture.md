@@ -466,13 +466,16 @@ A projection is always read by `type` and `id`. There is no query over projectio
 {
   "projections": [
     { "type": "user-profile", "id": "123", "payload": "..." },
-    { "type": "user-list-entry", "id": "456", "payload": null }
+    { "type": "user-list-entry", "id": "456", "delete": true }
   ]
 }
 ```
 
-A projection with a `payload` is created, or replaced if it exists. A projection with a `null` payload is deleted;
-deleting a projection that doesn't exist does nothing. The same `type` + `id` can't appear twice in one call: that's a
+A projection with a `payload` is created, or replaced if it exists; an empty string is a valid payload. A projection
+with `"delete": true` is deleted, and carries no `payload`; deleting a projection that doesn't exist does nothing. A
+projection with neither, or with a `null` payload, gets `400 Bad Request`. Deletion needs its own key, not a missing
+or `null` payload, because a key that goes missing is a common client bug (JavaScript's `JSON.stringify` drops
+`undefined` values), and it must never delete data. The same `type` + `id` can't appear twice in one call: that's a
 `400 Bad Request`. A call carries at most `maxProjectionsPerRequest` projections, and each payload at most
 `maxProjectionSize` bytes (see Configuration). An empty `projections` array writes nothing, so a client that sends
 one call per transaction needs no special case when its handlers changed nothing. A missing `projections` field gets
@@ -613,7 +616,7 @@ anywhere the Query grammar needs a non-empty one (see Query grammar), a non-inte
 `limit` above the configured maximum (see Pagination), an invalid `time.from` / `time.before` timestamp, an event
 missing its `type`, an event carrying a duplicate identifier or metadata value, more than 20 identifiers/metadata
 entries (see Metadata), a `POST /events` call missing its `events` field or carrying more than 100 events (see Appending events), a
-`POST /projections` call missing its `projections` field, a duplicate `type` + `id`, or more than `maxProjectionsPerRequest` projections,
+`POST /projections` call missing its `projections` field, a projection with no `payload` and no `delete` (or both), a duplicate `type` + `id`, or more than `maxProjectionsPerRequest` projections,
 and so on. A call that needs a ticket (`POST /events`, `POST /commit`, `POST /rollback`) and carries none gets
 `400 Bad Request` too: it names no transaction, so there's none to report as inactive.
 

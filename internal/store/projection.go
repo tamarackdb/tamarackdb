@@ -58,12 +58,12 @@ func (s *Store) DeleteAllProjections(ctx context.Context) error {
 	return wrapf("delete all projections", err)
 }
 
-// writeProjections applies each projection inside the caller's transaction: a
-// non-nil payload creates or replaces the projection, a nil payload deletes
+// writeProjections applies each projection inside the caller's transaction:
+// Delete removes the projection, otherwise its payload creates or replaces
 // it. Deleting a projection that doesn't exist does nothing.
 func writeProjections(ctx context.Context, tx *sql.Tx, projections []projection.Data) error {
 	for _, d := range projections {
-		if d.Payload == nil {
+		if d.Delete {
 			if _, err := tx.ExecContext(ctx,
 				"DELETE FROM projections WHERE type = ? AND id = ?", d.Type, d.ID); err != nil {
 				return wrapf("delete projection", err)

@@ -447,14 +447,17 @@ curl -X POST http://127.0.0.1:8085/projections \
   -d '{
     "projections": [
       { "type": "user-profile", "id": "123", "payload": "{\"name\":\"Ada Lovelace\"}" },
-      { "type": "user-list-entry", "id": "456", "payload": null }
+      { "type": "user-list-entry", "id": "456", "delete": true }
     ]
   }'
 ```
 
-- A projection with a `payload` is created, or replaced if it exists.
-- A projection with a `null` payload is deleted. Deleting a projection that
-  doesn't exist does nothing.
+- A projection with a `payload` is created, or replaced if it exists. The
+  payload is a string; an empty string is a valid payload.
+- A projection with `"delete": true` is deleted, and carries no `payload`.
+  Deleting a projection that doesn't exist does nothing.
+- A projection with neither, or with a `null` payload, gets `400`: a payload
+  that went missing on the client never deletes anything.
 - The same `type` + `id` can't appear twice in one call.
 - A call carries at most `maxProjectionsPerRequest` projections (100 out of
   the box), each payload at most `maxProjectionSize` bytes (64 KiB out of the
@@ -583,7 +586,7 @@ transaction back.
 
 | Status | `error` | Meaning |
 |---|---|---|
-| 400 | `InvalidRequest` | Malformed or invalid request body: bad JSON, invalid query shape, `limit` over the configured maximum, an invalid `time` bound, an event missing `type`, a duplicate identifier or metadata value, a missing `events` field or more than 100 events in one `POST /events`, a missing `projections` field, too many projections, or a repeated projection `type` + `id` in one `POST /projections`, a call that needs a ticket and carries none, and so on |
+| 400 | `InvalidRequest` | Malformed or invalid request body: bad JSON, invalid query shape, `limit` over the configured maximum, an invalid `time` bound, an event missing `type`, a duplicate identifier or metadata value, a missing `events` field or more than 100 events in one `POST /events`, a missing `projections` field, a projection with no `payload` and no `delete`, or with both, too many projections, or a repeated projection `type` + `id` in one `POST /projections`, a call that needs a ticket and carries none, and so on |
 | 401 | `Unauthorized` | Missing or invalid Bearer token (only when `enableAuth` is on) |
 | 404 | `ProjectionNotFound` | `GET /projections/{type}/{id}` only: no projection exists at that `type` + `id`. Doesn't end the transaction |
 | 409 | `ConcurrencyException` | The Append Condition of a `POST /events` call failed |

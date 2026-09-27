@@ -53,13 +53,13 @@ func TestWriteProjectionCreatesThenReplaces(t *testing.T) {
 func TestWriteProjectionDeletes(t *testing.T) {
 	s := openTestStore(t)
 	mustWriteProjections(t, s, projection.Data{Type: "user-profile", ID: "123", Payload: strPtr("v1")})
-	mustWriteProjections(t, s, projection.Data{Type: "user-profile", ID: "123"})
+	mustWriteProjections(t, s, projection.Data{Type: "user-profile", ID: "123", Delete: true})
 	assertProjection(t, s, "user-profile", "123", nil)
 }
 
 func TestWriteProjectionDeleteOfAbsentProjectionDoesNothing(t *testing.T) {
 	s := openTestStore(t)
-	mustWriteProjections(t, s, projection.Data{Type: "user-profile", ID: "123"})
+	mustWriteProjections(t, s, projection.Data{Type: "user-profile", ID: "123", Delete: true})
 	assertProjection(t, s, "user-profile", "123", nil)
 }
 

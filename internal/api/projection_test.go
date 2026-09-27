@@ -52,11 +52,11 @@ func TestWriteProjectionCreateReplaceDelete(t *testing.T) {
 	if got := get(200); got != "updated" {
 		t.Fatalf("get body = %q, want updated", got)
 	}
-	writeProjectionsCommitted(t, srv, `{"projections":[{"type":"user-profile","id":"123","payload":null}]}`)
+	writeProjectionsCommitted(t, srv, `{"projections":[{"type":"user-profile","id":"123","delete":true}]}`)
 	get(404)
 
 	// Deleting a projection that no longer exists does nothing.
-	writeProjectionsCommitted(t, srv, `{"projections":[{"type":"user-profile","id":"123"}]}`)
+	writeProjectionsCommitted(t, srv, `{"projections":[{"type":"user-profile","id":"123","delete":true}]}`)
 	get(404)
 }
 
@@ -116,6 +116,9 @@ func TestWriteProjectionFailuresRollBack(t *testing.T) {
 		{"missing type", `{"projections":[{"id":"123","payload":"x"}]}`, 400, "InvalidRequest"},
 		{"missing id", `{"projections":[{"type":"user-profile","payload":"x"}]}`, 400, "InvalidRequest"},
 		{"missing projections", `{}`, 400, "InvalidRequest"},
+		{"missing payload", `{"projections":[{"type":"user-profile","id":"123"}]}`, 400, "InvalidRequest"},
+		{"null payload", `{"projections":[{"type":"user-profile","id":"123","payload":null}]}`, 400, "InvalidRequest"},
+		{"delete with payload", `{"projections":[{"type":"user-profile","id":"123","delete":true,"payload":"x"}]}`, 400, "InvalidRequest"},
 		{"misspelled projections", `{"projection":[{"type":"user-profile","id":"123","payload":"x"}]}`, 400, "InvalidRequest"},
 		{"too many projections", `{"projections":[` + strings.Join(tooMany, ",") + `]}`, 400, "InvalidRequest"},
 		{"duplicate key", `{"projections":[{"type":"user-profile","id":"123","payload":"a"},{"type":"user-profile","id":"123","payload":"b"}]}`, 400, "InvalidRequest"},

@@ -14,7 +14,10 @@ func TestDataValidate(t *testing.T) {
 		wantErr error
 	}{
 		{"write", Data{Type: "user-profile", ID: "123", Payload: strPtr("...")}, nil},
-		{"delete", Data{Type: "user-profile", ID: "123"}, nil},
+		{"empty payload", Data{Type: "user-profile", ID: "123", Payload: strPtr("")}, nil},
+		{"delete", Data{Type: "user-profile", ID: "123", Delete: true}, nil},
+		{"missing payload", Data{Type: "user-profile", ID: "123"}, ErrMissingPayload},
+		{"delete with payload", Data{Type: "user-profile", ID: "123", Payload: strPtr("..."), Delete: true}, ErrPayloadOnDelete},
 		{"missing type", Data{ID: "123", Payload: strPtr("...")}, ErrMissingType},
 		{"missing id", Data{Type: "user-profile", Payload: strPtr("...")}, ErrMissingID},
 	}
