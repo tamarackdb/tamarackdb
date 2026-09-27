@@ -35,7 +35,7 @@ Generate a starter config and adjust it as needed:
 : Default: none
 
 `databasePath`
-: Path to the local SQLite file the backup is written to. Its directory is created if it doesn't exist yet.
+: Path to the local SQLite file the backup is written to. It holds every event, readable by anyone with access to the file, so a missing directory is created as `0700` and a new backup file as `0600`. A directory that already exists keeps its permissions: give it `0700` if other users can reach it.
 : Env: `TAMARACKDB_BACKUP_DATABASE_PATH`
 : Default: `data/tamarackdb-backup.sqlite`
 
@@ -45,7 +45,8 @@ Generate a starter config and adjust it as needed:
 : Default: `1000`
 
 The config file is TOML, with these keys under a `[backup]` section. An
-unknown key in it stops the run with an error naming the key. That
+unknown key in it stops the run with an error naming the key. If it holds
+`sourceToken`, make it readable by the backup's user only (`chmod 600`). That
 section can live in its own file, as shown above, or share one file with the
 server's `[server]` section (see [Deployment](/docs/guides/deployment/#configure)); either
 way `tamarackdb-backup` reads only `[backup]`.

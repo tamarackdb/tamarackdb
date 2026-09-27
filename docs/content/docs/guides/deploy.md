@@ -54,7 +54,7 @@ file works whether you run one binary or both.
 : Default: `false` / none
 
 `dataDir`
-: Directory holding all of TamarackDB's data. Its internal layout is managed by TamarackDB and may change between versions: don't rely on it, and don't edit its contents directly.
+: Directory holding all of TamarackDB's data. Its internal layout is managed by TamarackDB and may change between versions: don't rely on it, and don't edit its contents directly. The database in it can be read by anyone with access to the files, whatever `enableAuth` says, so the server creates a missing directory as `0700` and a new database as `0600`. If you create the directory yourself, give it the same `0700`: the server never changes the permissions of a directory that already exists.
 : Env: `TAMARACKDB_DATA_DIR`
 : Default: `data`
 
@@ -150,7 +150,12 @@ An unknown key in the file, or a key outside any section, stops the server at
 startup with an error naming it, so a typo never silently leaves a setting at its
 default.
 Use a `config.toml` file per instance in production. In Docker, plain environment
-variables cover a deployment with no file at all.
+variables cover a deployment with no file at all. A `config.toml` that holds
+`authToken` should be readable by the server's user only:
+
+```sh
+chmod 600 /path/to/config.toml
+```
 
 ### Sizing the transaction queue
 

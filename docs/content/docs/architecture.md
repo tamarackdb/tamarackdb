@@ -1091,10 +1091,17 @@ since a unix socket never leaves the host. When `enableTls` is off, the process 
 bind address and port.
 
 On the unix socket, access is controlled by the file's permissions: connecting takes write permission on it. The
-socket is created with the umask's permissions, which let no other user connect, so the server sets `socketMode`
-(`"0600"` by default) right after creating it. `"0660"` lets the server's group connect too, for an application running
-as another user. A socket path is at most 107 bytes long on Linux; a longer `socketPath` is rejected when the
+server creates the socket under a umask of `0177`, so it starts out as `0600` whatever the process's own umask, then
+sets it to `socketMode` (`"0600"` by default). Under a looser umask, such as the common `002`, the socket would
+otherwise start out open to the group, and a connection could slip in before `socketMode` is applied. `"0660"` lets
+the server's group connect too, for an application running as another user. A socket path is at most 107 bytes long on Linux; a longer `socketPath` is rejected when the
 configuration loads, with an error naming the limit.
+
+The database file holds every event and projection in plain SQLite, so anyone who can read it bypasses `enableAuth`
+and `socketMode` entirely. The server, `tamarackdb-init`, and `tamarackdb-backup` create a missing data directory as
+`0700`, and a new database file as `0600`, whatever the umask; SQLite gives its WAL and shared-memory files the
+database file's permissions. A directory or a database file that already exists keeps its permissions: the server
+never changes them.
 
 When `enableAuth` is on, every registered route needs a Bearer token in the `Authorization` header
 (`Authorization: Bearer <token>`): every endpoint of the HTTP API, `/health`, the observability endpoints (`/metrics`,
