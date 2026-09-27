@@ -25,7 +25,7 @@ import (
 // Default values for Config's optional fields, exported so callers (such as
 // a -default-config flag) can print them without duplicating the numbers.
 const (
-	DefaultSocketPath               = "/var/run/tamarackdb-server.sock"
+	DefaultSocketPath               = "/run/tamarackdb/tamarackdb.sock"
 	DefaultSocketMode               = "0600"
 	DefaultBindAddress              = "127.0.0.1"
 	DefaultPort                     = 8085
@@ -67,7 +67,7 @@ type Config struct {
 	// are ignored. Set BindAddress or Port to switch to a TCP listener
 	// instead. Either way, the server speaks plain HTTP: TLS is a reverse
 	// proxy's job.
-	SocketPath string `toml:"socketPath"` // default: /var/run/tamarackdb-server.sock
+	SocketPath string `toml:"socketPath"` // default: /run/tamarackdb/tamarackdb.sock
 	// SocketMode is the unix socket's permission bits, as an octal
 	// string, applied right after the socket is created. Connecting to a
 	// unix socket takes write permission on it, so "0600" lets only the

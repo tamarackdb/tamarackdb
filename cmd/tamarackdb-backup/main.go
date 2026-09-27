@@ -49,7 +49,7 @@ func main() {
 // can carry comments; TOML's Marshal would drop them.
 const defaultConfigTemplate = `[backup]
 # Set one of sourceUrl or sourceSocket.
-# sourceUrl = "https://hostname:8085"
+# sourceUrl = "https://tamarackdb.example.com"
 # sourceSocket = "/run/tamarackdb/tamarackdb.sock"
 # sourceToken = "changeme"
 # databasePath = "%s"
