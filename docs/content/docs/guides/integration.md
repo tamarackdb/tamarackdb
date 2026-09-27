@@ -15,16 +15,30 @@ examples apply the same way once you point curl at it with
 [Deployment](/docs/guides/deployment/#configure)). Add `-H "Authorization: Bearer <token>"` to
 every request when `enableAuth` is on (see [Deployment](/docs/guides/deployment/#configure)).
 
+## Terms
+
+These pieces are code in your application. TamarackDB doesn't run them: it
+stores what they read and write.
+
+- **Decision model**: reads the events a command needs, decides, and appends
+  new events.
+- **Event handler**: code that reacts to the events a command just appended.
+  It runs inside the same transaction, before the commit. There are two kinds:
+  - **Projector**: computes projections from events and writes them.
+  - **Processor**: reads events and may append more events in response.
+- **Projection**: the current state a projector computes from events,
+  identified by `type` + `id` (see [Projections](#projections)). The `type` is
+  like a class, and each projection is one instance of it. Every projection
+  can be rebuilt from events.
+
 ## Transactions
 
 TamarackDB is built for applications that handle a command in one go, inside
 one request of the application:
 
 1. Open a transaction.
-2. Read the events your decision needs, decide, and append new events.
-3. Let your event handlers react. Projectors read and update projections.
-   Processors read events, including the ones just appended, and may append
-   more.
+2. Let your decision models read, decide, and append new events.
+3. Let your event handlers react.
 4. Write every changed projection.
 5. Commit.
 
@@ -379,13 +393,10 @@ transaction.
 
 ## Projections
 
-A projection is the current state a projector computes from events: an opaque
-payload identified by `type` + `id`, with no history. The `type` is like a
-class, and each projection is one instance of it. A projection can be
-overwritten or deleted; the store only holds its current state. Every
-projection can be rebuilt from events (see
-[Projection rebuilds](#projection-rebuilds)), which is why backups leave
-projections out. Projections are written in the same transaction as events, so
+A projection is an opaque payload identified by `type` + `id`, with no history
+(see [Terms](#terms)). It can be overwritten or deleted; the store only holds
+its current state. Since every projection can be rebuilt from events (see
+[Projection rebuilds](#projection-rebuilds)), backups leave projections out. Projections are written in the same transaction as events, so
 a commit makes both durable together, and a rollback discards both.
 
 Storing projections in TamarackDB is optional. An application that keeps its projections

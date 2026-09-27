@@ -42,6 +42,9 @@ one request of the application:
    including the ones just appended, and may append follow-up events, which trigger more handlers.
 3. Everything lands together, or nothing does. If any handler fails, no event and no projection is persisted.
 
+Decision models and event handlers are code in the application, not in TamarackDB: the server stores what they read
+and write, and never runs them.
+
 This needs a transaction that spans several HTTP calls: the handlers must read what the command just appended, before
 anything is committed. TamarackDB provides exactly that:
 
