@@ -532,7 +532,7 @@ A projection rebuild runs while the server is paused, outside any transaction:
 
 1. `POST /pause`.
 2. `DELETE /projections/{type}` for each type to rebuild, or `DELETE /projections` for all of them.
-3. Page through `QUERY /events` without a ticket, replaying each page through the projections' own logic.
+3. Page through `QUERY /events` without a ticket, replaying each page through the application's projectors.
 4. Write the rebuilt projections with `POST /projections` without a ticket.
 5. `POST /resume`.
 

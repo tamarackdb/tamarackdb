@@ -500,7 +500,7 @@ from giving out tickets, so no transaction is active while you rebuild.
    ```
 
 3. Page through `QUERY /events` without a ticket, and run each page through
-   your projections.
+   your projectors.
 
 4. Write the rebuilt projections with `POST /projections` without a ticket. Each
    call commits on its own.
