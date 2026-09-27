@@ -124,10 +124,13 @@ tell whether the commit happened. This is rare. Most applications can leave it
 to the user: reloading the page shows whether the change was applied.
 
 To retry a command safely instead, append its events with an Append Condition
-(see [Append Condition](#append-condition)). An `afterSequence` on its own is
-enough: if the first commit went through, the store has moved past that
-position, and the retry fails with `409 ConcurrencyException` instead of
-appending the same events twice.
+(see [Append Condition](#append-condition)). The retry is not a second
+`POST /commit`: the ticket is no longer active either way, so that call gets
+`410 TicketNotActive` whether the commit happened or not. Run the command again
+in a new transaction, and append with the same condition as the first attempt,
+including its `afterSequence`. If the first commit went through, its events are
+now past that position, and the retry fails with `409 ConcurrencyException`
+instead of appending the same events twice.
 
 ## Reading events
 

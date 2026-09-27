@@ -254,9 +254,9 @@ If the connection drops before the `POST /commit` response reaches the client, t
 next transaction can take its turn. The client can't tell whether its data was committed. This is the same
 lost-acknowledgment problem as any request/response protocol. It's rare enough that TamarackDB leaves it to the
 application's user experience: reloading the page shows whether the change was applied. A client that wants to retry
-such a command safely can append with an Append Condition: an `afterSequence` on its own is enough. If the original
-commit went through, the Sequence Position has already moved past it, so the retry fails with
-`409 ConcurrencyException` instead of appending a duplicate event.
+such a command safely runs it again in a new transaction, and appends with the same Append Condition as the first
+attempt, `afterSequence` included. If the original commit went through, its events are past that position and match
+the condition, so the retry fails with `409 ConcurrencyException` instead of appending a duplicate event.
 
 ### Reading events
 
