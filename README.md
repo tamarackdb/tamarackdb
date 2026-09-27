@@ -18,7 +18,7 @@ using SQLite as the storage engine.
   it's computed from.
 - Single-instance design with no external dependency.
 - Plain SQLite storage with no opaque format lock-in.
-- Authentication and TLS encryption.
+- Bearer token authentication.
 - Incremental backup tooling.
 - Built-in monitoring and troubleshooting endpoints.
 

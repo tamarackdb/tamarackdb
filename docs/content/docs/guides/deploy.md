@@ -9,6 +9,108 @@ watching it run. For how to build it, see [Building from source](/docs/contribut
 HTTP API, see [Integration](/docs/guides/integration/). For backing up an instance, see
 [Backup](/docs/guides/backup/).
 
+The two sections below get you started, on your own machine or in production.
+The rest of the page covers each setting and operation in detail.
+
+## Local development
+
+To code against a local instance, run the published image:
+
+```sh
+docker run -d --rm --name tamarackdb -p 127.0.0.1:8085:8085 \
+  -e TAMARACKDB_DEV_MODE=true \
+  -e TAMARACKDB_LOG_LEVEL=debug \
+  ghcr.io/tamarackdb/tamarackdb:latest
+```
+
+- The API is at `http://127.0.0.1:8085`, reachable from your machine only.
+- `TAMARACKDB_DEV_MODE=true` turns on `POST /reset`, to start each test run
+  from an empty store (see [Developer mode](#developer-mode)).
+- `TAMARACKDB_LOG_LEVEL=debug` logs every request, which helps while you
+  write the integration (see [Logs](#logs)). Read them with
+  `docker logs -f tamarackdb`.
+- The data lives in the container's own volume, and `--rm` deletes it when
+  the container stops (`docker stop tamarackdb`). Mount a named volume on
+  `/data` to keep it across runs (see [Docker](#docker)).
+
+Authentication stays off: the port only listens on your own machine.
+
+## Production
+
+Check each point before an instance holds real data:
+
+1. **A dedicated user.** Run the server as its own system user, never as
+   root, and run every command that touches `dataDir` as that user (see
+   [Run](#run)).
+2. **A private data directory.** `dataDir` is readable by the server's user
+   only (`0700`). The server creates it that way; give a directory you create
+   yourself the same permissions (see [Configure](#configure)).
+3. **The same host, over the unix socket.** Run TamarackDB next to the
+   application, on the socket. If the application runs as another user, set
+   `socketMode = "0660"` and add that user to the server's group (see
+   [Configure](#configure)).
+4. **A reverse proxy and a token over the network.** If the application must
+   reach TamarackDB from another host, put a reverse proxy in front of the
+   socket to handle TLS, and turn `enableAuth` on (see
+   [Configure](#configure)).
+5. **A protected configuration file.** A `config.toml` that holds `authToken`
+   is readable by the server's user only (`chmod 600`).
+6. **No developer mode.** `devMode` stays off: it exposes `POST /reset`,
+   which deletes every event (see [Developer mode](#developer-mode)).
+7. **A sized queue.** Set `maxQueuedTransactions` from how many users the
+   application serves at once (see
+   [Sizing the transaction queue](#sizing-the-transaction-queue)).
+8. **Monitoring.** Point a supervisor at `/health`, scrape `/metrics`, and
+   keep `logLevel` at `warning` (see [Health check](#health-check),
+   [Observability](#observability), and [Logs](#logs)).
+9. **Backups.** Schedule `tamarackdb-backup`. On the same host, it reads
+   straight from the socket with `sourceSocket`; from another host, through a
+   reverse proxy that handles TLS (see [Backup](/docs/guides/backup/)).
+
+A systemd unit for the server, running as user `tamarackdb`:
+
+```ini
+# /etc/systemd/system/tamarackdb.service
+[Unit]
+Description=TamarackDB
+After=network.target
+
+[Service]
+User=tamarackdb
+Group=tamarackdb
+ExecStart=/usr/local/bin/tamarackdb-server --config /etc/tamarackdb/config.toml
+Restart=on-failure
+# Creates /run/tamarackdb for the socket, and /var/lib/tamarackdb as 0700,
+# both owned by the user above.
+RuntimeDirectory=tamarackdb
+RuntimeDirectoryMode=0755
+StateDirectory=tamarackdb
+StateDirectoryMode=0700
+
+[Install]
+WantedBy=multi-user.target
+```
+
+With this `config.toml`, readable by `tamarackdb` only:
+
+```toml
+[server]
+socketPath = "/run/tamarackdb/tamarackdb.sock"
+socketMode = "0660"
+dataDir = "/var/lib/tamarackdb"
+```
+
+To create the user and start the service:
+
+```sh
+sudo useradd --system --no-create-home --shell /usr/sbin/nologin tamarackdb
+sudo systemctl enable --now tamarackdb
+```
+
+On `systemctl stop`, systemd sends `SIGTERM`, and the server shuts down in
+order: it rolls back the active transaction, if any, and never commits one on
+its own.
+
 ## Configure
 
 Generate a starter `config.toml` and adjust it as needed:
@@ -42,11 +144,6 @@ file works whether you run one binary or both.
 : Address and port the server listens on instead of a unix socket.
 : Env: `TAMARACKDB_BIND_ADDRESS` / `TAMARACKDB_PORT`
 : Default: `127.0.0.1` / `8085`, used only once either one is set; otherwise the server listens on `socketPath`
-
-`enableTls` / `tlsCertFile` / `tlsKeyFile`
-: TLS termination (Go's own `net/http` TLS, no reverse proxy).
-: Env: `TAMARACKDB_ENABLE_TLS` / `TAMARACKDB_TLS_CERT_FILE` / `TAMARACKDB_TLS_KEY_FILE`
-: Default: `false` / none / none
 
 `enableAuth` / `authToken`
 : Bearer token check on every endpoint.
@@ -117,9 +214,9 @@ raises the cap with them. It prints the cap at startup as `maxRequestBody`
 By default, TamarackDB listens on a unix socket instead of a TCP port. This
 keeps it off the network entirely unless you opt in, the way MySQL's own
 default socket does. Set `bindAddress` or `port` to switch to TCP instead;
-`socketPath` wins whenever it's set, even alongside `bindAddress`/`port`, and
-`enableTls` is ignored in that case, since a unix socket is already local to
-the host.
+`socketPath` wins whenever it's set, even alongside `bindAddress`/`port`.
+Either way, the server speaks plain HTTP: TLS is a reverse proxy's job (see
+below).
 
 Run TamarackDB on the same host as the application, and keep the unix socket.
 Every transaction makes several calls, and a unix socket keeps each one short.
@@ -136,12 +233,23 @@ sudo usermod -aG tamarackdb www-data
 
 The application picks up its new group once it restarts.
 
-Turn `enableTls` on whenever TamarackDB runs on a different host than the
-application calling it: without it, request and response bodies, and the
-`authToken` itself if `enableAuth` is on, travel in clear text over a network
-outside your control. It's safe to leave off only when TamarackDB and its
-caller share a trust boundary already enforced another way, e.g. both on the
-same host, or on a private network segment or VPN.
+If the application must reach TamarackDB from another host, put a reverse
+proxy in front of the socket, and let it handle TLS. Without TLS, request and
+response bodies, and the `authToken` itself, travel in clear text over a
+network outside your control. A reverse proxy renews its certificates on its
+own, while the server keeps running. Caddy, for example, gets and renews its
+certificates by itself:
+
+```
+tamarackdb.example.com {
+    reverse_proxy unix//run/tamarackdb/tamarackdb.sock
+}
+```
+
+The proxy's user must be allowed by `socketMode`, like the application's. Turn
+`enableAuth` on too: once the proxy is up, the API is reachable over the
+network, and the token is what keeps others out. The proxy passes the
+`Authorization` header through unchanged.
 
 `config.toml` is optional. Any field it leaves out, or the whole file if it's
 missing, falls back to the matching `TAMARACKDB_*` environment variable, then to a

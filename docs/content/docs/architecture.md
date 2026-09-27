@@ -795,7 +795,7 @@ like after any dropped connection (see Response format).
 ### Startup, shutdown, and crash behavior
 
 On startup, before opening the store, the process prints a banner and its resolved configuration to stdout: bind
-address, port, the TLS and auth flags and file paths (`authToken` itself is never printed), data directory, dev mode,
+address, port, the socket path and mode, the auth flag (`authToken` itself is never printed), data directory, dev mode,
 the transaction timeouts, and the pagination/event-size/queue-depth limits. This is a plain operational aid, for
 checking at a glance what a given instance is actually set up to do, not a machine-readable format meant for parsing.
 
@@ -991,7 +991,8 @@ exits; a scheduler runs it again (see [Backup](/docs/guides/backup/)). Each run:
    the server uses: the file gets the server's schema, and the
    run holds the file's `.lock` (see Storage: SQLite). A backup file can't be updated while a server is serving it.
 2. Reads the highest Sequence Position already in the file.
-3. Pages through the source's `QUERY /events`, without a ticket, with `afterSequence` set to that position and `limit`
+3. Pages through the source's `QUERY /events`, over HTTP to `sourceUrl`, or over the unix socket at `sourceSocket`
+   for a source on the same host, without a ticket, with `afterSequence` set to that position and `limit`
    set to `pageLimit`. A read without a ticket sees committed events only, and never waits for the source's active
    transaction.
 4. Writes each page with `Store.Import`, in one SQLite transaction per page. `Import` is a variant of `Append` that
@@ -1008,12 +1009,13 @@ The backup copies events only. Projections are left out on purpose: every projec
 Projection rebuilds), so the backup file's `projections` table stays empty.
 
 The result is a regular TamarackDB database file. Unlike a raw copy of the source's file, which can miss commits still
-in the WAL, it can be opened and served by `tamarackdb-server` as a live instance. The source must be reachable over
-HTTP: the tool can't connect to a unix socket.
+in the WAL, it can be opened and served by `tamarackdb-server` as a live instance. A source on the same host is read
+straight from its unix socket, with nothing exposed over the network. A source on another host is reached over HTTPS,
+through a reverse proxy in front of its socket (see [Backup](/docs/guides/backup/#a-source-on-another-host)).
 
 ## Configuration
 
-TamarackDB's startup configuration (socket path or bind address/port, TLS settings, auth token, data directory,
+TamarackDB's startup configuration (socket path or bind address/port, auth token, data directory,
 transaction timeouts, pagination/size limits, and the FIFO depth) comes from three sources, in this order:
 
 1. A TOML configuration file, passed via `--config` (defaults to `config.toml` in the working directory). Keys live
@@ -1037,9 +1039,6 @@ instead.
 | `socketMode` | `TAMARACKDB_SOCKET_MODE` | `"0600"` (only with `socketPath`) |
 | `bindAddress` | `TAMARACKDB_BIND_ADDRESS` | `127.0.0.1` |
 | `port` | `TAMARACKDB_PORT` | `8085` |
-| `enableTls` | `TAMARACKDB_ENABLE_TLS` | `false` |
-| `tlsCertFile` | `TAMARACKDB_TLS_CERT_FILE` | |
-| `tlsKeyFile` | `TAMARACKDB_TLS_KEY_FILE` | |
 | `enableAuth` | `TAMARACKDB_ENABLE_AUTH` | `false` |
 | `authToken` | `TAMARACKDB_AUTH_TOKEN` | |
 | `dataDir` | `TAMARACKDB_DATA_DIR` | `data` |
@@ -1078,18 +1077,19 @@ A client that wants a shorter wait closes the connection.
 
 ## Security
 
-TLS and Bearer-token checks are each controlled by their own flag, `enableTls` and `enableAuth`, so a deployment can
-match its own network's trust level instead of the store forcing one fixed stance. Both default to off, for a
-deployment where the network is already isolated further out (a private segment, a VPN, a firewall), which would make
-TLS and per-request auth extra weight on top of a trust boundary already enforced elsewhere.
-
 TamarackDB listens on a unix socket by default (`socketPath`), and switches to TCP once `bindAddress` or `port` is set
 (see Configuration); `socketPath` wins whenever it's set, even alongside `bindAddress`/`port`. The unix socket is the
 recommended setup: TamarackDB runs on the same host as the application, and every transaction costs several round
-trips, which a unix socket keeps short. `enableTls` only applies to the TCP path: the Go process handles TLS itself,
-via `ServeTLS`, with no reverse proxy in front, and `enableTls` is ignored entirely when `socketPath` is in effect,
-since a unix socket never leaves the host. When `enableTls` is off, the process serves plain HTTP on the configured
-bind address and port.
+trips, which a unix socket keeps short.
+
+The server speaks plain HTTP only, on the socket and over TCP alike. TLS, for an application or a backup on another
+host, is a reverse proxy's job. A server that loads its certificate once at startup would need a restart, cutting
+off the active transaction, every time a short-lived certificate is renewed; a reverse proxy renews on its own. It
+also handles what surrounds TLS (protocol versions, client certificates, address allowlists) better than a store
+should, and keeps a single path for every access from another host, the application's and the backup's alike. The
+Bearer token stays checked by the server itself: the proxy passes the `Authorization` header through, and the token
+protects the API whatever the transport. `enableAuth` defaults to off, for the recommended setup, where the socket's
+permissions already decide who may connect.
 
 On the unix socket, access is controlled by the file's permissions: connecting takes write permission on it. The
 server creates the socket under a umask of `0177`, so it starts out as `0600` whatever the process's own umask, then

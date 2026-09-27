@@ -25,9 +25,14 @@ Generate a starter config and adjust it as needed:
 ```
 
 `sourceUrl`
-: Base URL of the instance to copy events from.
+: Base URL of the instance to copy events from: an `http://` or `https://` address.
 : Env: `TAMARACKDB_BACKUP_SOURCE_URL`
-: Default: none, required
+: Default: none
+
+`sourceSocket`
+: Path of the unix socket the instance listens on, for an instance on the same host (see [A source on the same host](#a-source-on-the-same-host)).
+: Env: `TAMARACKDB_BACKUP_SOURCE_SOCKET`
+: Default: none
 
 `sourceToken`
 : Bearer token for the source instance, when it has `enableAuth` on.
@@ -51,10 +56,44 @@ section can live in its own file, as shown above, or share one file with the
 server's `[server]` section (see [Deployment](/docs/guides/deployment/#configure)); either
 way `tamarackdb-backup` reads only `[backup]`.
 
-`sourceUrl` must be an `http://` or `https://` address, so the source instance
-needs `bindAddress`/`port` set: `tamarackdb-backup` has no way to reach a
-source running only on its default unix socket (see
+Set exactly one of `sourceUrl` and `sourceSocket`: a run with both, or
+neither, stops with an error. When the file sets one of them, the
+`TAMARACKDB_BACKUP_SOURCE_*` variables are ignored, so a variable left in the
+environment can't clash with the file's choice.
+
+## A source on the same host
+
+For an instance on the same host, listening on its unix socket, read straight
+from the socket:
+
+```toml
+[backup]
+sourceSocket = "/run/tamarackdb/tamarackdb.sock"
+```
+
+Nothing is exposed over the network. The socket's permissions decide who may
+connect, as for the application: the backup's user must be allowed by the
+server's `socketMode`. Run the backup as the server's own user, or set
+`socketMode = "0660"` and add the backup's user to the server's group (see
 [Deployment](/docs/guides/deployment/#configure)).
+
+## A source on another host
+
+`tamarackdb-backup` reaches an instance on another host over HTTPS. The server
+itself only speaks plain HTTP, so put a reverse proxy in front of its socket,
+responsible for TLS, and point `sourceUrl` at the proxy's `https://` address.
+nginx and Caddy both relay the `QUERY` method.
+
+Two things to get right:
+
+- **Who can reach the proxy.** Over the socket, the file's permissions are
+  what keep other users out, and `enableAuth` is often off. The proxy gives
+  full access to the API, writes included, to anyone who reaches its port.
+  Turn `enableAuth` on in the server, with the token in `sourceToken`: the
+  proxy passes the `Authorization` header through.
+- **The proxy's access to the socket.** The proxy's user must be allowed by
+  the server's `socketMode`: set it to `"0660"`, and add that user to the
+  server's group (see [Deployment](/docs/guides/deployment/#configure)).
 
 ## What the backup holds
 
