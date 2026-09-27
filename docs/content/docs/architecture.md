@@ -619,9 +619,10 @@ Standard DCB flow:
 TamarackDB supports two ways to run this flow.
 
 **Inside a transaction.** Steps 1 to 3 all carry the same ticket. The transaction holds the write lock from the start,
-so no other client can append between the read and the append. The Append Condition can only fail because of events
-appended earlier in the same transaction: by another model, or by an event handler reacting to them. Each model can
-make its own `POST /events` call with its own condition: the transaction, not a merged condition, is what makes the
+so no other client can append between the read and the append. The Append Condition can only fail if the client itself
+appended a matching event in the same transaction after the read the decision was based on, for example when two
+models both read before either appends. The failure then points at a decision made on stale data, a mistake in the
+client's own ordering, not at contention. Each model can make its own `POST /events` call with its own condition: the transaction, not a merged condition, is what makes the
 whole command atomic.
 
 **Optimistic.** Step 1 runs without a ticket, outside any transaction, on committed data. The client decides, then

@@ -362,8 +362,10 @@ There are two ways to use it.
 
 **Inside a transaction.** Read with the ticket, decide, append with the ticket.
 The transaction holds the write lock the whole time, so no other client can
-append in between. The condition can only fail because of events appended
-earlier in the same transaction, by another model or an event handler. Each
+append in between. The condition can only fail if your own application
+appended a matching event in the same transaction after the read the decision
+was based on, for example when two models both read before either appends. That
+means the decision was made on stale data: read again before deciding. Each
 model can send its own `POST /events` with its own condition.
 
 **Optimistic.** Read without a ticket and decide, then open a transaction,
