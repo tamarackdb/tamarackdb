@@ -105,9 +105,10 @@ type Server struct {
 // remains responsible for closing both.
 //
 // New panics on invalid static configuration (non-positive limits,
-// DefaultEventsPerPage > MaxEventsPerPage, an unknown LogLevel, nil tm/st): these are startup wiring
-// bugs, not request-time conditions, the same "fail loud and immediately"
-// treatment store.Open gives a bad database file.
+// DefaultEventsPerPage > MaxEventsPerPage, an unknown LogLevel, nil
+// tm/st): these are startup wiring bugs, not request-time conditions, the
+// same "fail loud and immediately" treatment store.Open gives a bad
+// database file.
 func New(tm *txn.Manager, st *store.Store, opts Options) *Server {
 	logThreshold, validLogLevel := parseLevel(opts.LogLevel)
 	switch {
@@ -175,7 +176,7 @@ func New(tm *txn.Manager, st *store.Store, opts Options) *Server {
 		mux.HandleFunc("GET /debug/pprof/trace", pprof.Trace)
 	}
 
-	var h http.Handler = mux
+	var h http.Handler = withBodyLimit(mux)
 	if opts.EnableAuth {
 		h = s.withAuth(h)
 	}

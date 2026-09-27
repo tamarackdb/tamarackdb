@@ -122,9 +122,14 @@ func TestAccessLogLevelPerOutcome(t *testing.T) {
 			pause(t, srv)
 			return doRequest(t, srv, "POST", "/begin", "")
 		}},
-		{"InternalError", "ERROR", func(t *testing.T) *httptest.ResponseRecorder {
+		{"ShuttingDown", "INFO", func(t *testing.T) *httptest.ResponseRecorder {
 			srv, tm, _ := newTestServer(t)
-			tm.Close() // Begin now fails with a closed FIFO, handleErr's default case
+			tm.Close() // Begin now fails with a closed FIFO
+			return doRequest(t, srv, "POST", "/begin", "")
+		}},
+		{"InternalError", "ERROR", func(t *testing.T) *httptest.ResponseRecorder {
+			srv, _, st := newTestServer(t)
+			st.Close() // Begin gets its turn, then fails to open the SQLite transaction
 			return doRequest(t, srv, "POST", "/begin", "")
 		}},
 		{"Unavailable", "ERROR", func(t *testing.T) *httptest.ResponseRecorder {

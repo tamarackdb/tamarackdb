@@ -1012,3 +1012,47 @@ func TestPauseFilePath(t *testing.T) {
 		t.Errorf("PauseFilePath() = %q, want %q", got, want)
 	}
 }
+
+func TestLoadRejectsUnknownKey(t *testing.T) {
+	path := writeConfigFile(t, `[server]
+		dataDir = "data"
+		maxQueuedTransaction = 5
+	`)
+	_, err := Load(path)
+	if err == nil || !strings.Contains(err.Error(), "server.maxQueuedTransaction") {
+		t.Fatalf("Load() error = %v, want it to name server.maxQueuedTransaction", err)
+	}
+}
+
+func TestLoadRejectsKeyOutsideSection(t *testing.T) {
+	path := writeConfigFile(t, `port = 9000
+	`)
+	_, err := Load(path)
+	if err == nil || !strings.Contains(err.Error(), "port") {
+		t.Fatalf("Load() error = %v, want it to name the key outside [server]", err)
+	}
+}
+
+func TestLoadRejectsUnknownKeyInBackupSection(t *testing.T) {
+	path := writeConfigFile(t, `[server]
+		dataDir = "data"
+
+		[backup]
+		sourceURL2 = "https://source.internal:8085"
+	`)
+	if _, err := Load(path); err == nil {
+		t.Fatal("Load() error = nil, want error for a misspelled [backup] key")
+	}
+}
+
+func TestLoadValidationErrorWithoutFileNamesNoFile(t *testing.T) {
+	setEnv(t, map[string]string{"TAMARACKDB_ENABLE_AUTH": "true"})
+	path := filepath.Join(t.TempDir(), "missing.toml")
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("Load() error = nil, want error for enableAuth without authToken")
+	}
+	if strings.Contains(err.Error(), "missing.toml") {
+		t.Errorf("Load() error = %q, must not name a file that doesn't exist", err)
+	}
+}

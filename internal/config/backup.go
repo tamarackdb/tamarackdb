@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"os"
 	"strconv"
-
-	"github.com/pelletier/go-toml/v2"
 )
 
 // Default values for BackupConfig's optional fields, exported so callers
@@ -33,29 +31,17 @@ type BackupConfig struct {
 }
 
 // LoadBackup reads and parses the [backup] section of the TOML configuration
-// file at path if it exists, fills in any field left at its zero value from
+// file at path if it exists (rejecting any unknown key, see readFile), fills in any field left at its zero value from
 // the matching TAMARACKDB_BACKUP_* environment variable, applies the
 // documented default for pageLimit if still unset, and validates the
 // result. Any non-nil error is fatal at startup: the caller should log it
 // and exit rather than retry.
 func LoadBackup(path string) (*BackupConfig, error) {
-	var cfg BackupConfig
-
-	data, err := os.ReadFile(path)
-	switch {
-	case err == nil:
-		var file struct {
-			Backup BackupConfig `toml:"backup"`
-		}
-		if err := toml.Unmarshal(data, &file); err != nil {
-			return nil, fmt.Errorf("config: parse %s: %w", path, err)
-		}
-		cfg = file.Backup
-	case os.IsNotExist(err):
-		// No config file: fall through to environment variables and defaults.
-	default:
-		return nil, fmt.Errorf("config: read %s: %w", path, err)
+	f, _, found, err := readFile(path)
+	if err != nil {
+		return nil, err
 	}
+	cfg := f.Backup
 
 	if err := applyBackupEnv(&cfg); err != nil {
 		return nil, fmt.Errorf("config: %w", err)
@@ -69,7 +55,7 @@ func LoadBackup(path string) (*BackupConfig, error) {
 	}
 
 	if err := cfg.Validate(); err != nil {
-		return nil, fmt.Errorf("config: %s: %w", path, err)
+		return nil, validationError(path, found, err)
 	}
 	return &cfg, nil
 }

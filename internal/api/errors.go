@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 
 	"github.com/tamarackdb/tamarackdb/internal/dcb"
@@ -67,6 +68,7 @@ func (s *Server) handleErr(w http.ResponseWriter, r *http.Request, err error) {
 	var ve *dcb.ValidationError
 	var de *projection.ValidationError
 	var oe *oversizeError
+	var be *bodyTooLargeError
 	switch {
 	case errors.As(err, &ve):
 		// Covers dcb.EventData.Validate(), dcb.Query.Validate(),
@@ -83,6 +85,8 @@ func (s *Server) handleErr(w http.ResponseWriter, r *http.Request, err error) {
 		writeError(w, http.StatusBadRequest, "InvalidRequest", de.Message)
 	case errors.As(err, &oe):
 		writeError(w, http.StatusRequestEntityTooLarge, "PayloadTooLarge", oe.Error())
+	case errors.As(err, &be):
+		writeError(w, http.StatusRequestEntityTooLarge, "PayloadTooLarge", be.Error())
 	case errors.As(err, &pe):
 		writeError(w, http.StatusConflict, "ConcurrencyException", pe.Error())
 	case errors.Is(err, store.ErrConcurrencyConflict):
@@ -97,9 +101,13 @@ func (s *Server) handleErr(w http.ResponseWriter, r *http.Request, err error) {
 		writeError(w, http.StatusServiceUnavailable, "Paused", "")
 	case errors.Is(err, queue.ErrFull):
 		writeError(w, http.StatusServiceUnavailable, "TransactionQueueFull", "")
+	case errors.Is(err, txn.ErrClosed), errors.Is(err, queue.ErrClosed):
+		// The server is shutting down: a request waiting in the FIFO, or
+		// arriving after it closed, gets no turn.
+		writeError(w, http.StatusServiceUnavailable, "ShuttingDown", "")
 	default:
-		// Everything else: a closed FIFO during shutdown, and any other
-		// unexpected error, including fatal storage errors.
+		// Everything else: any unexpected error, including fatal storage
+		// errors.
 		writeError(w, http.StatusInternalServerError, "InternalError", "an unexpected error occurred")
 	}
 }
@@ -125,12 +133,57 @@ func decodeJSONStrict(r *http.Request, v any) error {
 	return decode(dec, v)
 }
 
+// decode reads exactly one JSON value into v. Anything after it, other
+// than whitespace, is rejected: a body with two values, or with trailing
+// text, is malformed rather than silently cut short.
 func decode(dec *json.Decoder, v any) error {
 	if err := dec.Decode(v); err != nil {
+		if tooLarge := bodyTooLarge(err); tooLarge != nil {
+			return tooLarge
+		}
 		return &dcb.ValidationError{
 			Err:     fmt.Errorf("invalid request body: %w", err),
 			Message: "request body is not valid JSON for this endpoint: " + err.Error(),
 		}
+	}
+	switch _, err := dec.Token(); {
+	case err == io.EOF:
+		return nil
+	case bodyTooLarge(err) != nil:
+		return bodyTooLarge(err)
+	default:
+		return &dcb.ValidationError{Err: errTrailingData, Message: "request body must hold a single JSON value"}
+	}
+}
+
+// maxRequestBody is the largest request body the server reads, in bytes.
+// It sits well above the largest valid body (100 events of 64 KiB each,
+// with their JSON framing), and keeps a client from making the server
+// read an unbounded body into memory before any size limit is checked.
+const maxRequestBody = 8 << 20 // 8 MiB
+
+// withBodyLimit caps every request body at maxRequestBody.
+func withBodyLimit(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, maxRequestBody)
+		next.ServeHTTP(w, r)
+	})
+}
+
+// bodyTooLargeError is returned when a request body goes past
+// maxRequestBody.
+type bodyTooLargeError struct{}
+
+func (*bodyTooLargeError) Error() string {
+	return fmt.Sprintf("request body exceeds the maximum of %d bytes", maxRequestBody)
+}
+
+// bodyTooLarge returns a *bodyTooLargeError if err comes from reading past
+// maxRequestBody, or nil otherwise.
+func bodyTooLarge(err error) error {
+	var mbe *http.MaxBytesError
+	if errors.As(err, &mbe) {
+		return &bodyTooLargeError{}
 	}
 	return nil
 }
@@ -150,6 +203,7 @@ var (
 	errZeroLimit              = errors.New("api: limit must be greater than zero")
 	errLimitExceedsMax        = errors.New("api: limit exceeds the configured maximum")
 	errInvalidTimeRange       = errors.New("api: time.from must be earlier than time.before")
+	errTrailingData           = errors.New("api: request body holds more than one JSON value")
 )
 
 // errMissingTicketValidation is the 400 for a call that requires a ticket

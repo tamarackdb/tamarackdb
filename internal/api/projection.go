@@ -82,29 +82,40 @@ func (s *Server) handleGetProjection(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleWriteProjections(w http.ResponseWriter, r *http.Request) {
 	defer s.trackWrite()()
 
-	var versions store.Versions
-	write := func(writeFn func(projection.Writes) (store.Versions, error)) error {
+	parse := func() (projection.Writes, error) {
 		var req projection.Writes
 		if err := decodeJSONStrict(r, &req); err != nil {
-			return err
+			return projection.Writes{}, err
 		}
-		if err := validateProjectionsRequest(req, s.opts.MaxProjectionSize, s.opts.MaxProjectionsPerRequest); err != nil {
-			return err
-		}
-		var err error
-		versions, err = writeFn(req)
-		return err
+		err := validateProjectionsRequest(req, s.opts.MaxProjectionSize, s.opts.MaxProjectionsPerRequest)
+		return req, err
 	}
 
+	var versions store.Versions
 	var err error
 	if ticket, ok := ticketFrom(r); ok {
+		// Inside the transaction, so a malformed body rolls it back like
+		// any other failed call.
 		err = s.doInTx(w, ticket, func(tx *store.Tx) error {
-			return write(func(req projection.Writes) (store.Versions, error) { return tx.WriteProjections(r.Context(), req) })
+			req, err := parse()
+			if err != nil {
+				return err
+			}
+			versions, err = tx.WriteProjections(r.Context(), req)
+			return err
 		})
 	} else {
-		err = s.tm.RunPaused(func() error {
-			return write(func(req projection.Writes) (store.Versions, error) { return s.st.WriteProjections(r.Context(), req) })
-		})
+		// The body is read before RunPaused: the pause can't end while
+		// RunPaused runs, so a client sending its body slowly would
+		// otherwise hold off POST /resume for as long as it likes.
+		var req projection.Writes
+		if req, err = parse(); err == nil {
+			err = s.tm.RunPaused(func() error {
+				var err error
+				versions, err = s.st.WriteProjections(r.Context(), req)
+				return err
+			})
+		}
 	}
 	if err != nil {
 		s.handleErr(w, r, err)

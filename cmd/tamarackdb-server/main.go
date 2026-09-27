@@ -241,9 +241,9 @@ func removeStaleSocket(path string) error {
 // complete reference of what's configurable rather than a partial file.
 // Every key is commented out at its default value, and uncommenting a line
 // is how it takes effect. Uncommenting bindAddress or port switches the
-// server from socketPath to TCP, even at their default values. It is a hand-written
-// template, not a Marshal of config.Config, so it can carry comments;
-// TOML's Marshal would drop them.
+// server from socketPath to TCP, even at their default values. It is a
+// hand-written template, not a Marshal of config.Config, so it can carry
+// comments; TOML's Marshal would drop them.
 const defaultConfigTemplate = `[server]
 # socketPath = "%s"
 # bindAddress = "%s"

@@ -31,7 +31,7 @@ func TestLoadBackupFullConfig(t *testing.T) {
 func TestLoadBackupIgnoresServerSection(t *testing.T) {
 	path := writeConfigFile(t, `[server]
 		bindAddress = "0.0.0.0"
-		databasePath = "server.sqlite"
+		dataDir = "server-data"
 
 		[backup]
 		sourceUrl = "https://source.internal:8085"

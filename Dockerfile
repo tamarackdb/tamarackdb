@@ -1,6 +1,8 @@
 # syntax=docker/dockerfile:1
 
-FROM golang:1.26-alpine AS builder
+# The builder runs on the build machine's own platform and cross-compiles
+# for the target one, so a multi-platform build needs no emulation.
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS builder
 
 WORKDIR /src
 
@@ -10,9 +12,12 @@ RUN go mod download
 COPY . .
 
 ARG VERSION=dev
+ARG TARGETOS=linux
+ARG TARGETARCH
 
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags "-X github.com/tamarackdb/tamarackdb/internal/buildinfo.Version=$VERSION" -o /out/tamarackdb-server ./cmd/tamarackdb-server && \
-    CGO_ENABLED=0 GOOS=linux go build -ldflags "-X github.com/tamarackdb/tamarackdb/internal/buildinfo.Version=$VERSION" -o /out/tamarackdb-init ./cmd/tamarackdb-init
+RUN export CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH && \
+    go build -ldflags "-X github.com/tamarackdb/tamarackdb/internal/buildinfo.Version=$VERSION" -o /out/tamarackdb-server ./cmd/tamarackdb-server && \
+    go build -ldflags "-X github.com/tamarackdb/tamarackdb/internal/buildinfo.Version=$VERSION" -o /out/tamarackdb-init ./cmd/tamarackdb-init
 
 FROM alpine:3.20
 
