@@ -15,7 +15,9 @@ problem an idea would solve.
 - Open an issue first for anything beyond a small fix, so the approach
   can be discussed before you spend time on it.
 - Keep pull requests focused on one change.
-- Run `make test` and `make vet` before opening a pull request.
+- Run `make fmt`, `make vet`, and `make test` before opening a pull
+  request. The CI also rejects code that isn't formatted with `gofmt`,
+  and runs the tests with the race detector (`make test-race`).
 - Follow the existing code and documentation style in the repository.
 
 The maintainer reviews every pull request, and may push changes

@@ -1019,7 +1019,7 @@ transaction timeouts, pagination/size limits, and the FIFO depth) comes from thr
    under a `[server]` section, so the same file can also hold `tamarackdb-backup`'s `[backup]` section (see
    [Backup](/docs/guides/backup/)); each binary reads only its own section.
 2. `TAMARACKDB_*` environment variables, one per configuration key.
-3. Built-in defaults, for the keys that have one (`socketPath`, `dataDir`, `logLevel`, `defaultEventsPerPage`,
+3. Built-in defaults, for the keys that have one (`socketPath`, `socketMode`, `dataDir`, `logLevel`, `defaultEventsPerPage`,
    `maxEventsPerPage`, `maxEventSize`, `maxProjectionSize`, `maxProjectionsPerRequest`, `transactionTimeout`,
    `maxTransactionDuration`, `maxQueuedTransactions`, `readPoolSize`).
 
@@ -1033,6 +1033,7 @@ instead.
 | Key | Environment variable | Default |
 |---|---|---|
 | `socketPath` | `TAMARACKDB_SOCKET_PATH` | `/var/run/tamarackdb-server.sock` |
+| `socketMode` | `TAMARACKDB_SOCKET_MODE` | `"0600"` (only with `socketPath`) |
 | `bindAddress` | `TAMARACKDB_BIND_ADDRESS` | `127.0.0.1` |
 | `port` | `TAMARACKDB_PORT` | `8085` |
 | `enableTls` | `TAMARACKDB_ENABLE_TLS` | `false` |
@@ -1088,6 +1089,12 @@ trips, which a unix socket keeps short. `enableTls` only applies to the TCP path
 via `ServeTLS`, with no reverse proxy in front, and `enableTls` is ignored entirely when `socketPath` is in effect,
 since a unix socket never leaves the host. When `enableTls` is off, the process serves plain HTTP on the configured
 bind address and port.
+
+On the unix socket, access is controlled by the file's permissions: connecting takes write permission on it. The
+socket is created with the umask's permissions, which let no other user connect, so the server sets `socketMode`
+(`"0600"` by default) right after creating it. `"0660"` lets the server's group connect too, for an application running
+as another user. A socket path is at most 107 bytes long on Linux; a longer `socketPath` is rejected when the
+configuration loads, with an error naming the limit.
 
 When `enableAuth` is on, every registered route needs a Bearer token in the `Authorization` header
 (`Authorization: Bearer <token>`): every endpoint of the HTTP API, `/health`, the observability endpoints (`/metrics`,

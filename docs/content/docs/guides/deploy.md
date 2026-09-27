@@ -29,9 +29,14 @@ Each binary reads only its own section and ignores the rest, so a shared
 file works whether you run one binary or both.
 
 `socketPath`
-: Unix socket the server listens on. The server must be able to create it: `/var/run` is usually writable only by root, so a server running as a regular user needs a path it owns. On startup, the server removes a socket left at that path by an earlier run, and refuses to start if the path holds anything other than a socket.
+: Unix socket the server listens on. The server must be able to create it: `/var/run` is usually writable only by root, so a server running as a regular user needs a path it owns. On startup, the server removes a socket left at that path by an earlier run, and refuses to start if the path holds anything other than a socket. The path can be at most 107 bytes long, the limit Linux sets for a unix socket.
 : Env: `TAMARACKDB_SOCKET_PATH`
 : Default: `/var/run/tamarackdb-server.sock`
+
+`socketMode`
+: Permissions of the unix socket, as an octal string, set right after the server creates it. Only used with `socketPath`.
+: Env: `TAMARACKDB_SOCKET_MODE`
+: Default: `"0600"`
 
 `bindAddress` / `port`
 : Address and port the server listens on instead of a unix socket.
@@ -118,6 +123,18 @@ the host.
 
 Run TamarackDB on the same host as the application, and keep the unix socket.
 Every transaction makes several calls, and a unix socket keeps each one short.
+
+Connecting to a unix socket takes write permission on it. With the default
+`socketMode` of `"0600"`, only the user the server runs as can connect. If the
+application runs as another user, set `socketMode = "0660"`, and add the
+application's user to the server's group. For a server running as user and
+group `tamarackdb`, and an application running as `www-data`:
+
+```sh
+sudo usermod -aG tamarackdb www-data
+```
+
+The application picks up its new group once it restarts.
 
 Turn `enableTls` on whenever TamarackDB runs on a different host than the
 application calling it: without it, request and response bodies, and the
