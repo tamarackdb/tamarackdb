@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/tamarackdb/tamarackdb/internal/dcb"
+	"github.com/tamarackdb/tamarackdb/internal/projection"
 )
 
 func openTestStore(t *testing.T) *Store {
@@ -22,7 +23,7 @@ func openTestStore(t *testing.T) *Store {
 
 func mustAppend(t *testing.T, s *Store, events []dcb.EventData, condition *dcb.AppendCondition) []dcb.Event {
 	t.Helper()
-	got, err := s.Append(context.Background(), events, condition, nil)
+	got, err := s.Append(context.Background(), events, condition, projection.Writes{})
 	if err != nil {
 		t.Fatalf("Append() error = %v", err)
 	}

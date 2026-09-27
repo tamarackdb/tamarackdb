@@ -1,6 +1,8 @@
 package api
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -9,12 +11,32 @@ import (
 	"github.com/tamarackdb/tamarackdb/internal/store"
 )
 
-type projectionsRequest struct {
-	Projections []projection.Data `json:"projections"`
+// VersionHeader carries a projection's version in a
+// GET /projections/{type}/{id} response.
+const VersionHeader = "X-Tamarackdb-Version"
+
+// projectionsResponse is POST /projections's response: the new version of
+// every created and replaced projection, in request order.
+type projectionsResponse struct {
+	Create  []projectionVersion `json:"create"`
+	Replace []projectionVersion `json:"replace"`
+}
+
+type projectionVersion struct {
+	Version string `json:"version"`
+}
+
+func toProjectionVersions(versions []string) []projectionVersion {
+	out := make([]projectionVersion, len(versions))
+	for i, v := range versions {
+		out[i] = projectionVersion{Version: v}
+	}
+	return out
 }
 
 // handleGetProjection implements GET /projections/{type}/{id}: 404 when no
-// projection exists, or 200 with the payload as the response body. With a
+// projection exists, or 200 with the payload as the response body and the
+// version in the X-Tamarackdb-Version header. With a
 // ticket, the read runs inside the transaction and sees projections written
 // earlier in it; a 404 is an ordinary answer there, not a failure, and the
 // transaction goes on. Without a ticket, it sees committed projections only.
@@ -23,19 +45,19 @@ type projectionsRequest struct {
 func (s *Server) handleGetProjection(w http.ResponseWriter, r *http.Request) {
 	typ, id := r.PathValue("type"), r.PathValue("id")
 
-	var payload string
+	var version, payload string
 	var found bool
 	var err error
 	if ticket, ok := ticketFrom(r); ok {
 		defer s.trackWrite()()
 		err = s.doInTx(w, ticket, func(tx *store.Tx) error {
-			payload, found, err = tx.GetProjection(r.Context(), typ, id)
+			version, payload, found, err = tx.GetProjection(r.Context(), typ, id)
 			return err
 		})
 	} else {
 		s.readHTTPOpen.Add(1)
 		defer s.readHTTPOpen.Add(-1)
-		payload, found, err = s.st.GetProjection(r.Context(), typ, id)
+		version, payload, found, err = s.st.GetProjection(r.Context(), typ, id)
 	}
 	if err != nil {
 		s.handleErr(w, r, err)
@@ -46,77 +68,108 @@ func (s *Server) handleGetProjection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set(VersionHeader, version)
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte(payload))
 }
 
-// handleWriteProjections implements POST /projections: it creates, replaces,
-// or deletes projections. With a ticket, the write runs inside the
-// transaction, and any failure rolls it back. Without a ticket, it's
+// handleWriteProjections implements POST /projections: it creates,
+// replaces, and deletes projections, and responds with the new versions.
+// With a ticket, the write runs inside the transaction, and any failure,
+// a version conflict included, rolls it back. Without a ticket, it's
 // accepted only while the server is paused, for a projection rebuild, and
 // commits on its own; outside a pause it gets 409 NotPaused.
 func (s *Server) handleWriteProjections(w http.ResponseWriter, r *http.Request) {
 	defer s.trackWrite()()
 
-	write := func(writeFn func([]projection.Data) error) error {
-		var req projectionsRequest
-		if err := decodeJSON(r, &req); err != nil {
+	var versions store.Versions
+	write := func(writeFn func(projection.Writes) (store.Versions, error)) error {
+		var req projection.Writes
+		if err := decodeJSONStrict(r, &req); err != nil {
 			return err
 		}
 		if err := validateProjectionsRequest(req, s.opts.MaxProjectionSize, s.opts.MaxProjectionsPerRequest); err != nil {
 			return err
 		}
-		return writeFn(req.Projections)
+		var err error
+		versions, err = writeFn(req)
+		return err
 	}
 
 	var err error
 	if ticket, ok := ticketFrom(r); ok {
 		err = s.doInTx(w, ticket, func(tx *store.Tx) error {
-			return write(func(docs []projection.Data) error { return tx.WriteProjections(r.Context(), docs) })
+			return write(func(req projection.Writes) (store.Versions, error) { return tx.WriteProjections(r.Context(), req) })
 		})
 	} else {
 		err = s.tm.RunPaused(func() error {
-			return write(func(docs []projection.Data) error { return s.st.WriteProjections(r.Context(), docs) })
+			return write(func(req projection.Writes) (store.Versions, error) { return s.st.WriteProjections(r.Context(), req) })
 		})
 	}
 	if err != nil {
 		s.handleErr(w, r, err)
 		return
 	}
-	w.WriteHeader(http.StatusNoContent)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(projectionsResponse{
+		Create:  toProjectionVersions(versions.Create),
+		Replace: toProjectionVersions(versions.Replace),
+	})
 }
 
-// validateProjectionsRequest checks request-shape rules (a projections
-// field, with at most maxProjectionsPerRequest projections), then, per projection,
-// projection.Data.Validate() and its size limit, rejecting a repeated
-// type+id pair within the same request rather than leaving its outcome to
-// write order.
-func validateProjectionsRequest(req projectionsRequest, maxProjectionSize, maxProjectionsPerRequest int) error {
-	// A missing field (nil) is most likely a misspelled key, so it's
-	// rejected. An empty array writes nothing: a command whose event
+// validateProjectionsRequest checks request-shape rules (at least one of
+// create, replace, delete, and at most maxProjectionsPerRequest
+// projections across them), then, per projection, its own Validate() and
+// its size limit, rejecting a type+id pair that appears more than once
+// across the three lists. Every message names the list and index.
+func validateProjectionsRequest(req projection.Writes, maxProjectionSize, maxProjectionsPerRequest int) error {
+	// Every key is optional, but a body with none of them most likely
+	// misspells them all. Empty lists are fine: a command whose event
 	// handlers changed no projection can still send its usual call.
-	if req.Projections == nil {
-		return &dcb.ValidationError{Err: errMissingProjections, Message: "request is missing its projections field"}
+	if req.Create == nil && req.Replace == nil && req.Delete == nil {
+		return &dcb.ValidationError{Err: errNoProjectionWrites, Message: "request carries none of create, replace, delete"}
 	}
-	if len(req.Projections) > maxProjectionsPerRequest {
+	if n := req.Len(); n > maxProjectionsPerRequest {
 		return &dcb.ValidationError{Err: errTooManyProjections, Message: fmt.Sprintf(
-			"request carries %d projections, more than the maximum of %d", len(req.Projections), maxProjectionsPerRequest)}
+			"request carries %d projections, more than the maximum of %d", n, maxProjectionsPerRequest)}
 	}
-	seen := make(map[[2]string]struct{}, len(req.Projections))
-	for i, d := range req.Projections {
-		if err := d.Validate(); err != nil {
+	seen := make(map[[2]string]string, req.Len())
+	check := func(op string, i int, typ, id string, payload *string, validate func() error) error {
+		if err := validate(); err != nil {
+			var ve *projection.ValidationError
+			if errors.As(err, &ve) {
+				return &projection.ValidationError{Err: ve.Err, Message: fmt.Sprintf("%s[%d]: %s", op, i, ve.Message)}
+			}
 			return err
 		}
-		key := [2]string{d.Type, d.ID}
-		if _, dup := seen[key]; dup {
+		key := [2]string{typ, id}
+		at := fmt.Sprintf("%s[%d]", op, i)
+		if first, dup := seen[key]; dup {
 			return &dcb.ValidationError{Err: errDuplicateProjectionKey, Message: fmt.Sprintf(
-				"projection at index %d has the same type and id as an earlier entry in this request", i)}
+				"%s has the same type and id as %s", at, first)}
 		}
-		seen[key] = struct{}{}
-		if d.Payload != nil {
-			if size := len(*d.Payload); size > maxProjectionSize {
-				return &oversizeError{kind: "projection", index: i, size: size, max: maxProjectionSize}
+		seen[key] = at
+		if payload != nil {
+			if size := len(*payload); size > maxProjectionSize {
+				return &oversizeError{kind: "projection in " + op, index: i, size: size, max: maxProjectionSize}
 			}
+		}
+		return nil
+	}
+	for i, c := range req.Create {
+		if err := check("create", i, c.Type, c.ID, c.Payload, c.Validate); err != nil {
+			return err
+		}
+	}
+	for i, rp := range req.Replace {
+		if err := check("replace", i, rp.Type, rp.ID, rp.Payload, rp.Validate); err != nil {
+			return err
+		}
+	}
+	for i, d := range req.Delete {
+		if err := check("delete", i, d.Type, d.ID, nil, d.Validate); err != nil {
+			return err
 		}
 	}
 	return nil

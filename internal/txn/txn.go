@@ -9,7 +9,6 @@ package txn
 
 import (
 	"context"
-	"crypto/rand"
 	"crypto/subtle"
 	"errors"
 	"fmt"
@@ -17,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/tamarackdb/tamarackdb/internal/queue"
 	"github.com/tamarackdb/tamarackdb/internal/store"
 )
@@ -183,7 +183,7 @@ func (m *Manager) Begin(ctx context.Context) (string, error) {
 
 	now := time.Now()
 	t := &transaction{
-		ticket:  newTicket(),
+		ticket:  uuid.NewString(), // random, so a caller that didn't open the transaction can't guess it
 		tx:      tx,
 		turn:    turn,
 		cancel:  cancel,
@@ -508,17 +508,6 @@ func (m *Manager) Close() {
 		}
 		t.callMu.Unlock()
 	}
-}
-
-// newTicket returns a random UUID (version 4). A ticket identifies the
-// active transaction; being random, it can't be guessed by a caller that
-// didn't open the transaction.
-func newTicket() string {
-	var b [16]byte
-	_, _ = rand.Read(b[:]) // never returns an error
-	b[6] = b[6]&0x0f | 0x40
-	b[8] = b[8]&0x3f | 0x80
-	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
 }
 
 // writePauseFile creates path and syncs it to disk before the pause takes

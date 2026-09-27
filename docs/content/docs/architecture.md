@@ -452,7 +452,8 @@ commit makes events and projections durable together; a rollback discards both.
 **Reading a projection**: `GET /projections/{type}/{id}` returns `404 ProjectionNotFound` if no projection exists for that
 `type` + `id`, and `200` otherwise, with the payload as the response body, exactly as written. There's no JSON
 envelope around it, since the payload's own format (JSON, XML, plain text) is up to the writing application, not
-something the store imposes a wrapper on top of.
+something the store imposes a wrapper on top of. The projection's version comes in the `X-Tamarackdb-Version` header
+(see Versions below).
 
 With a ticket, the read runs inside the transaction: it sees projections written earlier in the same transaction. A
 projector uses it to read a projection before changing it. Without a ticket, the read runs on the read connection pool
@@ -460,30 +461,44 @@ and sees committed projections only: this is how an application reads a projecti
 
 A projection is always read by `type` and `id`. There is no query over projections.
 
-**Writing projections**: `POST /projections` writes or deletes several projections at once:
+**Writing projections**: `POST /projections` creates, replaces, and deletes several projections at once:
 
 ```json
 {
-  "projections": [
-    { "type": "user-profile", "id": "123", "payload": "..." },
-    { "type": "user-list-entry", "id": "456", "delete": true }
-  ]
+  "create":  [{ "type": "user-list-entry", "id": "789", "payload": "..." }],
+  "replace": [{ "type": "user-profile", "id": "123", "version": "9f3c...", "payload": "..." }],
+  "delete":  [{ "type": "user-list-entry", "id": "456", "version": "1b2c..." }]
 }
 ```
 
-A projection with a `payload` is created, or replaced if it exists; an empty string is a valid payload. A projection
-with `"delete": true` is deleted, and carries no `payload`; deleting a projection that doesn't exist does nothing. A
-projection with neither, or with a `null` payload, gets `400 Bad Request`. Deletion needs its own key, not a missing
-or `null` payload, because a key that goes missing is a common client bug (JavaScript's `JSON.stringify` drops
-`undefined` values), and it must never delete data. The same `type` + `id` can't appear twice in one call: that's a
-`400 Bad Request`. A call carries at most `maxProjectionsPerRequest` projections, and each payload at most
-`maxProjectionSize` bytes (see Configuration). An empty `projections` array writes nothing, so a client that sends
-one call per transaction needs no special case when its handlers changed nothing. A missing `projections` field gets
-`400 Bad Request`, for the same reason as a missing `events` field. On success, it responds `204 No Content`.
+Each list has a fixed shape: `create` takes `type`, `id` and `payload`; `replace` takes `type`, `id`, `version` and
+`payload`; `delete` takes `type`, `id` and `version`. Three lists, rather than one list with an operation flag, leave
+no combination of keys to forbid. A payload is a string, and an empty string is valid; a missing or `null` payload
+gets `400 Bad Request`, so a key that goes missing on the client (JavaScript's `JSON.stringify` drops `undefined`
+values) never writes an empty payload. Each list is optional and may be empty, so a client that sends one call per
+transaction needs no special case when its handlers changed nothing; a body with none of the three gets `400 Bad
+Request`. This body is decoded strictly: an unknown key, at any level, gets `400 Bad Request`, since a misspelled
+optional key would otherwise drop a whole list without a word. The same `type` + `id` can't appear twice in one call,
+across the three lists, so the order in which the lists are applied doesn't matter. A call carries at most
+`maxProjectionsPerRequest` projections in total, and each payload at most `maxProjectionSize` bytes (see
+Configuration).
 
-There's no version and no concurrency check on projections. None is needed: a projector reads a projection inside the
-transaction, changes it, and writes it back, while the transaction holds the write lock. Nothing else can change the
-projection in between.
+On success, it responds `200 OK` with the new version of each created and replaced projection, in request order:
+`{"create": [{"version": "..."}], "replace": [{"version": "..."}]}`. Both keys are always present.
+
+**Versions.** Every projection has a version, a random UUID (version 4) generated on every write and stored in the
+`version` column. Each write is conditional, inside the transaction that holds the write lock: a `create` inserts
+only if the `type` + `id` is free, and a `replace` or `delete` touches the row only if its stored version is the one
+given. A write that touches no row fails with `409 ConcurrencyException`, with the entry named in `message` (for
+example `replace[0]`), and the transaction rolls back like after any other error. A `delete` of a projection that no
+longer exists fails the same way: another client deleted it since the version was read.
+
+In the documented flow, the check never fails: a projector reads the projection with the ticket, under the write lock,
+so the version it holds is current. The check catches a client that writes a copy read outside the lock (without a
+ticket, from a cache, or kept from an earlier request), which would otherwise erase another client's update without
+any error. The version is opaque rather than a counter: a client can't compute the next one instead of reading it, and
+since a random UUID never repeats, a stale copy never matches again after the projection is deleted and created anew,
+or after a rebuild.
 
 The recommended use is one `POST /projections` call per transaction, right before `POST /commit`, carrying every
 projection the event handlers changed (typically about ten). The client collects the changes while the handlers run,
@@ -540,7 +555,8 @@ A projection rebuild runs while the server is paused, outside any transaction:
 1. `POST /pause`.
 2. `DELETE /projections/{type}` for each type to rebuild, or `DELETE /projections` for all of them.
 3. Page through `QUERY /events` without a ticket, replaying each page through the application's projectors.
-4. Write the rebuilt projections with `POST /projections` without a ticket.
+4. Write the rebuilt projections with `POST /projections` without a ticket: a `create` the first time, then a
+   `replace` with the version the previous call returned.
 5. `POST /resume`.
 
 The application is fully down during a rebuild: nothing else writes. A rebuild has no atomicity as a whole: each
@@ -591,14 +607,14 @@ Every error response uses the same JSON envelope:
 ```
 
 `error` is a stable code a client can check. `message` is a human-readable detail, included when it helps figure out
-the problem, left out when it wouldn't add anything (as with `ConcurrencyException`).
+the problem, left out when it wouldn't add anything (as with a failed Append Condition).
 
 | Status | `error` | When |
 |---|---|---|
 | `400` | `InvalidRequest` | Malformed or invalid body, see below |
 | `401` | `Unauthorized` | Missing or invalid Bearer token, only when `enableAuth` is on (see Security) |
 | `404` | `ProjectionNotFound` | `GET /projections/{type}/{id}` for a projection that doesn't exist |
-| `409` | `ConcurrencyException` | The Append Condition of a `POST /events` call failed |
+| `409` | `ConcurrencyException` | The Append Condition of a `POST /events` call failed, or a `POST /projections` entry doesn't match the stored projection (see Projections) |
 | `409` | `NotPaused` | A call accepted only while paused, made outside a pause |
 | `410` | `TicketNotActive` | The ticket isn't the active one: it's unknown, or its transaction has already ended |
 | `413` | `PayloadTooLarge` | An event or a projection payload over its size limit |
@@ -616,7 +632,7 @@ anywhere the Query grammar needs a non-empty one (see Query grammar), a non-inte
 `limit` above the configured maximum (see Pagination), an invalid `time.from` / `time.before` timestamp, an event
 missing its `type`, an event carrying a duplicate identifier or metadata value, more than 20 identifiers/metadata
 entries (see Metadata), a `POST /events` call missing its `events` field or carrying more than 100 events (see Appending events), a
-`POST /projections` call missing its `projections` field, a projection with no `payload` and no `delete` (or both), a duplicate `type` + `id`, or more than `maxProjectionsPerRequest` projections,
+`POST /projections` body with none of `create`, `replace`, `delete` or with an unknown key, a projection missing its `payload` or `version`, a duplicate `type` + `id`, or more than `maxProjectionsPerRequest` projections,
 and so on. A call that needs a ticket (`POST /events`, `POST /commit`, `POST /rollback`) and carries none gets
 `400 Bad Request` too: it names no transaction, so there's none to report as inactive.
 
@@ -857,6 +873,7 @@ CREATE INDEX idx_metadata_name_value ON metadata(name, value, event_sequence);
 CREATE TABLE projections (
     type    TEXT NOT NULL,
     id      TEXT NOT NULL,
+    version TEXT NOT NULL,
     payload TEXT NOT NULL,
     PRIMARY KEY (type, id)
 ) WITHOUT ROWID;

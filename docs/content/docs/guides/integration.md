@@ -413,13 +413,16 @@ curl -i http://127.0.0.1:8085/projections/user-profile/123
 ```
 HTTP/1.1 200 OK
 Content-Type: text/plain; charset=utf-8
+X-Tamarackdb-Version: 9f3c2a1e-7b4d-4c8e-a5f6-0d1e2f3a4b5c
 
 {"name":"Ada Lovelace"}
 ```
 
 The response body is the payload exactly as written, not wrapped in a JSON
 envelope: its own format (JSON, XML, plain text) is up to the writing
-application.
+application. The `X-Tamarackdb-Version` header carries the projection's
+version: keep it to replace or delete the projection later (see
+[Versions](#versions)).
 
 The ticket is optional, as for events:
 
@@ -436,8 +439,8 @@ A projection is always read by `type` and `id`. There is no query over projectio
 
 ### Writing projections
 
-`POST /projections` writes or deletes several projections at once. The ticket is
-required, except during a projection rebuild (see
+`POST /projections` creates, replaces, and deletes several projections at
+once. The ticket is required, except during a projection rebuild (see
 [Projection rebuilds](#projection-rebuilds)).
 
 ```sh
@@ -445,33 +448,70 @@ curl -X POST http://127.0.0.1:8085/projections \
   -H "Content-Type: application/json" \
   -H "X-Tamarackdb-Ticket: a045ad63-5d4b-4847-8eb9-fbddb4e2d65b" \
   -d '{
-    "projections": [
-      { "type": "user-profile", "id": "123", "payload": "{\"name\":\"Ada Lovelace\"}" },
-      { "type": "user-list-entry", "id": "456", "delete": true }
+    "create": [
+      { "type": "user-list-entry", "id": "789", "payload": "{\"name\":\"Grace\"}" }
+    ],
+    "replace": [
+      {
+        "type": "user-profile",
+        "id": "123",
+        "version": "9f3c2a1e-7b4d-4c8e-a5f6-0d1e2f3a4b5c",
+        "payload": "{\"name\":\"Ada Lovelace\"}"
+      }
+    ],
+    "delete": [
+      { "type": "user-list-entry", "id": "456", "version": "1b2c3d4e-5f60-4718-9a0b-c1d2e3f4a5b6" }
     ]
   }'
 ```
 
-- A projection with a `payload` is created, or replaced if it exists. The
-  payload is a string; an empty string is a valid payload.
-- A projection with `"delete": true` is deleted, and carries no `payload`.
-  Deleting a projection that doesn't exist does nothing.
-- A projection with neither, or with a `null` payload, gets `400`: a payload
-  that went missing on the client never deletes anything.
-- The same `type` + `id` can't appear twice in one call.
-- A call carries at most `maxProjectionsPerRequest` projections (100 out of
-  the box), each payload at most `maxProjectionSize` bytes (64 KiB out of the
-  box).
-- An empty `projections` array writes nothing. Your application can send its
-  usual call even when its event handlers changed no projection. A missing
-  `projections` field gets `400`: it's most likely a misspelled key.
+- `create` takes `type`, `id`, and `payload`. The projection must not exist
+  yet.
+- `replace` takes `type`, `id`, `version`, and `payload`. The whole payload is
+  replaced; there is no partial update.
+- `delete` takes `type`, `id`, and `version`.
+- A payload is a string; an empty string is a valid payload. A missing or
+  `null` payload gets `400`.
+- Each key is optional, and an empty list is fine: your application can send
+  its usual call even when its event handlers changed nothing. A body with
+  none of the three keys gets `400`.
+- Unknown keys get `400`, so a misspelled key can't silently drop writes.
+- The same `type` + `id` can't appear twice in one call, across all three
+  lists.
+- A call carries at most `maxProjectionsPerRequest` projections in total (100
+  out of the box), each payload at most `maxProjectionSize` bytes (64 KiB out
+  of the box).
 
-It responds `204 No Content`.
+On success (`200 OK`), the response gives the new version of each created and
+replaced projection, in the order you sent them:
 
-There is no version and no concurrency check on projections. None is needed:
-your projector reads the projection inside the transaction, changes it, and
-writes it back, while the transaction holds the write lock. Nothing else can
-change the projection in between.
+```json
+{
+  "create": [ { "version": "5a6b7c8d-9e0f-4a1b-8c2d-3e4f5a6b7c8d" } ],
+  "replace": [ { "version": "d4c3b2a1-0f9e-4d8c-b7a6-5f4e3d2c1b0a" } ]
+}
+```
+
+### Versions
+
+Every projection has a version, a random UUID that changes on every write.
+A `replace` or a `delete` carries the version you read. If the stored
+projection has a different version, or no longer exists, the call gets `409
+ConcurrencyException`, and the transaction rolls back. A `create` gets the
+same `409` if the projection already exists. The `message` names the entry,
+for example `replace[0]`.
+
+In the usual flow, this never happens: your projector reads the projection
+with the ticket, inside the transaction, and the transaction holds the write
+lock until the commit. A `409` means the version came from somewhere else: a
+read without a ticket, a cache, or a copy kept from an earlier request. Read
+the projection again with the ticket, or run the whole command again.
+
+The version is opaque. Compare it only for equality, and never compute it: a
+stale copy never matches again, even after the projection is deleted and
+created anew. To write the same projection again later, in the same
+transaction or in a later call of a rebuild, use the version from the last
+response.
 
 The recommended use is one `POST /projections` call per transaction, right
 before `POST /commit`, carrying every projection your event handlers changed.
@@ -511,7 +551,9 @@ from giving out tickets, so no transaction is active while you rebuild.
    your projectors.
 
 4. Write the rebuilt projections with `POST /projections` without a ticket. Each
-   call commits on its own.
+   call commits on its own. Since step 2 deleted them, each projection is a
+   `create` the first time, then a `replace` with the version the previous
+   call returned.
 
 5. Resume:
 
@@ -586,10 +628,10 @@ transaction back.
 
 | Status | `error` | Meaning |
 |---|---|---|
-| 400 | `InvalidRequest` | Malformed or invalid request body: bad JSON, invalid query shape, `limit` over the configured maximum, an invalid `time` bound, an event missing `type`, a duplicate identifier or metadata value, a missing `events` field or more than 100 events in one `POST /events`, a missing `projections` field, a projection with no `payload` and no `delete`, or with both, too many projections, or a repeated projection `type` + `id` in one `POST /projections`, a call that needs a ticket and carries none, and so on |
+| 400 | `InvalidRequest` | Malformed or invalid request body: bad JSON, invalid query shape, `limit` over the configured maximum, an invalid `time` bound, an event missing `type`, a duplicate identifier or metadata value, a missing `events` field or more than 100 events in one `POST /events`, a `POST /projections` body with none of `create`, `replace`, `delete`, an unknown key in it, a projection missing its `payload` or `version`, too many projections, or a repeated projection `type` + `id`, a call that needs a ticket and carries none, and so on |
 | 401 | `Unauthorized` | Missing or invalid Bearer token (only when `enableAuth` is on) |
 | 404 | `ProjectionNotFound` | `GET /projections/{type}/{id}` only: no projection exists at that `type` + `id`. Doesn't end the transaction |
-| 409 | `ConcurrencyException` | The Append Condition of a `POST /events` call failed |
+| 409 | `ConcurrencyException` | The Append Condition of a `POST /events` call failed, or a `POST /projections` entry doesn't match the stored projection (see [Versions](#versions)) |
 | 409 | `NotPaused` | `DELETE /projections`, `DELETE /projections/{type}`, or `POST /projections` without a ticket, while the server isn't paused |
 | 410 | `TicketNotActive` | The ticket isn't the active one: it's unknown, or its transaction has already ended |
 | 413 | `PayloadTooLarge` | An event, or a projection's `payload`, is bigger than the configured maximum size |

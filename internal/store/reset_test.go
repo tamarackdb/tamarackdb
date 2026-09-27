@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/tamarackdb/tamarackdb/internal/dcb"
-	"github.com/tamarackdb/tamarackdb/internal/projection"
 )
 
 func TestResetDeletesEventsAndProjections(t *testing.T) {
@@ -14,7 +13,7 @@ func TestResetDeletesEventsAndProjections(t *testing.T) {
 		eventWithIdentifier("user-created", "userId", "123"),
 		eventWithIdentifier("user-created", "userId", "456"),
 	}, nil)
-	mustWriteProjections(t, s, projection.Data{Type: "user-profile", ID: "123", Payload: strPtr("v1")})
+	mustCreate(t, s, "user-profile", "123", "v1")
 
 	if err := s.Reset(context.Background()); err != nil {
 		t.Fatalf("Reset() error = %v", err)

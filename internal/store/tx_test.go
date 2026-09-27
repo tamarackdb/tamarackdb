@@ -139,14 +139,15 @@ func TestTxConditionSeesEventsAppendedEarlierInTx(t *testing.T) {
 func TestTxProjectionsVisibleInsideBeforeCommit(t *testing.T) {
 	s := openTestStore(t)
 	tx := mustBegin(t, s)
-	if err := tx.WriteProjections(context.Background(),
-		[]projection.Data{{Type: "user-profile", ID: "123", Payload: strPtr("v1")}}); err != nil {
+	versions, err := tx.WriteProjections(context.Background(),
+		projection.Writes{Create: []projection.Create{create("user-profile", "123", "v1")}})
+	if err != nil {
 		t.Fatalf("Tx.WriteProjections() error = %v", err)
 	}
 
-	got, found, err := tx.GetProjection(context.Background(), "user-profile", "123")
-	if err != nil || !found || got != "v1" {
-		t.Errorf("Tx.GetProjection() = (%q, %v, %v), want (v1, true, nil)", got, found, err)
+	version, got, found, err := tx.GetProjection(context.Background(), "user-profile", "123")
+	if err != nil || !found || got != "v1" || version != versions.Create[0] {
+		t.Errorf("Tx.GetProjection() = (%q, %q, %v, %v), want (%q, v1, true, nil)", version, got, found, err, versions.Create[0])
 	}
 	assertProjection(t, s, "user-profile", "123", nil)
 
@@ -158,12 +159,12 @@ func TestTxProjectionsVisibleInsideBeforeCommit(t *testing.T) {
 
 func TestTxRollbackDiscardsProjections(t *testing.T) {
 	s := openTestStore(t)
-	mustWriteProjections(t, s, projection.Data{Type: "user-profile", ID: "123", Payload: strPtr("v1")})
+	v1 := mustCreate(t, s, "user-profile", "123", "v1")
 
 	tx := mustBegin(t, s)
-	if err := tx.WriteProjections(context.Background(), []projection.Data{
-		{Type: "user-profile", ID: "123", Payload: strPtr("v2")},
-		{Type: "user-profile", ID: "456", Payload: strPtr("new")},
+	if _, err := tx.WriteProjections(context.Background(), projection.Writes{
+		Create:  []projection.Create{create("user-profile", "456", "new")},
+		Replace: []projection.Replace{{Type: "user-profile", ID: "123", Version: v1, Payload: strPtr("v2")}},
 	}); err != nil {
 		t.Fatalf("Tx.WriteProjections() error = %v", err)
 	}
@@ -191,9 +192,6 @@ func TestBeginWaitsForOpenTx(t *testing.T) {
 
 func TestStoreWriteProjectionsCommitsOnItsOwn(t *testing.T) {
 	s := openTestStore(t)
-	if err := s.WriteProjections(context.Background(),
-		[]projection.Data{{Type: "user-profile", ID: "123", Payload: strPtr("v1")}}); err != nil {
-		t.Fatalf("WriteProjections() error = %v", err)
-	}
+	mustCreate(t, s, "user-profile", "123", "v1")
 	assertProjection(t, s, "user-profile", "123", strPtr("v1"))
 }

@@ -67,7 +67,7 @@ func TestOpenCreatesSchemaOnFreshFile(t *testing.T) {
 		}
 	}
 
-	wantDocColumns := map[string]bool{"type": false, "id": false, "payload": false}
+	wantDocColumns := map[string]bool{"type": false, "id": false, "version": false, "payload": false}
 	docRows, err := s.writeDB.QueryContext(context.Background(), "PRAGMA table_info(projections)")
 	if err != nil {
 		t.Fatalf("read projections table_info: %v", err)
@@ -83,9 +83,6 @@ func TestOpenCreatesSchemaOnFreshFile(t *testing.T) {
 		}
 		if _, ok := wantDocColumns[name]; ok {
 			wantDocColumns[name] = true
-		}
-		if name == "version" {
-			t.Error("projections table has a version column; projections are not versioned")
 		}
 	}
 	for name, found := range wantDocColumns {

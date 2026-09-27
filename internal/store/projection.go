@@ -5,41 +5,47 @@ import (
 	"database/sql"
 	"errors"
 
+	"github.com/google/uuid"
 	"github.com/tamarackdb/tamarackdb/internal/projection"
 )
 
-// GetProjection reads a projection's payload by type+id from the read pool,
-// outside any transaction: it sees committed projections only. found is
-// false when no projection exists at that type+id.
-func (s *Store) GetProjection(ctx context.Context, typ, id string) (payload string, found bool, err error) {
+// GetProjection reads a projection's version and payload by type+id from
+// the read pool, outside any transaction: it sees committed projections
+// only. found is false when no projection exists at that type+id.
+func (s *Store) GetProjection(ctx context.Context, typ, id string) (version, payload string, found bool, err error) {
 	return getProjection(ctx, s.readDB, typ, id)
 }
 
-func getProjection(ctx context.Context, q querier, typ, id string) (payload string, found bool, err error) {
+func getProjection(ctx context.Context, q querier, typ, id string) (version, payload string, found bool, err error) {
 	err = q.QueryRowContext(ctx,
-		"SELECT payload FROM projections WHERE type = ? AND id = ?", typ, id).Scan(&payload)
+		"SELECT version, payload FROM projections WHERE type = ? AND id = ?", typ, id).Scan(&version, &payload)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
-		return "", false, nil
+		return "", "", false, nil
 	case err != nil:
-		return "", false, wrapf("read projection", err)
+		return "", "", false, wrapf("read projection", err)
 	}
-	return payload, true, nil
+	return version, payload, true, nil
 }
 
-// WriteProjections creates, replaces, or deletes projections in a transaction
-// of its own, outside any Tx. It's meant for a projection rebuild, while
-// the server is paused.
-func (s *Store) WriteProjections(ctx context.Context, projections []projection.Data) error {
+// WriteProjections creates, replaces, and deletes projections in a
+// transaction of its own, outside any Tx, and returns the new versions (see
+// writeProjections). It's meant for a projection rebuild, while the server
+// is paused.
+func (s *Store) WriteProjections(ctx context.Context, w projection.Writes) (Versions, error) {
 	tx, err := s.Begin(ctx)
 	if err != nil {
-		return err
+		return Versions{}, err
 	}
 	defer tx.Rollback() // no-op after Commit
-	if err := tx.WriteProjections(ctx, projections); err != nil {
-		return err
+	versions, err := tx.WriteProjections(ctx, w)
+	if err != nil {
+		return Versions{}, err
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return Versions{}, err
+	}
+	return versions, nil
 }
 
 // DeleteProjectionsByType removes every projection of typ. It's meant for a
@@ -58,24 +64,66 @@ func (s *Store) DeleteAllProjections(ctx context.Context) error {
 	return wrapf("delete all projections", err)
 }
 
-// writeProjections applies each projection inside the caller's transaction:
-// Delete removes the projection, otherwise its payload creates or replaces
-// it. Deleting a projection that doesn't exist does nothing.
-func writeProjections(ctx context.Context, tx *sql.Tx, projections []projection.Data) error {
-	for _, d := range projections {
-		if d.Delete {
-			if _, err := tx.ExecContext(ctx,
-				"DELETE FROM projections WHERE type = ? AND id = ?", d.Type, d.ID); err != nil {
-				return wrapf("delete projection", err)
-			}
-			continue
+// Versions holds the version each written projection got, in the order of
+// the Create and Replace lists it was written from. Deletes have none.
+type Versions struct {
+	Create  []string
+	Replace []string
+}
+
+// writeProjections applies w inside the caller's transaction, and returns
+// the new version of every created and replaced projection. Each write is
+// conditional: a create needs the type+id to be free, a replace or a
+// delete needs the stored version to be the one given. The first write
+// that doesn't hold returns a *ProjectionConflictError; the caller's
+// transaction is then expected to roll back.
+func writeProjections(ctx context.Context, tx *sql.Tx, w projection.Writes) (Versions, error) {
+	versions := Versions{Create: make([]string, len(w.Create)), Replace: make([]string, len(w.Replace))}
+	for i, c := range w.Create {
+		version := uuid.NewString()
+		res, err := tx.ExecContext(ctx, `
+INSERT INTO projections (type, id, version, payload) VALUES (?, ?, ?, ?)
+ON CONFLICT (type, id) DO NOTHING`,
+			c.Type, c.ID, version, *c.Payload)
+		if err := checkWritten(res, err, "create", i); err != nil {
+			return Versions{}, err
 		}
-		if _, err := tx.ExecContext(ctx, `
-INSERT INTO projections (type, id, payload) VALUES (?, ?, ?)
-ON CONFLICT (type, id) DO UPDATE SET payload = excluded.payload`,
-			d.Type, d.ID, *d.Payload); err != nil {
-			return wrapf("write projection", err)
+		versions.Create[i] = version
+	}
+	for i, r := range w.Replace {
+		version := uuid.NewString()
+		res, err := tx.ExecContext(ctx,
+			"UPDATE projections SET version = ?, payload = ? WHERE type = ? AND id = ? AND version = ?",
+			version, *r.Payload, r.Type, r.ID, r.Version)
+		if err := checkWritten(res, err, "replace", i); err != nil {
+			return Versions{}, err
 		}
+		versions.Replace[i] = version
+	}
+	for i, d := range w.Delete {
+		res, err := tx.ExecContext(ctx,
+			"DELETE FROM projections WHERE type = ? AND id = ? AND version = ?",
+			d.Type, d.ID, d.Version)
+		if err := checkWritten(res, err, "delete", i); err != nil {
+			return Versions{}, err
+		}
+	}
+	return versions, nil
+}
+
+// checkWritten turns the outcome of one conditional projection write into
+// an error: the statement's own error, or a *ProjectionConflictError when
+// it touched no row.
+func checkWritten(res sql.Result, err error, op string, index int) error {
+	if err != nil {
+		return wrapf(op+" projection", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return wrapf(op+" projection", err)
+	}
+	if n == 0 {
+		return &ProjectionConflictError{Op: op, Index: index}
 	}
 	return nil
 }

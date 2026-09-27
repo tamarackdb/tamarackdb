@@ -18,8 +18,8 @@ import (
 // caller (dcb.EventData.Validate, projection.Data.Validate, the per-call
 // caps): this package doesn't re-validate request shape, only concurrency
 // and persistence.
-func (s *Store) Append(ctx context.Context, events []dcb.EventData, condition *dcb.AppendCondition, projections []projection.Data) ([]dcb.Event, error) {
-	if len(events) == 0 && len(projections) == 0 {
+func (s *Store) Append(ctx context.Context, events []dcb.EventData, condition *dcb.AppendCondition, projections projection.Writes) ([]dcb.Event, error) {
+	if len(events) == 0 && projections.Len() == 0 {
 		return nil, nil
 	}
 
@@ -33,7 +33,7 @@ func (s *Store) Append(ctx context.Context, events []dcb.EventData, condition *d
 	if err != nil {
 		return nil, err
 	}
-	if err := tx.WriteProjections(ctx, projections); err != nil {
+	if _, err := tx.WriteProjections(ctx, projections); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(); err != nil {

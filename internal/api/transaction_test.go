@@ -41,7 +41,7 @@ func TestCallsAfterTheTransactionEndedGet410(t *testing.T) {
 		{"QUERY", "/events", `{"query":"*"}`},
 		{"POST", "/events", `{"events":[{"type":"t","identifiers":{},"metadata":{},"payload":""}]}`},
 		{"GET", "/projections/user-profile/123", ""},
-		{"POST", "/projections", `{"projections":[{"type":"user-profile","id":"123","payload":"x"}]}`},
+		{"POST", "/projections", `{"create":[{"type":"user-profile","id":"123","payload":"x"}]}`},
 	} {
 		rec := doTicketRequest(t, srv, call.method, call.path, ticket, call.body)
 		if rec.Code != 410 || errorCode(t, rec) != "TicketNotActive" {

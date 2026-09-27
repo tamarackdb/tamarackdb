@@ -15,6 +15,7 @@ import (
 	"github.com/tamarackdb/tamarackdb/internal/api"
 	"github.com/tamarackdb/tamarackdb/internal/config"
 	"github.com/tamarackdb/tamarackdb/internal/dcb"
+	"github.com/tamarackdb/tamarackdb/internal/projection"
 	"github.com/tamarackdb/tamarackdb/internal/store"
 	"github.com/tamarackdb/tamarackdb/internal/txn"
 )
@@ -108,7 +109,7 @@ func TestRunCopiesAllEventsAcrossMultiplePages(t *testing.T) {
 			Type:        "Seeded",
 			Identifiers: dcb.IdentifierSet{{Name: "n", Value: fmt.Sprintf("%d", i)}},
 			Payload:     fmt.Sprintf(`{"i":%d}`, i),
-		}}, nil, nil)
+		}}, nil, projection.Writes{})
 		if err != nil {
 			t.Fatalf("Append() error = %v", err)
 		}
@@ -150,7 +151,7 @@ func TestRunResumesFromLastImportedSequence(t *testing.T) {
 
 	mustSourceAppend := func(n int) {
 		for i := 0; i < n; i++ {
-			if _, err := sourceStore.Append(context.Background(), []dcb.EventData{{Type: "Seeded"}}, nil, nil); err != nil {
+			if _, err := sourceStore.Append(context.Background(), []dcb.EventData{{Type: "Seeded"}}, nil, projection.Writes{}); err != nil {
 				t.Fatalf("Append() error = %v", err)
 			}
 		}
@@ -206,7 +207,7 @@ func TestRunFailsWithoutTouchingAlreadyImportedPages(t *testing.T) {
 		t.Fatalf("Open() error = %v", err)
 	}
 	defer sourceStore.Close()
-	if _, err := sourceStore.Append(context.Background(), []dcb.EventData{{Type: "Seeded"}}, nil, nil); err != nil {
+	if _, err := sourceStore.Append(context.Background(), []dcb.EventData{{Type: "Seeded"}}, nil, projection.Writes{}); err != nil {
 		t.Fatalf("Append() error = %v", err)
 	}
 

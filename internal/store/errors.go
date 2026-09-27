@@ -8,9 +8,30 @@ import (
 )
 
 // ErrConcurrencyConflict is returned by Append when the Append Condition's
-// check finds a matching event. This package has no knowledge of HTTP or
-// JSON; internal/api maps this to 409 {"error":"ConcurrencyException"}.
+// check finds a matching event, and wrapped by ProjectionConflictError.
+// This package has no knowledge of HTTP or JSON; internal/api maps both to
+// 409 {"error":"ConcurrencyException"}.
 var ErrConcurrencyConflict = errors.New("store: an event matching the append condition already exists")
+
+// ProjectionConflictError is returned by WriteProjections when a
+// projection's stored state doesn't match what the write expects: a
+// create whose type+id already exists, or a replace or delete whose
+// version isn't the stored one (or whose projection no longer exists).
+// Op is "create", "replace" or "delete", and Index the position in that
+// list. It unwraps to ErrConcurrencyConflict.
+type ProjectionConflictError struct {
+	Op    string
+	Index int
+}
+
+func (e *ProjectionConflictError) Error() string {
+	if e.Op == "create" {
+		return fmt.Sprintf("projection at %s[%d] already exists", e.Op, e.Index)
+	}
+	return fmt.Sprintf("projection at %s[%d] no longer has the given version", e.Op, e.Index)
+}
+
+func (e *ProjectionConflictError) Unwrap() error { return ErrConcurrencyConflict }
 
 // ErrDatabaseLocked is returned by Open when another process already holds
 // the lock on this database file (see acquireLock in lock.go). Two

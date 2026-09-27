@@ -5,7 +5,7 @@ import "testing"
 func TestResetDeletesEventsAndProjections(t *testing.T) {
 	srv, _, _ := newTestServerWith(t, testOptions{devMode: true})
 	appendCommitted(t, srv, `{"events":[{"type":"t","payload":""}]}`)
-	writeProjectionsCommitted(t, srv, `{"projections":[{"type":"user-profile","id":"123","payload":"x"}]}`)
+	writeProjectionsCommitted(t, srv, `{"create":[{"type":"user-profile","id":"123","payload":"x"}]}`)
 
 	rec := doRequest(t, srv, "POST", "/reset", "")
 	if rec.Code != 204 || rec.Body.Len() != 0 {

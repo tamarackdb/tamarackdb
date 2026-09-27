@@ -62,16 +62,16 @@ func (t *Tx) Append(ctx context.Context, events []dcb.EventData, condition *dcb.
 	return t.s.appendEvents(ctx, t.tx, events, condition)
 }
 
-// GetProjection reads a projection inside the transaction: it sees projections
-// written earlier on this Tx.
-func (t *Tx) GetProjection(ctx context.Context, typ, id string) (payload string, found bool, err error) {
+// GetProjection reads a projection's version and payload inside the
+// transaction: it sees projections written earlier on this Tx.
+func (t *Tx) GetProjection(ctx context.Context, typ, id string) (version, payload string, found bool, err error) {
 	return getProjection(ctx, t.tx, typ, id)
 }
 
-// WriteProjections creates, replaces, or deletes projections inside the
-// transaction (see projection.Data).
-func (t *Tx) WriteProjections(ctx context.Context, projections []projection.Data) error {
-	return writeProjections(ctx, t.tx, projections)
+// WriteProjections creates, replaces, and deletes projections inside the
+// transaction, and returns the new versions (see writeProjections).
+func (t *Tx) WriteProjections(ctx context.Context, w projection.Writes) (Versions, error) {
+	return writeProjections(ctx, t.tx, w)
 }
 
 // Commit makes every event and projection written on this Tx durable

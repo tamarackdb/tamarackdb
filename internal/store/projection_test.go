@@ -11,18 +11,32 @@ import (
 
 func strPtr(s string) *string { return &s }
 
-func mustWriteProjections(t *testing.T, s *Store, docs ...projection.Data) {
+func create(typ, id, payload string) projection.Create {
+	return projection.Create{Type: typ, ID: id, Payload: &payload}
+}
+
+// mustWriteProjections writes w in a transaction of its own and returns the
+// new versions.
+func mustWriteProjections(t *testing.T, s *Store, w projection.Writes) Versions {
 	t.Helper()
-	if _, err := s.Append(context.Background(), nil, nil, docs); err != nil {
-		t.Fatalf("Append() error = %v", err)
+	versions, err := s.WriteProjections(context.Background(), w)
+	if err != nil {
+		t.Fatalf("WriteProjections() error = %v", err)
 	}
+	return versions
+}
+
+// mustCreate creates one projection and returns its version.
+func mustCreate(t *testing.T, s *Store, typ, id, payload string) string {
+	t.Helper()
+	return mustWriteProjections(t, s, projection.Writes{Create: []projection.Create{create(typ, id, payload)}}).Create[0]
 }
 
 // assertProjection checks that typ/id holds want, or doesn't exist when want
-// is nil.
-func assertProjection(t *testing.T, s *Store, typ, id string, want *string) {
+// is nil, and returns its version.
+func assertProjection(t *testing.T, s *Store, typ, id string, want *string) string {
 	t.Helper()
-	got, found, err := s.GetProjection(context.Background(), typ, id)
+	version, got, found, err := s.GetProjection(context.Background(), typ, id)
 	if err != nil {
 		t.Fatalf("GetProjection(%s, %s) error = %v", typ, id, err)
 	}
@@ -34,6 +48,20 @@ func assertProjection(t *testing.T, s *Store, typ, id string, want *string) {
 	case want != nil && got != *want:
 		t.Errorf("GetProjection(%s, %s) = %q, want %q", typ, id, got, *want)
 	}
+	return version
+}
+
+// assertConflict checks that err is a *ProjectionConflictError at op[index],
+// and that it unwraps to ErrConcurrencyConflict.
+func assertConflict(t *testing.T, err error, op string, index int) {
+	t.Helper()
+	var pe *ProjectionConflictError
+	if !errors.As(err, &pe) || pe.Op != op || pe.Index != index {
+		t.Fatalf("error = %v, want a *ProjectionConflictError at %s[%d]", err, op, index)
+	}
+	if !errors.Is(err, ErrConcurrencyConflict) {
+		t.Errorf("error = %v, want it to unwrap to ErrConcurrencyConflict", err)
+	}
 }
 
 func TestGetProjectionNotFound(t *testing.T) {
@@ -41,33 +69,120 @@ func TestGetProjectionNotFound(t *testing.T) {
 	assertProjection(t, s, "user-profile", "123", nil)
 }
 
-func TestWriteProjectionCreatesThenReplaces(t *testing.T) {
+func TestCreateReturnsTheStoredVersion(t *testing.T) {
 	s := openTestStore(t)
-	mustWriteProjections(t, s, projection.Data{Type: "user-profile", ID: "123", Payload: strPtr("v1")})
-	assertProjection(t, s, "user-profile", "123", strPtr("v1"))
+	version := mustCreate(t, s, "user-profile", "123", "v1")
+	if version == "" {
+		t.Fatal("create returned an empty version")
+	}
+	if got := assertProjection(t, s, "user-profile", "123", strPtr("v1")); got != version {
+		t.Errorf("stored version = %q, want %q", got, version)
+	}
+}
 
-	mustWriteProjections(t, s, projection.Data{Type: "user-profile", ID: "123", Payload: strPtr("v2")})
+func TestCreateOfExistingProjectionConflicts(t *testing.T) {
+	s := openTestStore(t)
+	mustCreate(t, s, "user-profile", "123", "v1")
+	_, err := s.WriteProjections(context.Background(), projection.Writes{
+		Create: []projection.Create{create("user-profile", "456", "other"), create("user-profile", "123", "v2")},
+	})
+	assertConflict(t, err, "create", 1)
+	assertProjection(t, s, "user-profile", "123", strPtr("v1"))
+	assertProjection(t, s, "user-profile", "456", nil)
+}
+
+func TestReplaceWithCurrentVersion(t *testing.T) {
+	s := openTestStore(t)
+	v1 := mustCreate(t, s, "user-profile", "123", "v1")
+	versions := mustWriteProjections(t, s, projection.Writes{
+		Replace: []projection.Replace{{Type: "user-profile", ID: "123", Version: v1, Payload: strPtr("v2")}},
+	})
+	v2 := versions.Replace[0]
+	if v2 == "" || v2 == v1 {
+		t.Fatalf("replace version = %q, want a new version different from %q", v2, v1)
+	}
+	if got := assertProjection(t, s, "user-profile", "123", strPtr("v2")); got != v2 {
+		t.Errorf("stored version = %q, want %q", got, v2)
+	}
+}
+
+func TestReplaceWithStaleVersionConflicts(t *testing.T) {
+	s := openTestStore(t)
+	v1 := mustCreate(t, s, "user-profile", "123", "v1")
+	mustWriteProjections(t, s, projection.Writes{
+		Replace: []projection.Replace{{Type: "user-profile", ID: "123", Version: v1, Payload: strPtr("v2")}},
+	})
+	_, err := s.WriteProjections(context.Background(), projection.Writes{
+		Replace: []projection.Replace{{Type: "user-profile", ID: "123", Version: v1, Payload: strPtr("stale")}},
+	})
+	assertConflict(t, err, "replace", 0)
 	assertProjection(t, s, "user-profile", "123", strPtr("v2"))
 }
 
-func TestWriteProjectionDeletes(t *testing.T) {
+func TestReplaceOfAbsentProjectionConflicts(t *testing.T) {
 	s := openTestStore(t)
-	mustWriteProjections(t, s, projection.Data{Type: "user-profile", ID: "123", Payload: strPtr("v1")})
-	mustWriteProjections(t, s, projection.Data{Type: "user-profile", ID: "123", Delete: true})
+	_, err := s.WriteProjections(context.Background(), projection.Writes{
+		Replace: []projection.Replace{{Type: "user-profile", ID: "123", Version: "any", Payload: strPtr("v1")}},
+	})
+	assertConflict(t, err, "replace", 0)
 	assertProjection(t, s, "user-profile", "123", nil)
 }
 
-func TestWriteProjectionDeleteOfAbsentProjectionDoesNothing(t *testing.T) {
+func TestDeleteWithCurrentVersion(t *testing.T) {
 	s := openTestStore(t)
-	mustWriteProjections(t, s, projection.Data{Type: "user-profile", ID: "123", Delete: true})
+	v1 := mustCreate(t, s, "user-profile", "123", "v1")
+	mustWriteProjections(t, s, projection.Writes{
+		Delete: []projection.Delete{{Type: "user-profile", ID: "123", Version: v1}},
+	})
 	assertProjection(t, s, "user-profile", "123", nil)
+}
+
+func TestDeleteWithStaleVersionConflicts(t *testing.T) {
+	s := openTestStore(t)
+	v1 := mustCreate(t, s, "user-profile", "123", "v1")
+	mustWriteProjections(t, s, projection.Writes{
+		Replace: []projection.Replace{{Type: "user-profile", ID: "123", Version: v1, Payload: strPtr("v2")}},
+	})
+	_, err := s.WriteProjections(context.Background(), projection.Writes{
+		Delete: []projection.Delete{{Type: "user-profile", ID: "123", Version: v1}},
+	})
+	assertConflict(t, err, "delete", 0)
+	assertProjection(t, s, "user-profile", "123", strPtr("v2"))
+}
+
+func TestDeleteOfAbsentProjectionConflicts(t *testing.T) {
+	s := openTestStore(t)
+	v1 := mustCreate(t, s, "user-profile", "123", "v1")
+	mustWriteProjections(t, s, projection.Writes{
+		Delete: []projection.Delete{{Type: "user-profile", ID: "123", Version: v1}},
+	})
+	_, err := s.WriteProjections(context.Background(), projection.Writes{
+		Delete: []projection.Delete{{Type: "user-profile", ID: "123", Version: v1}},
+	})
+	assertConflict(t, err, "delete", 0)
+}
+
+// TestRecreatedProjectionGetsANewVersion checks that a stale version from
+// before a delete never matches the projection created again at the same
+// type+id.
+func TestRecreatedProjectionGetsANewVersion(t *testing.T) {
+	s := openTestStore(t)
+	v1 := mustCreate(t, s, "user-profile", "123", "v1")
+	mustWriteProjections(t, s, projection.Writes{
+		Delete: []projection.Delete{{Type: "user-profile", ID: "123", Version: v1}},
+	})
+	mustCreate(t, s, "user-profile", "123", "again")
+	_, err := s.WriteProjections(context.Background(), projection.Writes{
+		Replace: []projection.Replace{{Type: "user-profile", ID: "123", Version: v1, Payload: strPtr("stale")}},
+	})
+	assertConflict(t, err, "replace", 0)
 }
 
 func TestAppendEventsAndProjectionsTogether(t *testing.T) {
 	s := openTestStore(t)
 	events, err := s.Append(context.Background(),
 		[]dcb.EventData{{Type: "user-created"}}, nil,
-		[]projection.Data{{Type: "user-profile", ID: "123", Payload: strPtr("v1")}})
+		projection.Writes{Create: []projection.Create{create("user-profile", "123", "v1")}})
 	if err != nil {
 		t.Fatalf("Append() error = %v", err)
 	}
@@ -87,7 +202,7 @@ func TestFailedConditionRollsBackProjectionsToo(t *testing.T) {
 	_, err := s.Append(context.Background(),
 		[]dcb.EventData{{Type: "user-created"}},
 		&dcb.AppendCondition{AfterSequence: &zero},
-		[]projection.Data{{Type: "user-profile", ID: "123", Payload: strPtr("v1")}})
+		projection.Writes{Create: []projection.Create{create("user-profile", "123", "v1")}})
 	if !errors.Is(err, ErrConcurrencyConflict) {
 		t.Fatalf("Append() error = %v, want ErrConcurrencyConflict", err)
 	}
@@ -96,11 +211,11 @@ func TestFailedConditionRollsBackProjectionsToo(t *testing.T) {
 
 func TestDeleteProjectionsByTypeRemovesOnlyThatType(t *testing.T) {
 	s := openTestStore(t)
-	mustWriteProjections(t, s,
-		projection.Data{Type: "user-profile", ID: "1", Payload: strPtr("a")},
-		projection.Data{Type: "user-profile", ID: "2", Payload: strPtr("b")},
-		projection.Data{Type: "user-list", ID: "user-list", Payload: strPtr("c")},
-	)
+	mustWriteProjections(t, s, projection.Writes{Create: []projection.Create{
+		create("user-profile", "1", "a"),
+		create("user-profile", "2", "b"),
+		create("user-list", "user-list", "c"),
+	}})
 
 	if err := s.DeleteProjectionsByType(context.Background(), "user-profile"); err != nil {
 		t.Fatalf("DeleteProjectionsByType() error = %v", err)
@@ -113,10 +228,10 @@ func TestDeleteProjectionsByTypeRemovesOnlyThatType(t *testing.T) {
 
 func TestDeleteAllProjectionsRemovesEveryType(t *testing.T) {
 	s := openTestStore(t)
-	mustWriteProjections(t, s,
-		projection.Data{Type: "user-profile", ID: "1", Payload: strPtr("a")},
-		projection.Data{Type: "user-list", ID: "user-list", Payload: strPtr("c")},
-	)
+	mustWriteProjections(t, s, projection.Writes{Create: []projection.Create{
+		create("user-profile", "1", "a"),
+		create("user-list", "user-list", "c"),
+	}})
 
 	if err := s.DeleteAllProjections(context.Background()); err != nil {
 		t.Fatalf("DeleteAllProjections() error = %v", err)

@@ -104,7 +104,7 @@ func appendEvents(ctx context.Context, st *store.Store, rng *rand.Rand, total in
 		for i := range batch {
 			batch[i] = generateEvent(rng)
 		}
-		if _, err := st.Append(ctx, batch, nil, nil); err != nil {
+		if _, err := st.Append(ctx, batch, nil, projection.Writes{}); err != nil {
 			log.Fatalf("tamarackdb-demo: %v", err)
 		}
 		appended += batchSize
@@ -113,16 +113,23 @@ func appendEvents(ctx context.Context, st *store.Store, rng *rand.Rand, total in
 }
 
 // appendProjections writes total random projections, appendBatchSize per
-// store.Append call. Ids run from 1 to total, so a second run on the same
-// data directory replaces the first run's projections.
+// store.Append call. It first deletes every existing projection, so a
+// second run on the same data directory replaces the first run's
+// projections instead of conflicting with them.
 func appendProjections(ctx context.Context, st *store.Store, rng *rand.Rand, total int) {
+	if total == 0 {
+		return
+	}
+	if err := st.DeleteAllProjections(ctx); err != nil {
+		log.Fatalf("tamarackdb-demo: %v", err)
+	}
 	for appended := 0; appended < total; {
 		batchSize := min(appendBatchSize, total-appended)
-		batch := make([]projection.Data, batchSize)
+		batch := make([]projection.Create, batchSize)
 		for i := range batch {
 			batch[i] = generateProjection(rng, appended+i+1)
 		}
-		if _, err := st.Append(ctx, nil, nil, batch); err != nil {
+		if _, err := st.Append(ctx, nil, nil, projection.Writes{Create: batch}); err != nil {
 			log.Fatalf("tamarackdb-demo: %v", err)
 		}
 		appended += batchSize
@@ -160,9 +167,9 @@ func generateEvent(rng *rand.Rand) dcb.EventData {
 
 // generateProjection builds a single random projection: a type out of 5
 // choices, id as its numeric id, and a garbage-text payload.
-func generateProjection(rng *rand.Rand, id int) projection.Data {
+func generateProjection(rng *rand.Rand, id int) projection.Create {
 	payload := garbageText(rng, projectionPayloadLenMin, projectionPayloadLenMax)
-	return projection.Data{
+	return projection.Create{
 		Type:    projectionTypes[rng.Intn(len(projectionTypes))],
 		ID:      strconv.Itoa(id),
 		Payload: &payload,

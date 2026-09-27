@@ -21,7 +21,7 @@ func TestAuthRejectsEveryRoute(t *testing.T) {
 		// Paused instead of opening a transaction nothing would end.
 		{"POST", "/pause", ""},
 		{"POST", "/begin", ""},
-		{"POST", "/projections", `{"projections":[{"type":"t","id":"1","payload":"x"}]}`},
+		{"POST", "/projections", `{"create":[{"type":"t","id":"1","payload":"x"}]}`},
 		{"DELETE", "/projections", ""},
 		{"POST", "/resume", ""},
 		{"GET", "/health", ""},

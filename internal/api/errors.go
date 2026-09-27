@@ -46,8 +46,9 @@ func (s *Server) handleErr(w http.ResponseWriter, r *http.Request, err error) {
 	if store.IsFatal(err) && s.opts.OnFatalStorageError != nil {
 		s.opts.OnFatalStorageError(err)
 	}
-	if errors.Is(err, store.ErrConcurrencyConflict) {
-		s.failedTotal.Add(1)
+	var pe *store.ProjectionConflictError
+	if errors.Is(err, store.ErrConcurrencyConflict) && !errors.As(err, &pe) {
+		s.failedTotal.Add(1) // Append Conditions only, not projection versions
 	}
 
 	// If the request's own context is already Done, the connection may
@@ -76,12 +77,14 @@ func (s *Server) handleErr(w http.ResponseWriter, r *http.Request, err error) {
 		// really a dcb domain rule but reuses this same 400 vehicle.
 		writeError(w, http.StatusBadRequest, "InvalidRequest", ve.Message)
 	case errors.As(err, &de):
-		// projection.Data.Validate()'s own domain rules (missing type or
-		// id): same 400 treatment, distinct type since internal/projection
-		// doesn't depend on internal/dcb.
+		// The projection types' own Validate() rules (missing type, id,
+		// version or payload): same 400 treatment, distinct type since
+		// internal/projection doesn't depend on internal/dcb.
 		writeError(w, http.StatusBadRequest, "InvalidRequest", de.Message)
 	case errors.As(err, &oe):
 		writeError(w, http.StatusRequestEntityTooLarge, "PayloadTooLarge", oe.Error())
+	case errors.As(err, &pe):
+		writeError(w, http.StatusConflict, "ConcurrencyException", pe.Error())
 	case errors.Is(err, store.ErrConcurrencyConflict):
 		writeError(w, http.StatusConflict, "ConcurrencyException", "")
 	case errors.Is(err, txn.ErrNotPaused):
@@ -110,7 +113,20 @@ func (s *Server) handleErr(w http.ResponseWriter, r *http.Request, err error) {
 // "malformed body" and "domain validation failure" identically, both as
 // 400 InvalidRequest.
 func decodeJSON(r *http.Request, v any) error {
-	if err := json.NewDecoder(r.Body).Decode(v); err != nil {
+	return decode(json.NewDecoder(r.Body), v)
+}
+
+// decodeJSONStrict is decodeJSON that also rejects unknown keys, at every
+// level of v. It's for a body whose keys are all optional, where a
+// misspelled key would otherwise drop data without a word.
+func decodeJSONStrict(r *http.Request, v any) error {
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	return decode(dec, v)
+}
+
+func decode(dec *json.Decoder, v any) error {
+	if err := dec.Decode(v); err != nil {
 		return &dcb.ValidationError{
 			Err:     fmt.Errorf("invalid request body: %w", err),
 			Message: "request body is not valid JSON for this endpoint: " + err.Error(),
@@ -126,7 +142,7 @@ func decodeJSON(r *http.Request, v any) error {
 var (
 	errMissingTicket          = errors.New("api: missing ticket header")
 	errMissingEvents          = errors.New("api: request is missing its events field")
-	errMissingProjections     = errors.New("api: request is missing its projections field")
+	errNoProjectionWrites     = errors.New("api: request carries none of create, replace, delete")
 	errTooManyEvents          = errors.New("api: request exceeds the maximum events per call")
 	errTooManyProjections     = errors.New("api: request exceeds the maximum projections per call")
 	errDuplicateProjectionKey = errors.New("api: request carries the same projection type+id more than once")

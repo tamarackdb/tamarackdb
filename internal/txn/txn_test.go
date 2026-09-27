@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/tamarackdb/tamarackdb/internal/dcb"
+	"github.com/tamarackdb/tamarackdb/internal/projection"
 	"github.com/tamarackdb/tamarackdb/internal/store"
 )
 
@@ -450,7 +451,7 @@ func TestResumeWaitsForRunPaused(t *testing.T) {
 
 func TestResetCutsTheActiveTransaction(t *testing.T) {
 	env := newTestEnv(t, time.Second, 5*time.Second)
-	if _, err := env.st.Append(context.Background(), []dcb.EventData{{Type: "committed"}}, nil, nil); err != nil {
+	if _, err := env.st.Append(context.Background(), []dcb.EventData{{Type: "committed"}}, nil, projection.Writes{}); err != nil {
 		t.Fatalf("Append() error = %v", err)
 	}
 	ticket := mustBegin(t, env.m)

@@ -1,42 +1,106 @@
 // Package projection defines the shape of a TamarackDB projection: the
 // current state computed from events by a projector, identified by
 // type+id with an opaque payload, written atomically alongside events, and
-// read through GET /projections/{type}/{id}. It does not reuse
-// dcb's types: a projection has no matching predicate and no condition,
-// just a key and a payload.
+// read through GET /projections/{type}/{id}. It does not reuse dcb's
+// types: a projection has no matching predicate and no condition, just a
+// key, a version, and a payload.
 package projection
 
 import "errors"
 
-// Data is one projection as carried in a write request's projections
-// field: an upsert or a deletion.
+// Writes is the body of a POST /projections request, and what the store
+// writes: projections to create, to replace, and to delete. The same
+// type+id appears at most once across the three lists, so the order
+// between them doesn't matter.
 //
-// Delete true means "delete this projection"; deleting a projection that
-// doesn't exist does nothing. Otherwise Payload creates the projection, or
-// replaces it if it exists. Payload is a pointer so that a missing or null
-// payload can be told apart from an empty string and rejected: a key that
-// went missing on the client must never delete data.
-type Data struct {
-	Type    string  `json:"type"`
-	ID      string  `json:"id"`
-	Payload *string `json:"payload,omitempty"`
-	Delete  bool    `json:"delete,omitempty"`
+// Every projection carries a version: a random UUID, new on each write. A
+// replace or a delete must carry the version it read, and fails if the
+// stored projection has moved on since; a create fails if the projection
+// already exists. A nil list means the key was absent from the request.
+type Writes struct {
+	Create  []Create  `json:"create"`
+	Replace []Replace `json:"replace"`
+	Delete  []Delete  `json:"delete"`
 }
 
-// Validate checks the domain rules that apply to a single projection
-// regardless of the rest of the write request: a non-empty Type and ID,
-// and a payload exactly when the projection isn't being deleted.
-func (d Data) Validate() error {
-	if d.Type == "" {
+// Len returns the number of projections across the three lists.
+func (w Writes) Len() int { return len(w.Create) + len(w.Replace) + len(w.Delete) }
+
+// Create is a projection to create. It must not exist yet.
+//
+// Payload is a pointer so that a missing or null payload can be told
+// apart from an empty string and rejected: a key that went missing on the
+// client must never be written as an empty payload.
+type Create struct {
+	Type    string  `json:"type"`
+	ID      string  `json:"id"`
+	Payload *string `json:"payload"`
+}
+
+// Replace is a projection to replace. Version is the one the client read;
+// the write fails if the stored projection no longer has it.
+type Replace struct {
+	Type    string  `json:"type"`
+	ID      string  `json:"id"`
+	Version string  `json:"version"`
+	Payload *string `json:"payload"`
+}
+
+// Delete is a projection to delete. Version is the one the client read;
+// the delete fails if the stored projection no longer has it, or no longer
+// exists.
+type Delete struct {
+	Type    string `json:"type"`
+	ID      string `json:"id"`
+	Version string `json:"version"`
+}
+
+// Validate checks that c has a type, an id, and a payload.
+func (c Create) Validate() error {
+	if err := validateKey(c.Type, c.ID); err != nil {
+		return err
+	}
+	return validatePayload(c.Payload)
+}
+
+// Validate checks that r has a type, an id, a version, and a payload.
+func (r Replace) Validate() error {
+	if err := validateKey(r.Type, r.ID); err != nil {
+		return err
+	}
+	if err := validateVersion(r.Version); err != nil {
+		return err
+	}
+	return validatePayload(r.Payload)
+}
+
+// Validate checks that d has a type, an id, and a version.
+func (d Delete) Validate() error {
+	if err := validateKey(d.Type, d.ID); err != nil {
+		return err
+	}
+	return validateVersion(d.Version)
+}
+
+func validateKey(typ, id string) error {
+	if typ == "" {
 		return &ValidationError{Err: ErrMissingType, Message: "projection is missing its type"}
 	}
-	if d.ID == "" {
+	if id == "" {
 		return &ValidationError{Err: ErrMissingID, Message: "projection is missing its id"}
 	}
-	if d.Delete && d.Payload != nil {
-		return &ValidationError{Err: ErrPayloadOnDelete, Message: "projection has both delete and a payload"}
+	return nil
+}
+
+func validateVersion(version string) error {
+	if version == "" {
+		return &ValidationError{Err: ErrMissingVersion, Message: "projection is missing its version"}
 	}
-	if !d.Delete && d.Payload == nil {
+	return nil
+}
+
+func validatePayload(payload *string) error {
+	if payload == nil {
 		return &ValidationError{Err: ErrMissingPayload, Message: "projection is missing its payload"}
 	}
 	return nil
@@ -55,8 +119,8 @@ func (e *ValidationError) Error() string { return e.Message }
 func (e *ValidationError) Unwrap() error { return e.Err }
 
 var (
-	ErrMissingType     = errors.New("projection is missing its type")
-	ErrMissingID       = errors.New("projection is missing its id")
-	ErrMissingPayload  = errors.New("projection is missing its payload")
-	ErrPayloadOnDelete = errors.New("projection has both delete and a payload")
+	ErrMissingType    = errors.New("projection is missing its type")
+	ErrMissingID      = errors.New("projection is missing its id")
+	ErrMissingPayload = errors.New("projection is missing its payload")
+	ErrMissingVersion = errors.New("projection is missing its version")
 )
