@@ -4,6 +4,29 @@ This file follows [Keep a Changelog](https://keepachangelog.com), and
 TamarackDB follows [Semantic Versioning](https://semver.org). Before 1.0, a
 minor version may break the API.
 
+## [Unreleased]
+
+### Fixed
+
+- A boolean set to `false` in `config.toml` (`enableTls`, `enableAuth`,
+  `devMode`) now wins over a `TAMARACKDB_*` variable set to `true`, as
+  documented.
+- The server no longer deletes a file or a directory found at
+  `socketPath`. It removes only a socket left by an earlier run, and
+  refuses to start otherwise.
+- On shutdown, requests waiting for their turn are turned away right away.
+  The server no longer gives out tickets that no client can use, and no
+  longer waits up to 10 seconds for them.
+- `GET /debug` writes its times in UTC with 6 fractional digits, like an
+  event's `time`.
+- `tamarackdb-backup` creates the directory of `databasePath` if needed. A
+  first run with the default settings used to fail.
+- `tamarackdb-backup` gives up on a page request after 5 minutes, instead
+  of hanging and holding the backup file's lock.
+- `tamarackdb-backup --default-config` lists `sourceToken`.
+- `tamarackdb-init --version` in the Docker image prints the release
+  version instead of `dev`.
+
 ## [0.19.0] - 2026-09-26
 
 ### Added
@@ -44,4 +67,5 @@ minor version may break the API.
   incremental backups of the events, and `tamarackdb-demo` to seed a large
   made-up dataset.
 
+[Unreleased]: https://github.com/tamarackdb/tamarackdb/compare/v0.19.0...HEAD
 [0.19.0]: https://github.com/tamarackdb/tamarackdb/releases/tag/v0.19.0
