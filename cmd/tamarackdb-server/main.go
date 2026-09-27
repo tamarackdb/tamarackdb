@@ -62,6 +62,7 @@ func main() {
 	}
 
 	fmt.Printf("socketPath: %s\n", cfg.SocketPath)
+	fmt.Printf("socketMode: %s\n", cfg.SocketMode)
 	fmt.Printf("bindAddress: %s\n", cfg.BindAddress)
 	fmt.Printf("port: %d\n", cfg.Port)
 	fmt.Printf("enableTls: %t\n", cfg.EnableTLS)
@@ -150,6 +151,13 @@ func main() {
 			log.Fatalf("tamarackdb-server: %v", err)
 		}
 		listener, err = net.Listen("unix", cfg.SocketPath)
+		if err == nil {
+			// The socket is created with the umask's permissions, which let
+			// no other user connect: connecting takes write permission.
+			if err := os.Chmod(cfg.SocketPath, cfg.SocketFileMode()); err != nil {
+				log.Fatalf("tamarackdb-server: set socketMode on %s: %v", cfg.SocketPath, err)
+			}
+		}
 	} else {
 		listener, err = net.Listen("tcp", net.JoinHostPort(cfg.BindAddress, strconv.Itoa(cfg.Port)))
 	}
@@ -254,6 +262,7 @@ func removeStaleSocket(path string) error {
 // comments; TOML's Marshal would drop them.
 const defaultConfigTemplate = `[server]
 # socketPath = "%s"
+# socketMode = "%s"
 # bindAddress = "%s"
 # port = %d
 # enableTls = false
@@ -279,7 +288,7 @@ const defaultConfigTemplate = `[server]
 // defaults filled in from the config package's exported constants.
 func printDefaultConfig() {
 	fmt.Printf(defaultConfigTemplate,
-		config.DefaultSocketPath, config.DefaultBindAddress, config.DefaultPort, config.DefaultDataDir,
+		config.DefaultSocketPath, config.DefaultSocketMode, config.DefaultBindAddress, config.DefaultPort, config.DefaultDataDir,
 		config.DefaultLogLevel,
 		config.DefaultEventsPerPage, config.DefaultMaxEventsPerPage, config.DefaultEventSize,
 		config.DefaultProjectionSize, config.DefaultMaxProjectionsPerRequest,

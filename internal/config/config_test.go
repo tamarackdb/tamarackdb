@@ -309,7 +309,7 @@ func TestLoadFileNotFoundUsesBuiltInDefaults(t *testing.T) {
 		t.Fatalf("Load() error = %v, want nil (built-in defaults cover every required field)", err)
 	}
 	want := Config{
-		SocketPath: DefaultSocketPath, DataDir: DefaultDataDir, LogLevel: DefaultLogLevel,
+		SocketPath: DefaultSocketPath, SocketMode: DefaultSocketMode, DataDir: DefaultDataDir, LogLevel: DefaultLogLevel,
 		DefaultEventsPerPage: DefaultEventsPerPage, MaxEventsPerPage: DefaultMaxEventsPerPage, MaxEventSize: DefaultEventSize,
 		MaxProjectionSize: DefaultProjectionSize, MaxProjectionsPerRequest: DefaultMaxProjectionsPerRequest,
 		TransactionTimeout: 5, MaxTransactionDuration: 15, MaxQueuedTransactions: DefaultMaxQueuedTransactions, ReadPoolSize: DefaultReadPoolSize,
@@ -1054,5 +1054,63 @@ func TestLoadValidationErrorWithoutFileNamesNoFile(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "missing.toml") {
 		t.Errorf("Load() error = %q, must not name a file that doesn't exist", err)
+	}
+}
+
+func TestLoadSocketMode(t *testing.T) {
+	path := writeConfigFile(t, `[server]
+		socketPath = "/run/tamarackdb.sock"
+		socketMode = "0660"
+	`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.SocketFileMode() != 0o660 {
+		t.Errorf("SocketFileMode() = %o, want 660", cfg.SocketFileMode())
+	}
+}
+
+func TestLoadSocketModeFromEnv(t *testing.T) {
+	setEnv(t, map[string]string{"TAMARACKDB_SOCKET_MODE": "0666"})
+	cfg, err := Load(filepath.Join(t.TempDir(), "missing.toml"))
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.SocketMode != "0666" {
+		t.Errorf("SocketMode = %q, want %q (from env)", cfg.SocketMode, "0666")
+	}
+}
+
+func TestLoadSocketModeNotDefaultedOverTCP(t *testing.T) {
+	path := writeConfigFile(t, `[server]
+		port = 9000
+	`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.SocketMode != "" {
+		t.Errorf("SocketMode = %q, want empty when listening over TCP", cfg.SocketMode)
+	}
+}
+
+func TestLoadRejectsInvalidSocketMode(t *testing.T) {
+	for _, mode := range []string{"660x", "0800", "1777", "rw-rw----"} {
+		path := writeConfigFile(t, `[server]
+		socketMode = "`+mode+`"
+	`)
+		if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "socketMode") {
+			t.Errorf("socketMode %q: Load() error = %v, want a socketMode error", mode, err)
+		}
+	}
+}
+
+func TestLoadRejectsSocketPathTooLong(t *testing.T) {
+	path := writeConfigFile(t, `[server]
+		socketPath = "/`+strings.Repeat("s", maxSocketPathLen)+`"
+	`)
+	if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "socketPath must be at most") {
+		t.Fatalf("Load() error = %v, want a socketPath length error", err)
 	}
 }

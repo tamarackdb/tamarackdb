@@ -26,6 +26,7 @@ import (
 // a -default-config flag) can print them without duplicating the numbers.
 const (
 	DefaultSocketPath               = "/var/run/tamarackdb-server.sock"
+	DefaultSocketMode               = "0600"
 	DefaultBindAddress              = "127.0.0.1"
 	DefaultPort                     = 8085
 	DefaultDataDir                  = "data"
@@ -51,6 +52,10 @@ const (
 	pauseFilename    = "tamarackdb.paused"
 )
 
+// maxSocketPathLen is the longest unix socket path Linux accepts, in
+// bytes: sun_path holds 108, including the terminating NUL.
+const maxSocketPathLen = 107
+
 // Config is TamarackDB's startup configuration, resolved once from a TOML
 // file and/or environment variables and never mutated or reloaded while the
 // process runs.
@@ -61,7 +66,13 @@ type Config struct {
 	// default when the other two are left out), it wins and BindAddress/Port
 	// are ignored, along with EnableTLS. Set BindAddress or Port to switch
 	// to a TCP listener instead.
-	SocketPath  string `toml:"socketPath"`  // default: /var/run/tamarackdb-server.sock
+	SocketPath string `toml:"socketPath"` // default: /var/run/tamarackdb-server.sock
+	// SocketMode is the unix socket's permission bits, as an octal
+	// string, applied right after the socket is created. Connecting to a
+	// unix socket takes write permission on it, so "0600" lets only the
+	// server's own user connect, and "0660" its group too. Only used, and
+	// only defaulted, when SocketPath is in effect.
+	SocketMode  string `toml:"socketMode"`  // default: 0600
 	BindAddress string `toml:"bindAddress"` // default: 127.0.0.1 (ignored when SocketPath is set)
 	Port        int    `toml:"port"`        // default: 8085 (ignored when SocketPath is set)
 
@@ -160,6 +171,9 @@ func Load(path string) (*Config, error) {
 	if cfg.SocketPath == "" && cfg.BindAddress == "" && cfg.Port == 0 {
 		cfg.SocketPath = DefaultSocketPath
 	}
+	if cfg.SocketPath != "" && cfg.SocketMode == "" {
+		cfg.SocketMode = DefaultSocketMode
+	}
 	if cfg.SocketPath == "" {
 		if cfg.BindAddress == "" {
 			cfg.BindAddress = DefaultBindAddress
@@ -225,6 +239,11 @@ func applyEnv(cfg *Config, inFile fileBools) error {
 	if cfg.SocketPath == "" {
 		if v, ok := os.LookupEnv("TAMARACKDB_SOCKET_PATH"); ok {
 			cfg.SocketPath = v
+		}
+	}
+	if cfg.SocketMode == "" {
+		if v, ok := os.LookupEnv("TAMARACKDB_SOCKET_MODE"); ok {
+			cfg.SocketMode = v
 		}
 	}
 	if cfg.BindAddress == "" {
@@ -384,6 +403,10 @@ func applyEnv(cfg *Config, inFile fileBools) error {
 // failures.
 func (c *Config) Validate() error {
 	switch {
+	case len(c.SocketPath) > maxSocketPathLen:
+		return fmt.Errorf("socketPath must be at most %d bytes, the limit for a unix socket path, got %d: %s", maxSocketPathLen, len(c.SocketPath), c.SocketPath)
+	case c.SocketPath != "" && !validSocketMode(c.SocketMode):
+		return fmt.Errorf("socketMode must be an octal permission between \"0000\" and \"0777\", such as \"0660\", got %q", c.SocketMode)
 	case c.SocketPath == "" && c.BindAddress == "":
 		return fmt.Errorf("bindAddress must not be empty")
 	case c.SocketPath == "" && (c.Port < 1 || c.Port > 65535):
@@ -422,6 +445,19 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("readPoolSize must be positive, got %d", c.ReadPoolSize)
 	}
 	return nil
+}
+
+// validSocketMode reports whether s is an octal permission from 0 to 0777.
+func validSocketMode(s string) bool {
+	n, err := strconv.ParseUint(s, 8, 32)
+	return err == nil && n <= 0o777
+}
+
+// SocketFileMode is SocketMode as file permission bits. It's only
+// meaningful once Validate has accepted the Config.
+func (c Config) SocketFileMode() os.FileMode {
+	n, _ := strconv.ParseUint(c.SocketMode, 8, 32)
+	return os.FileMode(n)
 }
 
 // DatabasePath is the SQLite file's path, holding both events and
