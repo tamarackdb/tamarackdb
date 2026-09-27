@@ -65,9 +65,6 @@ func main() {
 	fmt.Printf("socketMode: %s\n", cfg.SocketMode)
 	fmt.Printf("bindAddress: %s\n", cfg.BindAddress)
 	fmt.Printf("port: %d\n", cfg.Port)
-	fmt.Printf("enableTls: %t\n", cfg.EnableTLS)
-	fmt.Printf("tlsCertFile: %s\n", cfg.TLSCertFile)
-	fmt.Printf("tlsKeyFile: %s\n", cfg.TLSKeyFile)
 	fmt.Printf("enableAuth: %t\n", cfg.EnableAuth)
 	fmt.Printf("dataDir: %s\n", cfg.DataDir)
 	fmt.Printf("devMode: %t\n", cfg.DevMode)
@@ -164,24 +161,18 @@ func main() {
 	if cfg.SocketPath != "" {
 		log.Printf("tamarackdb-server: listening on %s (auth=%t)", cfg.SocketPath, cfg.EnableAuth)
 	} else {
-		scheme := "http"
-		if cfg.EnableTLS {
-			scheme = "https"
-		}
 		addr := listener.Addr().(*net.TCPAddr)
 		host := addr.IP.String()
 		if addr.IP.IsUnspecified() {
 			host = "localhost" // 0.0.0.0 or :: is not a useful link target
 		}
-		log.Printf("tamarackdb-server: listening on %s://%s (auth=%t)", scheme, net.JoinHostPort(host, strconv.Itoa(addr.Port)), cfg.EnableAuth)
+		log.Printf("tamarackdb-server: listening on http://%s (auth=%t)", net.JoinHostPort(host, strconv.Itoa(addr.Port)), cfg.EnableAuth)
 	}
 
+	// Plain HTTP only, on the socket or over TCP: TLS is a reverse proxy's
+	// job.
 	serveErrCh := make(chan error, 1)
-	if cfg.SocketPath == "" && cfg.EnableTLS {
-		go func() { serveErrCh <- httpServer.ServeTLS(listener, cfg.TLSCertFile, cfg.TLSKeyFile) }()
-	} else {
-		go func() { serveErrCh <- httpServer.Serve(listener) }()
-	}
+	go func() { serveErrCh <- httpServer.Serve(listener) }()
 
 	optimizeTicker := time.NewTicker(optimizeInterval)
 	defer optimizeTicker.Stop()
@@ -279,9 +270,6 @@ const defaultConfigTemplate = `[server]
 # socketMode = "%s"
 # bindAddress = "%s"
 # port = %d
-# enableTls = false
-# tlsCertFile = "/path/to/cert.pem"
-# tlsKeyFile = "/path/to/key.pem"
 # enableAuth = false
 # authToken = "changeme"
 # dataDir = "%s"

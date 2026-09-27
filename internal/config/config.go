@@ -1,6 +1,6 @@
 // Package config loads TamarackDB's startup configuration: socket path or
-// bind address/port, TLS enablement and certificate/key paths, auth token,
-// data directory, transaction timeouts, and pagination/size/queue limits.
+// bind address/port, auth token, data directory, transaction timeouts, and
+// pagination/size/queue limits.
 //
 // Values come from a TOML file when present, with any field it omits (or
 // the whole file, if missing) filled in from TAMARACKDB_* environment
@@ -64,8 +64,9 @@ type Config struct {
 	// by Load when omitted. SocketPath and BindAddress/Port are mutually
 	// exclusive: whenever SocketPath is set (explicitly, or by its own
 	// default when the other two are left out), it wins and BindAddress/Port
-	// are ignored, along with EnableTLS. Set BindAddress or Port to switch
-	// to a TCP listener instead.
+	// are ignored. Set BindAddress or Port to switch to a TCP listener
+	// instead. Either way, the server speaks plain HTTP: TLS is a reverse
+	// proxy's job.
 	SocketPath string `toml:"socketPath"` // default: /var/run/tamarackdb-server.sock
 	// SocketMode is the unix socket's permission bits, as an octal
 	// string, applied right after the socket is created. Connecting to a
@@ -76,11 +77,8 @@ type Config struct {
 	BindAddress string `toml:"bindAddress"` // default: 127.0.0.1 (ignored when SocketPath is set)
 	Port        int    `toml:"port"`        // default: 8085 (ignored when SocketPath is set)
 
-	EnableTLS   bool   `toml:"enableTls"`
-	TLSCertFile string `toml:"tlsCertFile"`
-	TLSKeyFile  string `toml:"tlsKeyFile"`
-	EnableAuth  bool   `toml:"enableAuth"`
-	AuthToken   string `toml:"authToken"`
+	EnableAuth bool   `toml:"enableAuth"`
+	AuthToken  string `toml:"authToken"`
 
 	// DataDir is the directory holding the SQLite database file
 	// (DatabasePath) and the pause file (PauseFilePath). Only the
@@ -226,7 +224,6 @@ func Load(path string) (*Config, error) {
 // value, false, is also a value the file can set on purpose, so it can't
 // tell "left out" apart from "set to false" the way the other fields do.
 type fileBools struct {
-	EnableTLS  *bool `toml:"enableTls"`
 	EnableAuth *bool `toml:"enableAuth"`
 	DevMode    *bool `toml:"devMode"`
 }
@@ -258,25 +255,6 @@ func applyEnv(cfg *Config, inFile fileBools) error {
 				return fmt.Errorf("invalid TAMARACKDB_PORT %q: %w", v, err)
 			}
 			cfg.Port = p
-		}
-	}
-	if inFile.EnableTLS == nil {
-		if v, ok := os.LookupEnv("TAMARACKDB_ENABLE_TLS"); ok {
-			b, err := strconv.ParseBool(v)
-			if err != nil {
-				return fmt.Errorf("invalid TAMARACKDB_ENABLE_TLS %q: %w", v, err)
-			}
-			cfg.EnableTLS = b
-		}
-	}
-	if cfg.TLSCertFile == "" {
-		if v, ok := os.LookupEnv("TAMARACKDB_TLS_CERT_FILE"); ok {
-			cfg.TLSCertFile = v
-		}
-	}
-	if cfg.TLSKeyFile == "" {
-		if v, ok := os.LookupEnv("TAMARACKDB_TLS_KEY_FILE"); ok {
-			cfg.TLSKeyFile = v
 		}
 	}
 	if inFile.EnableAuth == nil {
@@ -397,10 +375,8 @@ func applyEnv(cfg *Config, inFile fileBools) error {
 }
 
 // Validate checks structural sanity only: required fields present, numeric
-// values in range. It does not probe whether the TLS files or database
-// path are actually accessible; that's left to the components that use
-// them (http.Server.ServeTLS, store.Open), which will report their own
-// failures.
+// values in range. It does not probe whether the database path is actually
+// accessible; that's left to store.Open, which reports its own failures.
 func (c *Config) Validate() error {
 	switch {
 	case len(c.SocketPath) > maxSocketPathLen:
@@ -411,10 +387,6 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("bindAddress must not be empty")
 	case c.SocketPath == "" && (c.Port < 1 || c.Port > 65535):
 		return fmt.Errorf("port must be between 1 and 65535, got %d", c.Port)
-	case c.SocketPath == "" && c.EnableTLS && c.TLSCertFile == "":
-		return fmt.Errorf("tlsCertFile must not be empty when enableTls is true")
-	case c.SocketPath == "" && c.EnableTLS && c.TLSKeyFile == "":
-		return fmt.Errorf("tlsKeyFile must not be empty when enableTls is true")
 	case c.EnableAuth && c.AuthToken == "":
 		return fmt.Errorf("authToken must not be empty when enableAuth is true")
 	case c.DataDir == "":

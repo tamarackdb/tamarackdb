@@ -20,9 +20,6 @@ func TestLoadFullConfig(t *testing.T) {
 	path := writeConfigFile(t, `[server]
 		bindAddress = "0.0.0.0"
 		port = 8443
-		enableTls = true
-		tlsCertFile = "/etc/tamarackdb/cert.pem"
-		tlsKeyFile = "/etc/tamarackdb/key.pem"
 		enableAuth = true
 		authToken = "secret"
 		dataDir = "/var/lib/tamarackdb"
@@ -41,7 +38,6 @@ func TestLoadFullConfig(t *testing.T) {
 	}
 	want := Config{
 		BindAddress: "0.0.0.0", Port: 8443,
-		EnableTLS: true, TLSCertFile: "/etc/tamarackdb/cert.pem", TLSKeyFile: "/etc/tamarackdb/key.pem",
 		EnableAuth: true, AuthToken: "secret", DataDir: "/var/lib/tamarackdb",
 		LogLevel:             DefaultLogLevel,
 		DefaultEventsPerPage: 500, MaxEventsPerPage: 5000, MaxEventSize: 32768,
@@ -64,8 +60,6 @@ func TestLoadIgnoresBackupSection(t *testing.T) {
 	path := writeConfigFile(t, `[server]
 		bindAddress = "0.0.0.0"
 		port = 8443
-		tlsCertFile = "cert.pem"
-		tlsKeyFile = "key.pem"
 		authToken = "secret"
 		dataDir = "data"
 
@@ -87,8 +81,6 @@ func TestLoadAppliesDefaults(t *testing.T) {
 	path := writeConfigFile(t, `[server]
 		bindAddress = "0.0.0.0"
 		port = 8443
-		tlsCertFile = "cert.pem"
-		tlsKeyFile = "key.pem"
 		authToken = "secret"
 		dataDir = "data"
 	`)
@@ -127,36 +119,15 @@ func TestLoadAppliesDefaults(t *testing.T) {
 }
 
 func TestLoadMissingRequiredFields(t *testing.T) {
-	// port and dataDir are not here: they're optional, defaulted by
-	// Load when omitted (see TestLoadAppliesDefaults). Only
-	// tlsCertFile/tlsKeyFile/authToken are required, and only because
-	// enableTls/enableAuth are forced true below. bindAddress is written
-	// unconditionally (not one of the fields under test) so Load doesn't
-	// fall back to its unix-socket default (see
-	// TestLoadDefaultsToSocketPath), which would otherwise skip the
-	// tlsCertFile/tlsKeyFile checks entirely (see TestLoadSocketPathIgnoresTLS).
-	base := map[string]string{
-		"tlsCertFile": `"cert.pem"`,
-		"tlsKeyFile":  `"key.pem"`,
-		"authToken":   `"secret"`,
-	}
-	for missing := range base {
-		t.Run("missing "+missing, func(t *testing.T) {
-			var b strings.Builder
-			b.WriteString("[server]\nbindAddress = \"0.0.0.0\"\n")
-			for k, v := range base {
-				if k == missing {
-					continue
-				}
-				b.WriteString(k + " = " + v + "\n")
-			}
-			b.WriteString("enableTls = true\nenableAuth = true\n")
-
-			path := writeConfigFile(t, b.String())
-			if _, err := Load(path); err == nil {
-				t.Fatalf("Load() error = nil, want error for missing %q", missing)
-			}
-		})
+	// port and dataDir are not here: they're optional, defaulted by Load
+	// when omitted (see TestLoadAppliesDefaults). authToken is required
+	// only because enableAuth is on.
+	path := writeConfigFile(t, `[server]
+		bindAddress = "0.0.0.0"
+		enableAuth = true
+	`)
+	if _, err := Load(path); err == nil {
+		t.Fatal("Load() error = nil, want error for missing authToken")
 	}
 }
 
@@ -176,8 +147,6 @@ func TestLoadInvalidPort(t *testing.T) {
 			path := writeConfigFile(t, `[server]
 				bindAddress = "0.0.0.0"
 				port = `+tt.port+`
-				tlsCertFile = "cert.pem"
-				tlsKeyFile = "key.pem"
 				authToken = "secret"
 				dataDir = "data"
 			`)
@@ -192,8 +161,6 @@ func TestLoadDefaultEventsPerPageExceedsMaxEventsPerPage(t *testing.T) {
 	path := writeConfigFile(t, `[server]
 		bindAddress = "0.0.0.0"
 		port = 8443
-		tlsCertFile = "cert.pem"
-		tlsKeyFile = "key.pem"
 		authToken = "secret"
 		dataDir = "data"
 		defaultEventsPerPage = 5000
@@ -208,8 +175,6 @@ func TestLoadDevModeFromFile(t *testing.T) {
 	path := writeConfigFile(t, `[server]
 		bindAddress = "0.0.0.0"
 		port = 8443
-		tlsCertFile = "cert.pem"
-		tlsKeyFile = "key.pem"
 		authToken = "secret"
 		dataDir = "data"
 		devMode = true
@@ -227,8 +192,6 @@ func TestLoadDevModeDefaultsFalse(t *testing.T) {
 	path := writeConfigFile(t, `[server]
 		bindAddress = "0.0.0.0"
 		port = 8443
-		tlsCertFile = "cert.pem"
-		tlsKeyFile = "key.pem"
 		authToken = "secret"
 		dataDir = "data"
 	`)
@@ -246,8 +209,6 @@ func TestLoadDevModeFromEnv(t *testing.T) {
 	path := writeConfigFile(t, `[server]
 		bindAddress = "0.0.0.0"
 		port = 8443
-		tlsCertFile = "cert.pem"
-		tlsKeyFile = "key.pem"
 		authToken = "secret"
 		dataDir = "data"
 	`)
@@ -263,7 +224,6 @@ func TestLoadDevModeFromEnv(t *testing.T) {
 func TestLoadFileFalseBeatsEnvTrue(t *testing.T) {
 	setEnv(t, map[string]string{
 		"TAMARACKDB_DEV_MODE":    "true",
-		"TAMARACKDB_ENABLE_TLS":  "true",
 		"TAMARACKDB_ENABLE_AUTH": "true",
 	})
 	path := writeConfigFile(t, `[server]
@@ -271,15 +231,14 @@ func TestLoadFileFalseBeatsEnvTrue(t *testing.T) {
 		port = 8443
 		dataDir = "data"
 		devMode = false
-		enableTls = false
 		enableAuth = false
 	`)
 	cfg, err := Load(path)
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	if cfg.DevMode || cfg.EnableTLS || cfg.EnableAuth {
-		t.Errorf("DevMode, EnableTLS, EnableAuth = %t, %t, %t, want all false (from file)", cfg.DevMode, cfg.EnableTLS, cfg.EnableAuth)
+	if cfg.DevMode || cfg.EnableAuth {
+		t.Errorf("DevMode, EnableAuth = %t, %t, want both false (from file)", cfg.DevMode, cfg.EnableAuth)
 	}
 }
 
@@ -288,8 +247,6 @@ func TestLoadDevModeInvalidEnvValue(t *testing.T) {
 	path := writeConfigFile(t, `[server]
 		bindAddress = "0.0.0.0"
 		port = 8443
-		tlsCertFile = "cert.pem"
-		tlsKeyFile = "key.pem"
 		authToken = "secret"
 		dataDir = "data"
 	`)
@@ -324,8 +281,6 @@ func TestLoadDefaultsToSocketPath(t *testing.T) {
 	// narrowly: with socketPath, bindAddress and port all left out, Load
 	// picks the unix socket default rather than the TCP one.
 	path := writeConfigFile(t, `[server]
-		tlsCertFile = "cert.pem"
-		tlsKeyFile = "key.pem"
 		authToken = "secret"
 		dataDir = "data"
 	`)
@@ -347,8 +302,6 @@ func TestLoadBindAddressPicksTCPOverSocketDefault(t *testing.T) {
 	// empty rather than defaulted.
 	path := writeConfigFile(t, `[server]
 		bindAddress = "0.0.0.0"
-		tlsCertFile = "cert.pem"
-		tlsKeyFile = "key.pem"
 		authToken = "secret"
 		dataDir = "data"
 	`)
@@ -384,21 +337,6 @@ func TestLoadSocketPathWinsOverBindAddressAndPort(t *testing.T) {
 	}
 }
 
-func TestLoadSocketPathIgnoresTLS(t *testing.T) {
-	// enableTls = true with no tlsCertFile/tlsKeyFile would fail Validate
-	// in TCP mode (see TestLoadMissingRequiredFields); with socketPath set,
-	// TLS is ignored entirely, so Load succeeds anyway.
-	path := writeConfigFile(t, `[server]
-		socketPath = "/tmp/tamarackdb.sock"
-		enableTls = true
-		authToken = "secret"
-		dataDir = "data"
-	`)
-	if _, err := Load(path); err != nil {
-		t.Errorf("Load() error = %v, want nil (enableTls is ignored when socketPath is set)", err)
-	}
-}
-
 func TestLoadSocketPathFromEnv(t *testing.T) {
 	setEnv(t, map[string]string{"TAMARACKDB_SOCKET_PATH": "/tmp/from-env.sock"})
 	path := writeConfigFile(t, `[server]
@@ -423,12 +361,10 @@ func setEnv(t *testing.T, vars map[string]string) {
 
 func TestLoadFromEnvWithoutFile(t *testing.T) {
 	setEnv(t, map[string]string{
-		"TAMARACKDB_BIND_ADDRESS":  "0.0.0.0",
-		"TAMARACKDB_PORT":          "8443",
-		"TAMARACKDB_TLS_CERT_FILE": "cert.pem",
-		"TAMARACKDB_TLS_KEY_FILE":  "key.pem",
-		"TAMARACKDB_AUTH_TOKEN":    "secret",
-		"TAMARACKDB_DATA_DIR":      "data",
+		"TAMARACKDB_BIND_ADDRESS": "0.0.0.0",
+		"TAMARACKDB_PORT":         "8443",
+		"TAMARACKDB_AUTH_TOKEN":   "secret",
+		"TAMARACKDB_DATA_DIR":     "data",
 	})
 
 	cfg, err := Load(filepath.Join(t.TempDir(), "does-not-exist.toml"))
@@ -437,7 +373,6 @@ func TestLoadFromEnvWithoutFile(t *testing.T) {
 	}
 	want := Config{
 		BindAddress: "0.0.0.0", Port: 8443,
-		TLSCertFile: "cert.pem", TLSKeyFile: "key.pem",
 		AuthToken: "secret", DataDir: "data", LogLevel: DefaultLogLevel,
 		DefaultEventsPerPage: DefaultEventsPerPage, MaxEventsPerPage: DefaultMaxEventsPerPage, MaxEventSize: DefaultEventSize,
 		MaxProjectionSize: DefaultProjectionSize, MaxProjectionsPerRequest: DefaultMaxProjectionsPerRequest,
@@ -457,8 +392,6 @@ func TestLoadEnvFillsOmittedFields(t *testing.T) {
 	path := writeConfigFile(t, `[server]
 		bindAddress = "0.0.0.0"
 		port = 8443
-		tlsCertFile = "cert.pem"
-		tlsKeyFile = "key.pem"
 		dataDir = "data"
 	`)
 
@@ -485,8 +418,6 @@ func TestLoadFileTakesPrecedenceOverEnv(t *testing.T) {
 	path := writeConfigFile(t, `[server]
 		bindAddress = "0.0.0.0"
 		port = 8443
-		tlsCertFile = "cert.pem"
-		tlsKeyFile = "key.pem"
 		authToken = "from-file"
 		dataDir = "data"
 	`)
@@ -507,8 +438,6 @@ func TestLoadInvalidEnvValue(t *testing.T) {
 	setEnv(t, map[string]string{"TAMARACKDB_PORT": "not-a-number"})
 	path := writeConfigFile(t, `[server]
 		bindAddress = "0.0.0.0"
-		tlsCertFile = "cert.pem"
-		tlsKeyFile = "key.pem"
 		authToken = "secret"
 		dataDir = "data"
 	`)
@@ -528,8 +457,6 @@ func TestLoadMaxQueuedTransactionsFromFile(t *testing.T) {
 	path := writeConfigFile(t, `[server]
 		bindAddress = "0.0.0.0"
 		port = 8443
-		tlsCertFile = "cert.pem"
-		tlsKeyFile = "key.pem"
 		authToken = "secret"
 		dataDir = "data"
 		maxQueuedTransactions = 50
@@ -548,8 +475,6 @@ func TestLoadMaxQueuedTransactionsFromEnv(t *testing.T) {
 	path := writeConfigFile(t, `[server]
 		bindAddress = "0.0.0.0"
 		port = 8443
-		tlsCertFile = "cert.pem"
-		tlsKeyFile = "key.pem"
 		authToken = "secret"
 		dataDir = "data"
 	`)
@@ -567,8 +492,6 @@ func TestLoadMaxQueuedTransactionsFileTakesPrecedenceOverEnv(t *testing.T) {
 	path := writeConfigFile(t, `[server]
 		bindAddress = "0.0.0.0"
 		port = 8443
-		tlsCertFile = "cert.pem"
-		tlsKeyFile = "key.pem"
 		authToken = "secret"
 		dataDir = "data"
 		maxQueuedTransactions = 50
@@ -586,8 +509,6 @@ func TestLoadReadPoolSizeFromFile(t *testing.T) {
 	path := writeConfigFile(t, `[server]
 		bindAddress = "0.0.0.0"
 		port = 8443
-		tlsCertFile = "cert.pem"
-		tlsKeyFile = "key.pem"
 		authToken = "secret"
 		dataDir = "data"
 		readPoolSize = 32
@@ -606,8 +527,6 @@ func TestLoadReadPoolSizeFromEnv(t *testing.T) {
 	path := writeConfigFile(t, `[server]
 		bindAddress = "0.0.0.0"
 		port = 8443
-		tlsCertFile = "cert.pem"
-		tlsKeyFile = "key.pem"
 		authToken = "secret"
 		dataDir = "data"
 	`)
@@ -625,8 +544,6 @@ func TestLoadReadPoolSizeFileTakesPrecedenceOverEnv(t *testing.T) {
 	path := writeConfigFile(t, `[server]
 		bindAddress = "0.0.0.0"
 		port = 8443
-		tlsCertFile = "cert.pem"
-		tlsKeyFile = "key.pem"
 		authToken = "secret"
 		dataDir = "data"
 		readPoolSize = 32
@@ -644,8 +561,6 @@ func TestLoadDataDirFromFile(t *testing.T) {
 	path := writeConfigFile(t, `[server]
 		bindAddress = "0.0.0.0"
 		port = 8443
-		tlsCertFile = "cert.pem"
-		tlsKeyFile = "key.pem"
 		authToken = "secret"
 		dataDir = "/custom/data"
 	`)
@@ -663,8 +578,6 @@ func TestLoadDataDirFromEnv(t *testing.T) {
 	path := writeConfigFile(t, `[server]
 		bindAddress = "0.0.0.0"
 		port = 8443
-		tlsCertFile = "cert.pem"
-		tlsKeyFile = "key.pem"
 		authToken = "secret"
 	`)
 	cfg, err := Load(path)
@@ -681,8 +594,6 @@ func TestLoadDataDirFileTakesPrecedenceOverEnv(t *testing.T) {
 	path := writeConfigFile(t, `[server]
 		bindAddress = "0.0.0.0"
 		port = 8443
-		tlsCertFile = "cert.pem"
-		tlsKeyFile = "key.pem"
 		authToken = "secret"
 		dataDir = "/from-file/data"
 	`)
@@ -699,8 +610,6 @@ func TestLoadMaxProjectionSizeFromFile(t *testing.T) {
 	path := writeConfigFile(t, `[server]
 		bindAddress = "0.0.0.0"
 		port = 8443
-		tlsCertFile = "cert.pem"
-		tlsKeyFile = "key.pem"
 		authToken = "secret"
 		dataDir = "data"
 		maxProjectionSize = 32768
@@ -719,8 +628,6 @@ func TestLoadMaxProjectionSizeFromEnv(t *testing.T) {
 	path := writeConfigFile(t, `[server]
 		bindAddress = "0.0.0.0"
 		port = 8443
-		tlsCertFile = "cert.pem"
-		tlsKeyFile = "key.pem"
 		authToken = "secret"
 		dataDir = "data"
 	`)
@@ -737,8 +644,6 @@ func TestLoadMaxProjectionsPerRequestFromFile(t *testing.T) {
 	path := writeConfigFile(t, `[server]
 		bindAddress = "0.0.0.0"
 		port = 8443
-		tlsCertFile = "cert.pem"
-		tlsKeyFile = "key.pem"
 		authToken = "secret"
 		dataDir = "data"
 		maxProjectionsPerRequest = 25
@@ -757,8 +662,6 @@ func TestLoadMaxProjectionsPerRequestFromEnv(t *testing.T) {
 	path := writeConfigFile(t, `[server]
 		bindAddress = "0.0.0.0"
 		port = 8443
-		tlsCertFile = "cert.pem"
-		tlsKeyFile = "key.pem"
 		authToken = "secret"
 		dataDir = "data"
 	`)
@@ -775,8 +678,6 @@ func TestLoadLogLevelFromFile(t *testing.T) {
 	path := writeConfigFile(t, `[server]
 		bindAddress = "0.0.0.0"
 		port = 8443
-		tlsCertFile = "cert.pem"
-		tlsKeyFile = "key.pem"
 		authToken = "secret"
 		dataDir = "data"
 		logLevel = "DEBUG"
@@ -795,8 +696,6 @@ func TestLoadLogLevelFromEnv(t *testing.T) {
 	path := writeConfigFile(t, `[server]
 		bindAddress = "0.0.0.0"
 		port = 8443
-		tlsCertFile = "cert.pem"
-		tlsKeyFile = "key.pem"
 		authToken = "secret"
 		dataDir = "data"
 	`)
@@ -813,8 +712,6 @@ func TestLoadLogLevelDefault(t *testing.T) {
 	path := writeConfigFile(t, `[server]
 		bindAddress = "0.0.0.0"
 		port = 8443
-		tlsCertFile = "cert.pem"
-		tlsKeyFile = "key.pem"
 		authToken = "secret"
 		dataDir = "data"
 	`)
@@ -899,7 +796,6 @@ func TestValidateEmptyDataDir(t *testing.T) {
 func TestValidateDirectly(t *testing.T) {
 	cfg := Config{
 		BindAddress: "0.0.0.0", Port: 8443,
-		EnableTLS: true, TLSCertFile: "cert.pem", TLSKeyFile: "key.pem",
 		EnableAuth: true, AuthToken: "secret", DataDir: "data", LogLevel: "warning",
 		DefaultEventsPerPage: 1000, MaxEventsPerPage: 10000, MaxEventSize: 65536,
 		MaxProjectionSize: 65536, MaxProjectionsPerRequest: 100, TransactionTimeout: 5, MaxTransactionDuration: 15, MaxQueuedTransactions: 100,
@@ -1112,5 +1008,16 @@ func TestLoadRejectsSocketPathTooLong(t *testing.T) {
 	`)
 	if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "socketPath must be at most") {
 		t.Fatalf("Load() error = %v, want a socketPath length error", err)
+	}
+}
+
+func TestLoadRejectsTLSKeys(t *testing.T) {
+	path := writeConfigFile(t, `[server]
+		port = 8443
+		enableTls = true
+	`)
+	_, err := Load(path)
+	if err == nil || !strings.Contains(err.Error(), "server.enableTls") {
+		t.Fatalf("Load() error = %v, want an unknown key error naming server.enableTls", err)
 	}
 }
