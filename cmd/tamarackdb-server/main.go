@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"syscall"
 	"time"
@@ -227,6 +228,13 @@ func listenUnix(path string, mode os.FileMode) (net.Listener, error) {
 	l, err := net.Listen("unix", path)
 	syscall.Umask(old)
 	if err != nil {
+		// The default socketPath sits in /run/tamarackdb, which only exists
+		// once systemd's RuntimeDirectory, or an operator, creates it. Say
+		// so, instead of a bare "bind: no such file or directory".
+		dir := filepath.Dir(path)
+		if _, statErr := os.Stat(dir); errors.Is(statErr, os.ErrNotExist) {
+			return nil, fmt.Errorf("socket directory %s does not exist: create it, owned by the server's user, or set socketPath", dir)
+		}
 		return nil, err
 	}
 	if err := os.Chmod(path, mode); err != nil {

@@ -4,6 +4,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 )
@@ -75,5 +76,13 @@ func TestListenUnixRestoresUmask(t *testing.T) {
 	l.Close()
 	if got := syscall.Umask(0o022); got != 0o022 {
 		t.Errorf("umask after listenUnix = %o, want 022", got)
+	}
+}
+
+func TestListenUnixNamesAMissingDirectory(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "missing")
+	_, err := listenUnix(filepath.Join(dir, "s.sock"), 0o600)
+	if err == nil || !strings.Contains(err.Error(), "socket directory "+dir+" does not exist") {
+		t.Fatalf("listenUnix() error = %v, want it to name the missing directory", err)
 	}
 }
