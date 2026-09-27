@@ -13,9 +13,9 @@ import (
 	"github.com/tamarackdb/tamarackdb/internal/txn"
 )
 
-// Options configures a Server with values internal/config will have
-// already resolved (defaults applied) by the time they reach here;
-// internal/api applies no further defaulting of its own.
+// Options configures a Server with values internal/config has already
+// resolved (defaults applied); internal/api applies no further defaulting
+// of its own.
 type Options struct {
 	// Version is the running build's version string, reported as-is by
 	// GET /health. Empty is valid: it just reports as "".
@@ -68,8 +68,8 @@ type Options struct {
 
 	// OnFatalStorageError, if non-nil, is called whenever a handler
 	// observes store.IsFatal(err) == true. The handler itself never
-	// crashes the process, only reports; a future main.go supplies a
-	// callback that triggers its own log-and-exit shutdown.
+	// crashes the process, only reports; main.go supplies a callback
+	// that triggers its own ordered shutdown.
 	OnFatalStorageError func(error)
 }
 
@@ -104,8 +104,8 @@ type Server struct {
 // constructed and are not owned by the returned Server; the caller
 // remains responsible for closing both.
 //
-// New panics on invalid static configuration (empty token, non-positive
-// limits, DefaultEventsPerPage > MaxEventsPerPage, nil tm/st): these are startup wiring
+// New panics on invalid static configuration (non-positive limits,
+// DefaultEventsPerPage > MaxEventsPerPage, an unknown LogLevel, nil tm/st): these are startup wiring
 // bugs, not request-time conditions, the same "fail loud and immediately"
 // treatment store.Open gives a bad database file.
 func New(tm *txn.Manager, st *store.Store, opts Options) *Server {

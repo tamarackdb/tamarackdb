@@ -42,12 +42,13 @@ func main() {
 // ones config.LoadBackup would otherwise default on its own, so this is a
 // complete reference of what's configurable rather than a partial file.
 // Every key is commented out at the value config.LoadBackup would apply
-// anyway (or, for sourceUrl, which has no built-in default, a placeholder):
-// uncommenting a line is how it takes effect. It is a hand-written
-// template, not a Marshal of config.BackupConfig, so it can carry comments;
-// TOML's Marshal would drop them.
+// anyway (or, for sourceUrl and sourceToken, which have no built-in
+// default, a placeholder): uncommenting a line is how it takes effect. It
+// is a hand-written template, not a Marshal of config.BackupConfig, so it
+// can carry comments; TOML's Marshal would drop them.
 const defaultConfigTemplate = `[backup]
 # sourceUrl = "https://hostname:8085"
+# sourceToken = "changeme"
 # databasePath = "%s"
 # pageLimit = %d
 `

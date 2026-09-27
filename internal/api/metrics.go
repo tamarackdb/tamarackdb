@@ -32,7 +32,7 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	writeMetric(&b, "tamarackdb_transaction_active", "gauge",
 		"Whether a transaction is currently active (1) or not (0).", boolValue(snap.Active != nil))
 	writeMetric(&b, "tamarackdb_requests_queued", "gauge",
-		"Number of requests (POST /begin or POST /pause) currently waiting in the FIFO.", float64(len(snap.Queue.Queued)))
+		"Number of requests (POST /begin, POST /pause, or the hourly PRAGMA optimize) currently waiting in the FIFO.", float64(len(snap.Queue.Queued)))
 	writeMetric(&b, "tamarackdb_queue_longest_wait_seconds", "gauge",
 		"Longest current wait, in seconds, among queued requests. 0 when the FIFO is empty.", longestWait)
 	writeMetric(&b, "tamarackdb_transactions_started_total", "counter",

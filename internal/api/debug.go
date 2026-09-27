@@ -6,15 +6,23 @@ import (
 	"time"
 )
 
+// debugTime is a time.Time written in the same fixed format as an event's
+// time: UTC, with exactly 6 fractional digits.
+type debugTime struct{ time.Time }
+
+func (t debugTime) MarshalJSON() ([]byte, error) {
+	return json.Marshal(t.UTC().Format(timeLayout))
+}
+
 type debugResponse struct {
-	Time   time.Time    `json:"time"`
+	Time   debugTime    `json:"time"`
 	Paused *debugPaused `json:"paused"` // null when the server isn't paused
 	Write  debugWrite   `json:"write"`
 	Read   debugRead    `json:"read"`
 }
 
 type debugPaused struct {
-	Since time.Time `json:"since"`
+	Since debugTime `json:"since"`
 }
 
 // debugWrite is the write side's full picture: the active transaction and
@@ -43,16 +51,16 @@ type debugRead struct {
 }
 
 type debugActive struct {
-	Since      time.Time `json:"since"`
+	Since      debugTime `json:"since"`
 	AgeSeconds float64   `json:"ageSeconds"`
-	Deadline   time.Time `json:"deadline"`
-	Ceiling    time.Time `json:"ceiling"`
+	Deadline   debugTime `json:"deadline"`
+	Ceiling    debugTime `json:"ceiling"`
 	Calls      int       `json:"calls"`
 }
 
 type debugQueued struct {
 	Kind        string    `json:"kind"`
-	QueuedAt    time.Time `json:"queuedAt"`
+	QueuedAt    debugTime `json:"queuedAt"`
 	WaitSeconds float64   `json:"waitSeconds"`
 }
 
@@ -62,7 +70,7 @@ func (s *Server) handleDebug(w http.ResponseWriter, r *http.Request) {
 	readStats := s.st.ReadPoolStats()
 
 	resp := debugResponse{
-		Time: snap.Time,
+		Time: debugTime{snap.Time},
 		Write: debugWrite{
 			Queued:      []debugQueued{},
 			HTTPOpen:    int(s.writeHTTPOpen.Load()),
@@ -76,21 +84,21 @@ func (s *Server) handleDebug(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 	if snap.Paused {
-		resp.Paused = &debugPaused{Since: snap.PausedSince}
+		resp.Paused = &debugPaused{Since: debugTime{snap.PausedSince}}
 	}
 	if a := snap.Active; a != nil {
 		resp.Write.Active = &debugActive{
-			Since:      a.Since,
+			Since:      debugTime{a.Since},
 			AgeSeconds: snap.Time.Sub(a.Since).Seconds(),
-			Deadline:   a.Deadline,
-			Ceiling:    a.Ceiling,
+			Deadline:   debugTime{a.Deadline},
+			Ceiling:    debugTime{a.Ceiling},
 			Calls:      a.Calls,
 		}
 	}
 	for _, q := range snap.Queue.Queued {
 		resp.Write.Queued = append(resp.Write.Queued, debugQueued{
 			Kind:        string(q.Kind),
-			QueuedAt:    q.QueuedAt,
+			QueuedAt:    debugTime{q.QueuedAt},
 			WaitSeconds: snap.Time.Sub(q.QueuedAt).Seconds(),
 		})
 	}

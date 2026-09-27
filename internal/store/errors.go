@@ -55,9 +55,9 @@ const (
 // SQLITE_BUSY/SQLITE_LOCKED (handled locally), ErrConcurrencyConflict,
 // *SchemaVersionError, and context.Canceled/DeadlineExceeded.
 //
-// internal/api's future main.go calls IsFatal on every error a Store
-// method returns during normal operation to decide log-and-exit vs.
-// handling the one request. Any non-nil error from Open itself is always
+// internal/api calls IsFatal on every error a Store method returns during
+// normal operation, and reports a fatal one to main.go, which shuts the
+// process down instead of handling the one request. Any non-nil error from Open itself is always
 // fatal-at-startup regardless of IsFatal: Open never returns a
 // recoverable error.
 func IsFatal(err error) bool {

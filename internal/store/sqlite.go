@@ -110,9 +110,9 @@ func Open(ctx context.Context, path string, readPoolSize int) (*Store, error) {
 		return nil, err // already wrapped, or *SchemaVersionError
 	}
 
-	// Since events.sequence is now application-assigned rather than
-	// AUTOINCREMENT (see Append), the in-memory counter must resume from
-	// whatever is already on disk before any writer is accepted. An empty
+	// events.sequence is assigned by the application (see Append), so the
+	// in-memory counter must resume from whatever is already on disk
+	// before any writer is accepted. An empty
 	// table starts the counter the same way AUTOINCREMENT would: the first
 	// event gets sequence 1.
 	var maxSeq int64

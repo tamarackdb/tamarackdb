@@ -260,6 +260,29 @@ func TestLoadDevModeFromEnv(t *testing.T) {
 	}
 }
 
+func TestLoadFileFalseBeatsEnvTrue(t *testing.T) {
+	setEnv(t, map[string]string{
+		"TAMARACKDB_DEV_MODE":    "true",
+		"TAMARACKDB_ENABLE_TLS":  "true",
+		"TAMARACKDB_ENABLE_AUTH": "true",
+	})
+	path := writeConfigFile(t, `[server]
+		bindAddress = "0.0.0.0"
+		port = 8443
+		dataDir = "data"
+		devMode = false
+		enableTls = false
+		enableAuth = false
+	`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.DevMode || cfg.EnableTLS || cfg.EnableAuth {
+		t.Errorf("DevMode, EnableTLS, EnableAuth = %t, %t, %t, want all false (from file)", cfg.DevMode, cfg.EnableTLS, cfg.EnableAuth)
+	}
+}
+
 func TestLoadDevModeInvalidEnvValue(t *testing.T) {
 	setEnv(t, map[string]string{"TAMARACKDB_DEV_MODE": "not-a-bool"})
 	path := writeConfigFile(t, `[server]

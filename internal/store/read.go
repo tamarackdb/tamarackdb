@@ -88,7 +88,7 @@ WHERE events.sequence > ?`)
 // three are already byte-identical to what the HTTP API returns. Nothing in the read
 // path needs the structured form (query filtering already happened in SQL),
 // so scanEvent skips decoding them at all, trading away read-time corruption
-// detection on these three columns for that: a garbled column is now
+// detection on these three columns for that: a garbled column is
 // forwarded to the client as-is instead of failing with a clear "corrupt
 // data" error, the same trade-off already made for the type/payload columns.
 type ReadEvent struct {

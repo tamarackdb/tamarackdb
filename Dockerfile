@@ -12,7 +12,7 @@ COPY . .
 ARG VERSION=dev
 
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags "-X github.com/tamarackdb/tamarackdb/internal/buildinfo.Version=$VERSION" -o /out/tamarackdb-server ./cmd/tamarackdb-server && \
-    CGO_ENABLED=0 GOOS=linux go build -o /out/tamarackdb-init ./cmd/tamarackdb-init
+    CGO_ENABLED=0 GOOS=linux go build -ldflags "-X github.com/tamarackdb/tamarackdb/internal/buildinfo.Version=$VERSION" -o /out/tamarackdb-init ./cmd/tamarackdb-init
 
 FROM alpine:3.20
 

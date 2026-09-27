@@ -1,6 +1,6 @@
 // Command tamarackdb-demo seeds a TamarackDB data directory with a large
 // synthetic, schema-agnostic dataset. Each event has a random type, 1 or 2
-// identifiers, a tenantId metadata entry, and a garbage-text payload. Each
+// identifiers, a tenant metadata entry, and a garbage-text payload. Each
 // projection has a random type, a numeric id, and a longer garbage-text
 // payload. It exists to exercise /events, /projections and storage at scale
 // rather than to model any particular domain. Build it via
@@ -140,7 +140,7 @@ func appendProjections(ctx context.Context, st *store.Store, rng *rand.Rand, tot
 // generateEvent builds a single random, schema-agnostic event: a type out
 // of 10 choices, 1 or 2 identifiers out of 5 possible names (each with a
 // random value between identifierValueMin and identifierValueMax), a
-// tenantId metadata entry, and a garbage-text payload.
+// tenant metadata entry, and a garbage-text payload.
 func generateEvent(rng *rand.Rand) dcb.EventData {
 	identifierCount := 1
 	if rng.Intn(2) == 1 {

@@ -9,7 +9,10 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/tamarackdb/tamarackdb/internal/config"
 	"github.com/tamarackdb/tamarackdb/internal/dcb"
@@ -21,6 +24,14 @@ import (
 // the source's own maxEventSize setting, so this is generous rather than
 // tied to any particular configuration.
 const maxNDJSONLine = 16 * 1024 * 1024
+
+// fetchTimeout bounds one QUERY /events request, response body included. A
+// source that stops answering would otherwise hang the run forever, holding
+// the backup file's lock, and every later scheduled run would fail on it.
+const fetchTimeout = 5 * time.Minute
+
+// httpClient is the client every page is fetched with.
+var httpClient = &http.Client{Timeout: fetchTimeout}
 
 // readTrailer is the last NDJSON line of every QUERY /events response. Its
 // absence (the stream ends without one) means the source cut the page
@@ -36,6 +47,9 @@ func run(ctx context.Context, configPath string) error {
 		return err
 	}
 
+	if err := os.MkdirAll(filepath.Dir(cfg.DatabasePath), 0o755); err != nil {
+		return fmt.Errorf("create backup directory: %w", err)
+	}
 	st, err := store.Open(ctx, cfg.DatabasePath, 0)
 	if err != nil {
 		return err
@@ -75,28 +89,28 @@ func fetchPage(ctx context.Context, cfg *config.BackupConfig, afterSeq int64) ([
 		Limit         int    `json:"limit"`
 	}{Query: "*", AfterSequence: afterSeq, Limit: cfg.PageLimit})
 	if err != nil {
-		return nil, false, fmt.Errorf("tamarackdb-backup: build read request: %w", err)
+		return nil, false, fmt.Errorf("build read request: %w", err)
 	}
 
 	url := strings.TrimRight(cfg.SourceURL, "/") + "/events"
 	req, err := http.NewRequestWithContext(ctx, "QUERY", url, bytes.NewReader(body))
 	if err != nil {
-		return nil, false, fmt.Errorf("tamarackdb-backup: build read request: %w", err)
+		return nil, false, fmt.Errorf("build read request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	if cfg.SourceToken != "" {
 		req.Header.Set("Authorization", "Bearer "+cfg.SourceToken)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
-		return nil, false, fmt.Errorf("tamarackdb-backup: read from %s: %w", cfg.SourceURL, err)
+		return nil, false, fmt.Errorf("read from %s: %w", cfg.SourceURL, err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return nil, false, fmt.Errorf("tamarackdb-backup: read from %s: unexpected status %s: %s", cfg.SourceURL, resp.Status, snippet)
+		return nil, false, fmt.Errorf("read from %s: unexpected status %s: %s", cfg.SourceURL, resp.Status, snippet)
 	}
 
 	scanner := bufio.NewScanner(resp.Body)
@@ -119,15 +133,15 @@ func fetchPage(ctx context.Context, cfg *config.BackupConfig, afterSeq int64) ([
 		}
 		var ev dcb.Event
 		if err := json.Unmarshal(line, &ev); err != nil {
-			return nil, false, fmt.Errorf("tamarackdb-backup: parse event: %w", err)
+			return nil, false, fmt.Errorf("parse event: %w", err)
 		}
 		events = append(events, ev)
 	}
 	if err := scanner.Err(); err != nil {
-		return nil, false, fmt.Errorf("tamarackdb-backup: read response body: %w", err)
+		return nil, false, fmt.Errorf("read response body: %w", err)
 	}
 	if trailer == nil {
-		return nil, false, fmt.Errorf("tamarackdb-backup: read %s: response ended before the page finished (no trailing hasMore line); retry", cfg.SourceURL)
+		return nil, false, fmt.Errorf("read %s: response ended before the page finished (no trailing hasMore line); retry", cfg.SourceURL)
 	}
 
 	return events, trailer.HasMore, nil

@@ -1,4 +1,4 @@
-// Command tamarackdb runs the TamarackDB HTTP server: it loads the TOML
+// Command tamarackdb-server runs the TamarackDB HTTP server: it loads the TOML
 // configuration file, opens the SQLite store, starts the transaction
 // manager, and serves the HTTP API until an OS shutdown signal or a fatal
 // storage error is observed.
@@ -6,6 +6,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -128,11 +129,17 @@ func main() {
 		Handler:           srv,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
+	// Shutdown waits for every request in flight, and a request waiting in
+	// the FIFO only ends once it gets its turn. Closing the transaction
+	// manager as soon as Shutdown starts turns those requests away right
+	// away, and gives out no new ticket to a client that can no longer
+	// reach the server.
+	httpServer.RegisterOnShutdown(tm.Close)
 
 	var listener net.Listener
 	if cfg.SocketPath != "" {
-		if err := os.RemoveAll(cfg.SocketPath); err != nil {
-			log.Fatalf("tamarackdb-server: remove stale socket %s: %v", cfg.SocketPath, err)
+		if err := removeStaleSocket(cfg.SocketPath); err != nil {
+			log.Fatalf("tamarackdb-server: %v", err)
 		}
 		listener, err = net.Listen("unix", cfg.SocketPath)
 	} else {
@@ -201,19 +208,40 @@ func main() {
 	if err := httpServer.Shutdown(shutdownCtx); err != nil {
 		log.Printf("tamarackdb-server: graceful shutdown error: %v", err)
 	}
-	tm.Close() // turns away the FIFO, then rolls back the active transaction
+	tm.Close() // already started by Shutdown; waits for the active transaction's rollback
 	if err := st.Close(); err != nil {
 		log.Printf("tamarackdb-server: store close error: %v", err)
 	}
 	os.Exit(exitCode)
 }
 
+// removeStaleSocket removes a unix socket left behind by an earlier run,
+// so the server can listen on path again. It refuses to remove anything
+// that isn't a socket, so a socketPath set to a regular file or a
+// directory by mistake is never deleted.
+func removeStaleSocket(path string) error {
+	info, err := os.Lstat(path)
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		return nil
+	case err != nil:
+		return fmt.Errorf("check socket %s: %w", path, err)
+	case info.Mode()&os.ModeSocket == 0:
+		return fmt.Errorf("socketPath %s exists and is not a unix socket, refusing to remove it", path)
+	}
+	if err := os.Remove(path); err != nil {
+		return fmt.Errorf("remove stale socket %s: %w", path, err)
+	}
+	return nil
+}
+
 // defaultConfigTemplate is a starter [server] TOML configuration, meant to
 // be piped into a file and adjusted. It spells out every key, including the
 // ones config.Load would otherwise default on its own, so this is a
 // complete reference of what's configurable rather than a partial file.
-// Every key is commented out at the value config.Load would apply anyway:
-// uncommenting a line is how it takes effect. It is a hand-written
+// Every key is commented out at its default value, and uncommenting a line
+// is how it takes effect. Uncommenting bindAddress or port switches the
+// server from socketPath to TCP, even at their default values. It is a hand-written
 // template, not a Marshal of config.Config, so it can carry comments;
 // TOML's Marshal would drop them.
 const defaultConfigTemplate = `[server]

@@ -138,6 +138,7 @@ type Config struct {
 // retry.
 func Load(path string) (*Config, error) {
 	var cfg Config
+	var inFile fileBools
 
 	data, err := os.ReadFile(path)
 	switch {
@@ -149,13 +150,20 @@ func Load(path string) (*Config, error) {
 			return nil, fmt.Errorf("config: parse %s: %w", path, err)
 		}
 		cfg = file.Server
+		var bools struct {
+			Server fileBools `toml:"server"`
+		}
+		if err := toml.Unmarshal(data, &bools); err != nil {
+			return nil, fmt.Errorf("config: parse %s: %w", path, err)
+		}
+		inFile = bools.Server
 	case os.IsNotExist(err):
 		// No config file: fall through to environment variables and defaults.
 	default:
 		return nil, fmt.Errorf("config: read %s: %w", path, err)
 	}
 
-	if err := applyEnv(&cfg); err != nil {
+	if err := applyEnv(&cfg, inFile); err != nil {
 		return nil, fmt.Errorf("config: %w", err)
 	}
 	cfg.LogLevel = strings.ToLower(cfg.LogLevel)
@@ -211,10 +219,20 @@ func Load(path string) (*Config, error) {
 	return &cfg, nil
 }
 
+// fileBools records which boolean keys the file sets. A boolean's zero
+// value, false, is also a value the file can set on purpose, so it can't
+// tell "left out" apart from "set to false" the way the other fields do.
+type fileBools struct {
+	EnableTLS  *bool `toml:"enableTls"`
+	EnableAuth *bool `toml:"enableAuth"`
+	DevMode    *bool `toml:"devMode"`
+}
+
 // applyEnv fills in any field of cfg still at its zero value from the
 // matching TAMARACKDB_* environment variable, in the same order fields
-// appear in Config.
-func applyEnv(cfg *Config) error {
+// appear in Config. A boolean is filled in only when the file left it out
+// (see fileBools).
+func applyEnv(cfg *Config, inFile fileBools) error {
 	if cfg.SocketPath == "" {
 		if v, ok := os.LookupEnv("TAMARACKDB_SOCKET_PATH"); ok {
 			cfg.SocketPath = v
@@ -234,7 +252,7 @@ func applyEnv(cfg *Config) error {
 			cfg.Port = p
 		}
 	}
-	if !cfg.EnableTLS {
+	if inFile.EnableTLS == nil {
 		if v, ok := os.LookupEnv("TAMARACKDB_ENABLE_TLS"); ok {
 			b, err := strconv.ParseBool(v)
 			if err != nil {
@@ -253,7 +271,7 @@ func applyEnv(cfg *Config) error {
 			cfg.TLSKeyFile = v
 		}
 	}
-	if !cfg.EnableAuth {
+	if inFile.EnableAuth == nil {
 		if v, ok := os.LookupEnv("TAMARACKDB_ENABLE_AUTH"); ok {
 			b, err := strconv.ParseBool(v)
 			if err != nil {
@@ -277,7 +295,7 @@ func applyEnv(cfg *Config) error {
 			cfg.LogLevel = v
 		}
 	}
-	if !cfg.DevMode {
+	if inFile.DevMode == nil {
 		if v, ok := os.LookupEnv("TAMARACKDB_DEV_MODE"); ok {
 			b, err := strconv.ParseBool(v)
 			if err != nil {
@@ -373,7 +391,7 @@ func applyEnv(cfg *Config) error {
 // Validate checks structural sanity only: required fields present, numeric
 // values in range. It does not probe whether the TLS files or database
 // path are actually accessible; that's left to the components that use
-// them (http.ListenAndServeTLS, store.Open), which will report their own
+// them (http.Server.ServeTLS, store.Open), which will report their own
 // failures.
 func (c *Config) Validate() error {
 	switch {

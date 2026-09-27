@@ -1,8 +1,8 @@
 /.idea
 /bin/
 /data/
-*.json
-*.toml
+/*.json
+/*.toml
 *.sqlite
 *.sqlite-shm
 *.sqlite-wal
