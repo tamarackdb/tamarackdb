@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"time"
+
+	"github.com/tamarackdb/tamarackdb/internal/dcb"
 )
 
 // debugTime is a time.Time written in the same fixed format as an event's
@@ -11,7 +13,7 @@ import (
 type debugTime struct{ time.Time }
 
 func (t debugTime) MarshalJSON() ([]byte, error) {
-	return json.Marshal(t.UTC().Format(timeLayout))
+	return json.Marshal(t.UTC().Format(dcb.TimeLayout))
 }
 
 type debugResponse struct {

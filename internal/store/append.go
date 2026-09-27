@@ -220,7 +220,7 @@ func insertEventsBatch(ctx context.Context, tx *sql.Tx, rows []dcb.Event) error 
 		if err != nil {
 			return wrapf("marshal metadata", err)
 		}
-		args[i] = []any{ev.Sequence, ev.Time.UTC().Format(timeLayout), ev.Type, ev.Payload, string(idsJSON), string(mdJSON)}
+		args[i] = []any{ev.Sequence, ev.Time.UTC().Format(dcb.TimeLayout), ev.Type, ev.Payload, string(idsJSON), string(mdJSON)}
 	}
 	err := execBatchInsert(ctx, tx,
 		"INSERT INTO events (sequence, time, type, payload, identifiers, metadata) VALUES ", 6, args)

@@ -65,11 +65,11 @@ WHERE events.sequence > ?`)
 
 	if f.TimeFrom != nil {
 		b.WriteString(" AND events.time >= ?")
-		args = append(args, f.TimeFrom.UTC().Format(timeLayout))
+		args = append(args, f.TimeFrom.UTC().Format(dcb.TimeLayout))
 	}
 	if f.TimeBefore != nil {
 		b.WriteString(" AND events.time < ?")
-		args = append(args, f.TimeBefore.UTC().Format(timeLayout))
+		args = append(args, f.TimeBefore.UTC().Format(dcb.TimeLayout))
 	}
 	if where, whereArgs := queryToSQL(f.Query); where != "" {
 		b.WriteString(" AND ")
@@ -83,7 +83,7 @@ WHERE events.sequence > ?`)
 
 // ReadEvent is one row of a Read result. Time, Identifiers, and Metadata
 // are left exactly as stored (see insertEventsBatch): time is always
-// written from a UTC time.Time in timeLayout, and identifiers/metadata are
+// written from a UTC time.Time in dcb.TimeLayout, and identifiers/metadata are
 // always written via IdentifierSet/MetadataSet's own MarshalJSON, so all
 // three are already byte-identical to what the HTTP API returns. Nothing in the read
 // path needs the structured form (query filtering already happened in SQL),
@@ -93,7 +93,7 @@ WHERE events.sequence > ?`)
 // data" error, the same trade-off already made for the type/payload columns.
 type ReadEvent struct {
 	Sequence    int64
-	Time        string // raw events.time text, already UTC and timeLayout-formatted
+	Time        string // raw events.time text, already UTC and dcb.TimeLayout-formatted
 	Type        string
 	Identifiers json.RawMessage
 	Metadata    json.RawMessage

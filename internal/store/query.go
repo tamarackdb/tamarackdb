@@ -6,17 +6,16 @@ import (
 	"github.com/tamarackdb/tamarackdb/internal/dcb"
 )
 
-// queryToSQL translates a dcb.Query into a boolean SQL expression,
-// mirroring dcb.MatchesQuery exactly. The caller ANDs the (non-empty)
-// result into its own WHERE clause. Returns ("", nil) when the query
+// queryToSQL translates a dcb.Query into a boolean SQL expression: an
+// event matches when it matches at least one QueryItem (OR across items).
+// The caller ANDs the (non-empty) result into its own WHERE clause. Returns ("", nil) when the query
 // imposes no constraint at all (Query.all(), or an OR that contains a
 // trivially-matches-everything QueryItem{}); the caller must skip
 // appending the fragment in that case rather than rely on SQL folding an
 // empty string.
 //
 // A non-all Query with zero Items (dcb.Query's unvalidated zero value)
-// mirrors dcb.MatchesQuery's own defensive behavior for that case
-// ("matches nothing") as the SQL literal "0".
+// matches nothing, as the SQL literal "0".
 func queryToSQL(q dcb.Query) (string, []any) {
 	if q.All() {
 		return "", nil
@@ -38,13 +37,13 @@ func queryToSQL(q dcb.Query) (string, []any) {
 	return "(" + strings.Join(clauses, " OR ") + ")", args
 }
 
-// queryItemToSQL mirrors dcb.Matches for one QueryItem: OR across Types
+// queryItemToSQL translates one QueryItem: OR across Types
 // (events.type IN (...)), AND across Identifiers/Metadata (one uncorrelated
 // "sequence IN (SELECT event_sequence FROM ... WHERE name = ? AND value = ?)"
 // per tag, so SQLite can run each subquery once via its name/value index
 // instead of re-evaluating a correlated EXISTS per events row), the three
-// axes AND'd together. Returns ("", nil) for a QueryItem{} (matches
-// everything, per dcb's containsAll being vacuously true on an empty want).
+// axes AND'd together. Returns ("", nil) for a QueryItem{}, which poses no
+// constraint on any axis and so matches everything.
 func queryItemToSQL(item dcb.QueryItem) (string, []any) {
 	var clauses []string
 	var args []any

@@ -52,7 +52,7 @@ func mustReadAll(t *testing.T, s *Store, f ReadFilter) ([]dcb.Event, bool) {
 // though production code (see internal/api/events.go) never does this decode.
 func toDCBEvent(t *testing.T, re ReadEvent) dcb.Event {
 	t.Helper()
-	tm, err := time.Parse(timeLayout, re.Time)
+	tm, err := time.Parse(dcb.TimeLayout, re.Time)
 	if err != nil {
 		t.Fatalf("decode time: %v", err)
 	}

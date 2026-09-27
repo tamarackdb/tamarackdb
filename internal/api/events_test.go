@@ -199,7 +199,7 @@ func TestAppendReadRoundTrip(t *testing.T) {
 		if ev.Sequence != resp.Events[i].Sequence {
 			t.Errorf("event %d: sequence = %d, want %d from the append response", i, ev.Sequence, resp.Events[i].Sequence)
 		}
-		if got := ev.Time.UTC().Format(timeLayout); got != resp.Events[i].Time {
+		if got := ev.Time.UTC().Format(dcb.TimeLayout); got != resp.Events[i].Time {
 			t.Errorf("event %d: read time = %q, want %q from the append response", i, got, resp.Events[i].Time)
 		}
 	}

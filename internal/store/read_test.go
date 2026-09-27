@@ -97,9 +97,8 @@ func TestReadTimeFiltering(t *testing.T) {
 	}
 }
 
-// TestQueryTranslationEndToEnd mirrors internal/dcb's own match_test.go
-// table but verifies queryToSQL against real SQLite rows rather than
-// dcb.Matches on in-memory structs.
+// TestQueryTranslationEndToEnd checks queryToSQL against real SQLite rows:
+// OR across items and types, AND across identifiers and metadata.
 func TestQueryTranslationEndToEnd(t *testing.T) {
 	s := openTestStore(t)
 	mustAppend(t, s, []dcb.EventData{

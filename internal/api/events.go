@@ -230,13 +230,6 @@ func parseTimeRange(tr *readTimeRange) (from, before *time.Time, err error) {
 	return from, before, nil
 }
 
-// timeLayout mirrors dcb.Event's own wire format exactly (ATOM/RFC3339,
-// fixed microsecond precision, UTC). It is duplicated here because dcb
-// keeps its layout unexported and appendedEvent is intentionally its own,
-// smaller shape (sequence+time only), not a reuse of dcb.Event's
-// MarshalJSON.
-const timeLayout = "2006-01-02T15:04:05.000000Z07:00"
-
 type appendRequest struct {
 	Events    []dcb.EventData      `json:"events"`
 	Condition *dcb.AppendCondition `json:"condition,omitempty"`
@@ -290,7 +283,7 @@ func (s *Server) handleAppendEvents(w http.ResponseWriter, r *http.Request) {
 		}
 		resp.Events = make([]appendedEvent, len(events))
 		for i, ev := range events {
-			resp.Events[i] = appendedEvent{Sequence: ev.Sequence, Time: ev.Time.UTC().Format(timeLayout)}
+			resp.Events[i] = appendedEvent{Sequence: ev.Sequence, Time: ev.Time.UTC().Format(dcb.TimeLayout)}
 		}
 		return nil
 	})

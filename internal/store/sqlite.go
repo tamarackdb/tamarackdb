@@ -14,11 +14,6 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// timeLayout renders time and its range bounds in ATOM format
-// (RFC 3339) with fixed microsecond precision, always UTC, matching
-// dcb.Event's wire format exactly.
-const timeLayout = "2006-01-02T15:04:05.000000Z07:00"
-
 const (
 	// fallbackReadPoolSize is used when Open's readPoolSize argument is
 	// <= 0 ("not specified"), for callers with no opinion on it (tests,

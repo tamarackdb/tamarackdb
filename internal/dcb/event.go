@@ -145,8 +145,9 @@ func unmarshalCompact[T any](data []byte, build func(name, value string) T) ([]T
 }
 
 // EventData is everything known about an event before it is appended:
-// what a client submits to POST /events, and all the matching predicate
-// (see match.go) ever needs. Sequence and Time play no part in matching.
+// what a client submits to POST /events, and all a Query matches against
+// (see internal/store/query.go). Sequence and Time play no part in
+// matching.
 type EventData struct {
 	Type        string        `json:"type"`
 	Identifiers IdentifierSet `json:"identifiers"`
@@ -215,13 +216,14 @@ type Event struct {
 	EventData
 }
 
-// timeLayout renders/parses time in ATOM format
-// (RFC 3339) with fixed microsecond precision, always UTC, matching the
-// exact wire format used in requests and responses
-// (e.g. "2026-09-01T14:23:05.123456Z").
-// Go's default time.Time JSON marshaling (RFC3339Nano) trims trailing
-// zero digits, so it cannot be used as-is here.
-const timeLayout = "2006-01-02T15:04:05.000000Z07:00"
+// TimeLayout is the one format of an event's time, everywhere: on the wire,
+// in the events table, and in a read's time bounds. It's ATOM format
+// (RFC 3339) with exactly 6 fractional digits, formatted from a UTC time
+// so it ends in "Z" (e.g. "2026-09-01T14:23:05.123456Z"). The fixed width
+// is what makes the stored text sort chronologically. Go's default
+// time.Time JSON marshaling (RFC3339Nano) trims trailing zero digits, so
+// it can't be used instead.
+const TimeLayout = "2006-01-02T15:04:05.000000Z07:00"
 
 func (e Event) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
@@ -233,7 +235,7 @@ func (e Event) MarshalJSON() ([]byte, error) {
 		Payload     string        `json:"payload"`
 	}{
 		Sequence:    e.Sequence,
-		Time:        e.Time.UTC().Format(timeLayout),
+		Time:        e.Time.UTC().Format(TimeLayout),
 		Type:        e.Type,
 		Identifiers: e.Identifiers,
 		Metadata:    e.Metadata,
