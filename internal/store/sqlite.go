@@ -135,12 +135,18 @@ func Open(ctx context.Context, path string, readPoolSize int) (*Store, error) {
 // file as a new database, and creates the WAL and shared-memory files with
 // the database file's permissions: the events stay private even in a
 // directory other users can list.
+//
+// Whatever already sits at path, a database file or anything else, is left
+// to SQLite, which reports its own error for what it can't open.
 func createPrivate(path string) error {
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
-	if err != nil {
-		return wrapf("open database file", err)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	switch {
+	case errors.Is(err, os.ErrExist):
+		return nil
+	case err != nil:
+		return wrapf("create database file", err)
 	}
-	return wrapf("open database file", f.Close())
+	return wrapf("create database file", f.Close())
 }
 
 // Close closes both connection pools and releases the database file lock.
