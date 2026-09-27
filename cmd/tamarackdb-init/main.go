@@ -37,7 +37,7 @@ func main() {
 	if err := checkNotExists(path); err != nil {
 		log.Fatalf("tamarackdb-init: %v", err)
 	}
-	if err := os.MkdirAll(*dataDir, 0o755); err != nil {
+	if err := os.MkdirAll(*dataDir, 0o700); err != nil {
 		log.Fatalf("tamarackdb-init: %v", err)
 	}
 

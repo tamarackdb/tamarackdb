@@ -26,7 +26,7 @@ WORKDIR /app
 
 COPY --from=builder /out/tamarackdb-server /out/tamarackdb-init ./
 
-RUN mkdir -p /data && chown -R tamarackdb:tamarackdb /data
+RUN mkdir -p /data && chown -R tamarackdb:tamarackdb /data && chmod 700 /data
 
 ENV TAMARACKDB_BIND_ADDRESS=0.0.0.0 \
     TAMARACKDB_PORT=8085 \

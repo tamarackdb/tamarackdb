@@ -73,6 +73,10 @@ func Open(ctx context.Context, path string, readPoolSize int) (*Store, error) {
 	if err != nil {
 		return nil, err // ErrDatabaseLocked, or already wrapped
 	}
+	if err := createPrivate(path); err != nil {
+		releaseLock(lock)
+		return nil, err
+	}
 
 	writeDB, err := sql.Open("sqlite", dsn(path, "&_txlock=immediate"))
 	if err != nil {
@@ -124,6 +128,19 @@ func Open(ctx context.Context, path string, readPoolSize int) (*Store, error) {
 	}
 
 	return &Store{writeDB: writeDB, readDB: readDB, lock: lock, nextSeq: maxSeq + 1}, nil
+}
+
+// createPrivate creates the database file, empty, readable and writable
+// by its owner only, unless it already exists. SQLite treats an empty
+// file as a new database, and creates the WAL and shared-memory files with
+// the database file's permissions: the events stay private even in a
+// directory other users can list.
+func createPrivate(path string) error {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return wrapf("open database file", err)
+	}
+	return wrapf("open database file", f.Close())
 }
 
 // Close closes both connection pools and releases the database file lock.

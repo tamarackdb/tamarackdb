@@ -78,7 +78,7 @@ func main() {
 
 	rng := rand.New(rand.NewSource(*seed))
 
-	if err := os.MkdirAll(*dataDir, 0o755); err != nil {
+	if err := os.MkdirAll(*dataDir, 0o700); err != nil {
 		log.Fatalf("tamarackdb-demo: %v", err)
 	}
 	ctx := context.Background()

@@ -47,7 +47,7 @@ func run(ctx context.Context, configPath string) error {
 		return err
 	}
 
-	if err := os.MkdirAll(filepath.Dir(cfg.DatabasePath), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(cfg.DatabasePath), 0o700); err != nil {
 		return fmt.Errorf("create backup directory: %w", err)
 	}
 	st, err := store.Open(ctx, cfg.DatabasePath, 0)

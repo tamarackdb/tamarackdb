@@ -87,7 +87,7 @@ func main() {
 		MaxProjectionsPerRequest: cfg.MaxProjectionsPerRequest,
 	}))
 
-	if err := os.MkdirAll(cfg.DataDir, 0o755); err != nil {
+	if err := os.MkdirAll(cfg.DataDir, 0o700); err != nil {
 		log.Fatalf("tamarackdb-server: create data directory: %v", err)
 	}
 	st, err := store.Open(context.Background(), cfg.DatabasePath(), cfg.ReadPoolSize)
@@ -150,14 +150,7 @@ func main() {
 		if err := removeStaleSocket(cfg.SocketPath); err != nil {
 			log.Fatalf("tamarackdb-server: %v", err)
 		}
-		listener, err = net.Listen("unix", cfg.SocketPath)
-		if err == nil {
-			// The socket is created with the umask's permissions, which let
-			// no other user connect: connecting takes write permission.
-			if err := os.Chmod(cfg.SocketPath, cfg.SocketFileMode()); err != nil {
-				log.Fatalf("tamarackdb-server: set socketMode on %s: %v", cfg.SocketPath, err)
-			}
-		}
+		listener, err = listenUnix(cfg.SocketPath, cfg.SocketFileMode())
 	} else {
 		listener, err = net.Listen("tcp", net.JoinHostPort(cfg.BindAddress, strconv.Itoa(cfg.Port)))
 	}
@@ -229,6 +222,27 @@ func main() {
 		log.Printf("tamarackdb-server: store close error: %v", err)
 	}
 	os.Exit(exitCode)
+}
+
+// listenUnix listens on a unix socket at path, then sets its permissions
+// to mode. Connecting to a unix socket takes write permission on it, so its
+// permissions decide who may connect. The umask is set to 0177 while the
+// socket is created, so it starts out as 0600: with a looser umask, such as
+// the common 002, another user could otherwise connect in the moment
+// before mode is applied. Changing the umask affects the whole process, so
+// this runs at startup, before any other goroutine creates files.
+func listenUnix(path string, mode os.FileMode) (net.Listener, error) {
+	old := syscall.Umask(0o177)
+	l, err := net.Listen("unix", path)
+	syscall.Umask(old)
+	if err != nil {
+		return nil, err
+	}
+	if err := os.Chmod(path, mode); err != nil {
+		l.Close()
+		return nil, fmt.Errorf("set socketMode on %s: %w", path, err)
+	}
+	return l, nil
 }
 
 // removeStaleSocket removes a unix socket left behind by an earlier run,

@@ -4,6 +4,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
 )
 
@@ -43,5 +44,36 @@ func TestRemoveStaleSocketRefusesNonSocket(t *testing.T) {
 		if _, err := os.Lstat(path); err != nil {
 			t.Errorf("%s was removed: %v", path, err)
 		}
+	}
+}
+
+func TestListenUnixAppliesMode(t *testing.T) {
+	for _, mode := range []os.FileMode{0o600, 0o660} {
+		path := filepath.Join(t.TempDir(), "s.sock")
+		l, err := listenUnix(path, mode)
+		if err != nil {
+			t.Fatalf("listenUnix() error = %v", err)
+		}
+		info, err := os.Stat(path)
+		l.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if perm := info.Mode().Perm(); perm != mode {
+			t.Errorf("socket mode = %o, want %o", perm, mode)
+		}
+	}
+}
+
+func TestListenUnixRestoresUmask(t *testing.T) {
+	old := syscall.Umask(0o022)
+	defer syscall.Umask(old)
+	l, err := listenUnix(filepath.Join(t.TempDir(), "s.sock"), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	l.Close()
+	if got := syscall.Umask(0o022); got != 0o022 {
+		t.Errorf("umask after listenUnix = %o, want 022", got)
 	}
 }

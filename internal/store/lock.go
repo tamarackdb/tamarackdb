@@ -18,7 +18,7 @@ const lockSuffix = ".lock"
 // dbPath is in use; the OS releases the lock automatically if the process
 // dies, so no stale lock file can block a later start.
 func acquireLock(dbPath string) (*os.File, error) {
-	f, err := os.OpenFile(dbPath+lockSuffix, os.O_CREATE|os.O_RDWR, 0o644)
+	f, err := os.OpenFile(dbPath+lockSuffix, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		return nil, wrapf("open lock file", err)
 	}
