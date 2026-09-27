@@ -69,9 +69,9 @@ func TestAccessLogLevelPerOutcome(t *testing.T) {
 			srv, _, _ := newTestServer(t)
 			return doRequest(t, srv, "GET", "/health", "")
 		}},
-		{"DocumentNotFound", "DEBUG", func(t *testing.T) *httptest.ResponseRecorder {
+		{"ProjectionNotFound", "DEBUG", func(t *testing.T) *httptest.ResponseRecorder {
 			srv, _, _ := newTestServer(t)
-			return doRequest(t, srv, "GET", "/documents/user-profile/123", "")
+			return doRequest(t, srv, "GET", "/projections/user-profile/123", "")
 		}},
 		{"ConcurrencyException", "DEBUG", func(t *testing.T) *httptest.ResponseRecorder {
 			srv, _, _ := newTestServer(t)
@@ -95,7 +95,7 @@ func TestAccessLogLevelPerOutcome(t *testing.T) {
 		}},
 		{"NotPaused", "INFO", func(t *testing.T) *httptest.ResponseRecorder {
 			srv, _, _ := newTestServer(t)
-			return doRequest(t, srv, "DELETE", "/documents", "")
+			return doRequest(t, srv, "DELETE", "/projections", "")
 		}},
 		{"TicketNotActive", "INFO", func(t *testing.T) *httptest.ResponseRecorder {
 			srv, _, _ := newTestServer(t)

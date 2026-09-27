@@ -73,8 +73,8 @@ func main() {
 	fmt.Printf("defaultEventsPerPage: %d\n", cfg.DefaultEventsPerPage)
 	fmt.Printf("maxEventsPerPage: %d\n", cfg.MaxEventsPerPage)
 	fmt.Printf("maxEventSize: %d\n", cfg.MaxEventSize)
-	fmt.Printf("maxDocumentSize: %d\n", cfg.MaxDocumentSize)
-	fmt.Printf("maxDocumentsPerRequest: %d\n", cfg.MaxDocumentsPerRequest)
+	fmt.Printf("maxProjectionSize: %d\n", cfg.MaxProjectionSize)
+	fmt.Printf("maxProjectionsPerRequest: %d\n", cfg.MaxProjectionsPerRequest)
 	fmt.Printf("transactionTimeout: %d\n", cfg.TransactionTimeout)
 	fmt.Printf("maxTransactionDuration: %d\n", cfg.MaxTransactionDuration)
 	fmt.Printf("maxQueuedTransactions: %d\n", cfg.MaxQueuedTransactions)
@@ -106,16 +106,16 @@ func main() {
 
 	fatalCh := make(chan error, 1)
 	srv := api.New(tm, st, api.Options{
-		Version:                buildinfo.Version,
-		EnableAuth:             cfg.EnableAuth,
-		AuthToken:              cfg.AuthToken,
-		DefaultEventsPerPage:   cfg.DefaultEventsPerPage,
-		MaxEventsPerPage:       cfg.MaxEventsPerPage,
-		MaxEventSize:           cfg.MaxEventSize,
-		MaxDocumentSize:        cfg.MaxDocumentSize,
-		MaxDocumentsPerRequest: cfg.MaxDocumentsPerRequest,
-		DevMode:                cfg.DevMode,
-		LogLevel:               cfg.LogLevel,
+		Version:                  buildinfo.Version,
+		EnableAuth:               cfg.EnableAuth,
+		AuthToken:                cfg.AuthToken,
+		DefaultEventsPerPage:     cfg.DefaultEventsPerPage,
+		MaxEventsPerPage:         cfg.MaxEventsPerPage,
+		MaxEventSize:             cfg.MaxEventSize,
+		MaxProjectionSize:        cfg.MaxProjectionSize,
+		MaxProjectionsPerRequest: cfg.MaxProjectionsPerRequest,
+		DevMode:                  cfg.DevMode,
+		LogLevel:                 cfg.LogLevel,
 		OnFatalStorageError: func(err error) {
 			select {
 			case fatalCh <- err:
@@ -231,8 +231,8 @@ const defaultConfigTemplate = `[server]
 # defaultEventsPerPage = %d
 # maxEventsPerPage = %d
 # maxEventSize = %d # bytes
-# maxDocumentSize = %d # bytes
-# maxDocumentsPerRequest = %d
+# maxProjectionSize = %d # bytes
+# maxProjectionsPerRequest = %d
 # transactionTimeout = %d # seconds
 # maxTransactionDuration = %d # seconds
 # maxQueuedTransactions = %d
@@ -246,7 +246,7 @@ func printDefaultConfig() {
 		config.DefaultSocketPath, config.DefaultBindAddress, config.DefaultPort, config.DefaultDataDir,
 		config.DefaultLogLevel,
 		config.DefaultEventsPerPage, config.DefaultMaxEventsPerPage, config.DefaultEventSize,
-		config.DefaultDocumentSize, config.DefaultMaxDocumentsPerRequest,
+		config.DefaultProjectionSize, config.DefaultMaxProjectionsPerRequest,
 		config.DefaultTransactionTimeout, config.DefaultMaxTransactionDuration,
 		config.DefaultMaxQueuedTransactions, config.DefaultReadPoolSize)
 }

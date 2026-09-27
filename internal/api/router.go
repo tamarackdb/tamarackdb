@@ -42,18 +42,18 @@ type Options struct {
 	// Default: 65536 (64 KiB).
 	MaxEventSize int
 
-	// MaxDocumentSize is the maximum UTF-8 byte size of one document's
-	// payload in a POST /documents request; over it, 413. Only checked
+	// MaxProjectionSize is the maximum UTF-8 byte size of one projection's
+	// payload in a POST /projections request; over it, 413. Only checked
 	// when the payload is present (a deletion has none to bound).
 	// Default: 65536 (64 KiB).
-	MaxDocumentSize int
+	MaxProjectionSize int
 
-	// MaxDocumentsPerRequest caps how many documents a single
-	// POST /documents request may carry; over it, 400.
-	MaxDocumentsPerRequest int
+	// MaxProjectionsPerRequest caps how many projections a single
+	// POST /projections request may carry; over it, 400.
+	MaxProjectionsPerRequest int
 
 	// DevMode, when true, registers POST /reset, which deletes every event
-	// and document, and the /debug/pprof/ profiling endpoints. Never
+	// and projection, and the /debug/pprof/ profiling endpoints. Never
 	// enable this in production.
 	DevMode bool
 
@@ -123,10 +123,10 @@ func New(tm *txn.Manager, st *store.Store, opts Options) *Server {
 		panic("api: New: Options.DefaultEventsPerPage must not exceed Options.MaxEventsPerPage")
 	case opts.MaxEventSize <= 0:
 		panic("api: New: Options.MaxEventSize must be positive")
-	case opts.MaxDocumentSize <= 0:
-		panic("api: New: Options.MaxDocumentSize must be positive")
-	case opts.MaxDocumentsPerRequest <= 0:
-		panic("api: New: Options.MaxDocumentsPerRequest must be positive")
+	case opts.MaxProjectionSize <= 0:
+		panic("api: New: Options.MaxProjectionSize must be positive")
+	case opts.MaxProjectionsPerRequest <= 0:
+		panic("api: New: Options.MaxProjectionsPerRequest must be positive")
 	case !validLogLevel:
 		panic(`api: New: Options.LogLevel must be one of "debug", "info", "warning", "error"`)
 	}
@@ -139,10 +139,10 @@ func New(tm *txn.Manager, st *store.Store, opts Options) *Server {
 	mux.HandleFunc("POST /rollback", s.handleRollback)
 	mux.HandleFunc("QUERY /events", s.handleReadEvents)
 	mux.HandleFunc("POST /events", s.handleAppendEvents)
-	mux.HandleFunc("GET /documents/{type}/{id}", s.handleGetDocument)
-	mux.HandleFunc("POST /documents", s.handleWriteDocuments)
-	mux.HandleFunc("DELETE /documents/{type}", s.handleDeleteDocumentsByType)
-	mux.HandleFunc("DELETE /documents", s.handleDeleteAllDocuments)
+	mux.HandleFunc("GET /projections/{type}/{id}", s.handleGetProjection)
+	mux.HandleFunc("POST /projections", s.handleWriteProjections)
+	mux.HandleFunc("DELETE /projections/{type}", s.handleDeleteProjectionsByType)
+	mux.HandleFunc("DELETE /projections", s.handleDeleteAllProjections)
 	mux.HandleFunc("POST /pause", s.handlePause)
 	mux.HandleFunc("POST /resume", s.handleResume)
 	mux.HandleFunc("GET /health", s.handleHealth)
@@ -155,7 +155,7 @@ func New(tm *txn.Manager, st *store.Store, opts Options) *Server {
 	// matches). An unknown path gets the stdlib's plain-text 404; a known
 	// path with the wrong method correctly gets 405 + Allow.
 	if opts.DevMode {
-		// Deletes every event and document, see txn.Manager.Reset.
+		// Deletes every event and projection, see txn.Manager.Reset.
 		mux.HandleFunc("POST /reset", s.handleReset)
 
 		// Standard net/http/pprof registration, mounted on our own mux

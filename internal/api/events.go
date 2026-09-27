@@ -224,12 +224,12 @@ type appendedEvent struct {
 	Time     string `json:"time"`
 }
 
-// oversizeError is returned by the per-event and per-document size checks
-// (dcb.EventData.Size() against Options.MaxEventSize, or a document
-// payload's byte length against Options.MaxDocumentSize). kind names
+// oversizeError is returned by the per-event and per-projection size checks
+// (dcb.EventData.Size() against Options.MaxEventSize, or a projection
+// payload's byte length against Options.MaxProjectionSize). kind names
 // which one, for the message.
 type oversizeError struct {
-	kind             string // "event" or "document"
+	kind             string // "event" or "projection"
 	index, size, max int
 }
 

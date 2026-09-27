@@ -439,7 +439,7 @@ func (m *Manager) Paused() bool {
 
 // RunPaused runs fn if the server is paused, or returns ErrNotPaused. The
 // pause can't end while fn runs. It's for the calls accepted only while
-// paused: writing documents without a ticket, and deleting documents in
+// paused: writing projections without a ticket, and deleting projections in
 // bulk.
 func (m *Manager) RunPaused(fn func() error) error {
 	m.pauseMu.RLock()
@@ -450,7 +450,7 @@ func (m *Manager) RunPaused(fn func() error) error {
 	return fn()
 }
 
-// Reset deletes every event and document, for dev mode. It doesn't join
+// Reset deletes every event and projection, for dev mode. It doesn't join
 // the FIFO. If a transaction is active, Reset waits for a call already
 // running with it, rolls it back, deletes the data, then gives the turn
 // to the next request, which gets its ticket on an empty store.

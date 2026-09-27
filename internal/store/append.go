@@ -8,18 +8,18 @@ import (
 	"time"
 
 	"github.com/tamarackdb/tamarackdb/internal/dcb"
-	"github.com/tamarackdb/tamarackdb/internal/document"
+	"github.com/tamarackdb/tamarackdb/internal/projection"
 )
 
-// Append writes events and documents in one transaction of its own,
+// Append writes events and projections in one transaction of its own,
 // optionally checking condition first: Begin, Tx.Append,
-// Tx.WriteDocuments, then Commit. Events and documents commit together, or
-// not at all. events and documents are assumed already validated by the
-// caller (dcb.EventData.Validate, document.Data.Validate, the per-call
+// Tx.WriteProjections, then Commit. Events and projections commit together, or
+// not at all. events and projections are assumed already validated by the
+// caller (dcb.EventData.Validate, projection.Data.Validate, the per-call
 // caps): this package doesn't re-validate request shape, only concurrency
 // and persistence.
-func (s *Store) Append(ctx context.Context, events []dcb.EventData, condition *dcb.AppendCondition, documents []document.Data) ([]dcb.Event, error) {
-	if len(events) == 0 && len(documents) == 0 {
+func (s *Store) Append(ctx context.Context, events []dcb.EventData, condition *dcb.AppendCondition, projections []projection.Data) ([]dcb.Event, error) {
+	if len(events) == 0 && len(projections) == 0 {
 		return nil, nil
 	}
 
@@ -33,7 +33,7 @@ func (s *Store) Append(ctx context.Context, events []dcb.EventData, condition *d
 	if err != nil {
 		return nil, err
 	}
-	if err := tx.WriteDocuments(ctx, documents); err != nil {
+	if err := tx.WriteProjections(ctx, projections); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(); err != nil {

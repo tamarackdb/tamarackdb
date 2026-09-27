@@ -39,7 +39,7 @@ CREATE TABLE metadata (
 
 CREATE INDEX idx_metadata_name_value ON metadata(name, value, event_sequence);
 
-CREATE TABLE documents (
+CREATE TABLE projections (
     type    TEXT NOT NULL,
     id      TEXT NOT NULL,
     payload TEXT NOT NULL,

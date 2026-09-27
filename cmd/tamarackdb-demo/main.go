@@ -1,8 +1,8 @@
 // Command tamarackdb-demo seeds a TamarackDB data directory with a large
 // synthetic, schema-agnostic dataset. Each event has a random type, 1 or 2
 // identifiers, a tenantId metadata entry, and a garbage-text payload. Each
-// document has a random type, a numeric id, and a longer garbage-text
-// payload. It exists to exercise /events, /documents and storage at scale
+// projection has a random type, a numeric id, and a longer garbage-text
+// payload. It exists to exercise /events, /projections and storage at scale
 // rather than to model any particular domain. Build it via
 // `make tamarackdb-demo`, producing bin/tamarackdb-demo.
 package main
@@ -19,21 +19,21 @@ import (
 	"github.com/tamarackdb/tamarackdb/internal/buildinfo"
 	"github.com/tamarackdb/tamarackdb/internal/config"
 	"github.com/tamarackdb/tamarackdb/internal/dcb"
-	"github.com/tamarackdb/tamarackdb/internal/document"
+	"github.com/tamarackdb/tamarackdb/internal/projection"
 	"github.com/tamarackdb/tamarackdb/internal/store"
 )
 
 const (
-	identifierValueMin    = 1
-	identifierValueMax    = 10
-	tenantIDMin           = 1
-	tenantIDMax           = 5
-	eventPayloadLenMin    = 0
-	eventPayloadLenMax    = 100
-	documentPayloadLenMin = 100
-	documentPayloadLenMax = 1000
+	identifierValueMin      = 1
+	identifierValueMax      = 10
+	tenantIDMin             = 1
+	tenantIDMax             = 5
+	eventPayloadLenMin      = 0
+	eventPayloadLenMax      = 100
+	projectionPayloadLenMin = 100
+	projectionPayloadLenMax = 1000
 
-	// appendBatchSize is the number of events, or documents, appended per
+	// appendBatchSize is the number of events, or projections, appended per
 	// store.Append call (and thus per transaction/commit). It bypasses the
 	// HTTP API's dcb.MaxEventsPerWrite cap since the demo writes directly
 	// through the store.
@@ -47,8 +47,8 @@ var eventTypes = []string{
 
 var identifierNames = []string{"foo", "bar", "baz", "qux", "quux"}
 
-var documentTypes = []string{
-	"DocumentType1", "DocumentType2", "DocumentType3", "DocumentType4", "DocumentType5",
+var projectionTypes = []string{
+	"ProjectionType1", "ProjectionType2", "ProjectionType3", "ProjectionType4", "ProjectionType5",
 }
 
 const garbageAlphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
@@ -56,7 +56,7 @@ const garbageAlphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ012
 func main() {
 	dataDir := flag.String("data-dir", "", "directory holding the SQLite database file to seed")
 	events := flag.Int("events", 1_000_000, "number of events to append")
-	documents := flag.Int("documents", 0, "number of documents to write")
+	projections := flag.Int("projections", 0, "number of projections to write")
 	seed := flag.Int64("seed", 1, "random seed, for reproducible datasets")
 	showVersion := flag.Bool("version", false, "print the version and exit")
 	flag.Parse()
@@ -69,11 +69,11 @@ func main() {
 	if *dataDir == "" {
 		log.Fatal("tamarackdb-demo: -data-dir is required")
 	}
-	if *events < 0 || *documents < 0 {
-		log.Fatal("tamarackdb-demo: -events and -documents must not be negative")
+	if *events < 0 || *projections < 0 {
+		log.Fatal("tamarackdb-demo: -events and -projections must not be negative")
 	}
-	if *events == 0 && *documents == 0 {
-		log.Fatal("tamarackdb-demo: at least one of -events or -documents must be positive")
+	if *events == 0 && *projections == 0 {
+		log.Fatal("tamarackdb-demo: at least one of -events or -projections must be positive")
 	}
 
 	rng := rand.New(rand.NewSource(*seed))
@@ -90,9 +90,9 @@ func main() {
 	defer st.Close()
 
 	appendEvents(ctx, st, rng, *events)
-	appendDocuments(ctx, st, rng, *documents)
+	appendProjections(ctx, st, rng, *projections)
 
-	log.Printf("tamarackdb-demo: done, %d events and %d documents in %s", *events, *documents, cfg.DatabasePath())
+	log.Printf("tamarackdb-demo: done, %d events and %d projections in %s", *events, *projections, cfg.DatabasePath())
 }
 
 // appendEvents appends total random events, appendBatchSize per
@@ -112,21 +112,21 @@ func appendEvents(ctx context.Context, st *store.Store, rng *rand.Rand, total in
 	}
 }
 
-// appendDocuments writes total random documents, appendBatchSize per
+// appendProjections writes total random projections, appendBatchSize per
 // store.Append call. Ids run from 1 to total, so a second run on the same
-// data directory replaces the first run's documents.
-func appendDocuments(ctx context.Context, st *store.Store, rng *rand.Rand, total int) {
+// data directory replaces the first run's projections.
+func appendProjections(ctx context.Context, st *store.Store, rng *rand.Rand, total int) {
 	for appended := 0; appended < total; {
 		batchSize := min(appendBatchSize, total-appended)
-		batch := make([]document.Data, batchSize)
+		batch := make([]projection.Data, batchSize)
 		for i := range batch {
-			batch[i] = generateDocument(rng, appended+i+1)
+			batch[i] = generateProjection(rng, appended+i+1)
 		}
 		if _, err := st.Append(ctx, nil, nil, batch); err != nil {
 			log.Fatalf("tamarackdb-demo: %v", err)
 		}
 		appended += batchSize
-		log.Printf("tamarackdb-demo: appended %d/%d documents", appended, total)
+		log.Printf("tamarackdb-demo: appended %d/%d projections", appended, total)
 	}
 }
 
@@ -158,12 +158,12 @@ func generateEvent(rng *rand.Rand) dcb.EventData {
 	}
 }
 
-// generateDocument builds a single random document: a type out of 5
+// generateProjection builds a single random projection: a type out of 5
 // choices, id as its numeric id, and a garbage-text payload.
-func generateDocument(rng *rand.Rand, id int) document.Data {
-	payload := garbageText(rng, documentPayloadLenMin, documentPayloadLenMax)
-	return document.Data{
-		Type:    documentTypes[rng.Intn(len(documentTypes))],
+func generateProjection(rng *rand.Rand, id int) projection.Data {
+	payload := garbageText(rng, projectionPayloadLenMin, projectionPayloadLenMax)
+	return projection.Data{
+		Type:    projectionTypes[rng.Intn(len(projectionTypes))],
 		ID:      strconv.Itoa(id),
 		Payload: &payload,
 	}

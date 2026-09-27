@@ -6,12 +6,12 @@ import (
 	"errors"
 
 	"github.com/tamarackdb/tamarackdb/internal/dcb"
-	"github.com/tamarackdb/tamarackdb/internal/document"
+	"github.com/tamarackdb/tamarackdb/internal/projection"
 )
 
 // Tx is one write transaction on the write connection. Everything done
 // through it (reading events, appending events, reading and writing
-// documents) sees what earlier calls on the same Tx wrote, and becomes
+// projections) sees what earlier calls on the same Tx wrote, and becomes
 // visible to readers outside the Tx only once Commit succeeds.
 //
 // A Tx is not safe for concurrent use: its caller runs one call at a
@@ -62,19 +62,19 @@ func (t *Tx) Append(ctx context.Context, events []dcb.EventData, condition *dcb.
 	return t.s.appendEvents(ctx, t.tx, events, condition)
 }
 
-// GetDocument reads a document inside the transaction: it sees documents
+// GetProjection reads a projection inside the transaction: it sees projections
 // written earlier on this Tx.
-func (t *Tx) GetDocument(ctx context.Context, typ, id string) (payload string, found bool, err error) {
-	return getDocument(ctx, t.tx, typ, id)
+func (t *Tx) GetProjection(ctx context.Context, typ, id string) (payload string, found bool, err error) {
+	return getProjection(ctx, t.tx, typ, id)
 }
 
-// WriteDocuments creates, replaces, or deletes documents inside the
-// transaction (see document.Data).
-func (t *Tx) WriteDocuments(ctx context.Context, documents []document.Data) error {
-	return writeDocuments(ctx, t.tx, documents)
+// WriteProjections creates, replaces, or deletes projections inside the
+// transaction (see projection.Data).
+func (t *Tx) WriteProjections(ctx context.Context, projections []projection.Data) error {
+	return writeProjections(ctx, t.tx, projections)
 }
 
-// Commit makes every event and document written on this Tx durable
+// Commit makes every event and projection written on this Tx durable
 // together. If the commit fails, the counter goes back to where it was
 // when the Tx began, as for a rollback.
 func (t *Tx) Commit() error {

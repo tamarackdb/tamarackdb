@@ -124,7 +124,7 @@ func (s *Server) handleResume(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// handleReset implements POST /reset, deleting every event and document
+// handleReset implements POST /reset, deleting every event and projection
 // and cutting off the active transaction, if any (see
 // txn.Manager.Reset). Only registered by New when Options.DevMode is true.
 func (s *Server) handleReset(w http.ResponseWriter, r *http.Request) {

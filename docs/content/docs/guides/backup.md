@@ -59,7 +59,7 @@ source running only on its default unix socket (see
 The backup file is a regular TamarackDB database. If the source is ever lost,
 point `tamarackdb-server` at the backup file and serve it as the new instance.
 
-It holds events only, not documents. Before an application uses a restored
+It holds events only, not projections. Before an application uses a restored
 backup, it must rebuild its projections (see
 [Integration](/docs/guides/integration/#projection-rebuilds)).
 

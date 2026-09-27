@@ -27,7 +27,7 @@ func newSourceServer(t *testing.T, st *store.Store) *httptest.Server {
 	}
 	t.Cleanup(tm.Close)
 	srv := api.New(tm, st, api.Options{
-		DefaultEventsPerPage: 1000, MaxEventsPerPage: 10000, MaxEventSize: 65536, MaxDocumentSize: 65536, MaxDocumentsPerRequest: 100,
+		DefaultEventsPerPage: 1000, MaxEventsPerPage: 10000, MaxEventSize: 65536, MaxProjectionSize: 65536, MaxProjectionsPerRequest: 100,
 		LogLevel: "debug",
 	})
 	ts := httptest.NewServer(srv)

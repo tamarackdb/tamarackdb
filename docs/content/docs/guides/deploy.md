@@ -63,14 +63,14 @@ file works whether you run one binary or both.
 : Env: `TAMARACKDB_MAX_EVENT_SIZE`
 : Default: `65536` (64 KiB)
 
-`maxDocumentSize`
-: Maximum size in bytes of a single document's payload.
-: Env: `TAMARACKDB_MAX_DOCUMENT_SIZE`
+`maxProjectionSize`
+: Maximum size in bytes of a single projection's payload.
+: Env: `TAMARACKDB_MAX_PROJECTION_SIZE`
 : Default: `65536` (64 KiB)
 
-`maxDocumentsPerRequest`
-: Maximum documents in a single `POST /documents` call.
-: Env: `TAMARACKDB_MAX_DOCUMENTS_PER_REQUEST`
+`maxProjectionsPerRequest`
+: Maximum projections in a single `POST /projections` call.
+: Env: `TAMARACKDB_MAX_PROJECTIONS_PER_REQUEST`
 : Default: `100`
 
 `transactionTimeout`
@@ -89,12 +89,12 @@ file works whether you run one binary or both.
 : Default: `100`
 
 `readPoolSize`
-: SQLite connections available for reads without a ticket (`QUERY /events`, `GET /documents/{type}/{id}`), and so how many can run at once.
+: SQLite connections available for reads without a ticket (`QUERY /events`, `GET /projections/{type}/{id}`), and so how many can run at once.
 : Env: `TAMARACKDB_READ_POOL_SIZE`
 : Default: `8`
 
 `devMode`
-: Turns on `POST /reset` (deletes every event and document) and `/debug/pprof/*` (profiling endpoints). Never enable this in production.
+: Turns on `POST /reset` (deletes every event and projection) and `/debug/pprof/*` (profiling endpoints). Never enable this in production.
 : Env: `TAMARACKDB_DEV_MODE`
 : Default: `false`
 
@@ -250,7 +250,7 @@ keeps the pause in memory, and only reads the file at startup.
 
 ### Reclaiming disk space
 
-SQLite reuses the space of deleted documents on its own, so the database file
+SQLite reuses the space of deleted projections on its own, so the database file
 doesn't keep growing after a rebuild. To give that space back to the
 operating system, run a `VACUUM` by hand. The server must be stopped: it never
 runs one itself.
@@ -303,7 +303,7 @@ transactions take longer than they should, or arrive faster than they end.
 local instance or a controlled troubleshooting session, never a production
 deployment:
 
-- `POST /reset`, which deletes every event and every document, and cuts off
+- `POST /reset`, which deletes every event and every projection, and cuts off
   the active transaction, if any.
 - `/debug/pprof/*`, Go's standard profiling endpoints (CPU, heap, goroutine,
   and so on).
@@ -338,7 +338,7 @@ Each outcome carries a fixed level, not derived from the status code alone:
 | Outcome | Status | Level |
 |---|---|---|
 | Successful request | 2XX | `debug` |
-| Document not found | 404 | `debug` |
+| Projection not found | 404 | `debug` |
 | Concurrency conflict | 409 | `debug` |
 | Invalid request | 400 | `info` |
 | Payload too large | 413 | `info` |
@@ -352,7 +352,7 @@ Each outcome carries a fixed level, not derived from the status code alone:
 | Storage unreachable | 503 | `error` |
 
 A successful request and an expected rejection, such as a concurrency
-conflict or a document that doesn't exist, are both `debug`: the server did
+conflict or a projection that doesn't exist, are both `debug`: the server did
 exactly what it was supposed to do. A malformed or oversized request, a bad
 token, a call made at the wrong time, or a call on a transaction that already
 ended is `info`: not the server's fault, but worth knowing about. A full or

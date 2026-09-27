@@ -174,7 +174,7 @@ func (s *Store) WritePoolStats() PoolStats {
 	return PoolStats{InUse: stats.InUse, Max: stats.MaxOpenConnections}
 }
 
-// Reset deletes every event and every document, and sets the Sequence
+// Reset deletes every event and every projection, and sets the Sequence
 // Position counter back to zero: the next event appended gets sequence 1.
 // The schema stays in place. It's meant for dev mode only. Since the write
 // pool holds a single connection, Reset waits for an open Tx to end: the
@@ -190,7 +190,7 @@ func (s *Store) Reset(ctx context.Context) error {
 		"DELETE FROM identifiers",
 		"DELETE FROM metadata",
 		"DELETE FROM events",
-		"DELETE FROM documents",
+		"DELETE FROM projections",
 	} {
 		if _, err := tx.ExecContext(ctx, stmt); err != nil {
 			return wrapf("reset", err)

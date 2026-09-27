@@ -29,8 +29,8 @@ func TestLoadFullConfig(t *testing.T) {
 		defaultEventsPerPage = 500
 		maxEventsPerPage = 5000
 		maxEventSize = 32768
-		maxDocumentSize = 16384
-		maxDocumentsPerRequest = 50
+		maxProjectionSize = 16384
+		maxProjectionsPerRequest = 50
 		maxQueuedTransactions = 250
 		readPoolSize = 16
 	`)
@@ -45,7 +45,7 @@ func TestLoadFullConfig(t *testing.T) {
 		EnableAuth: true, AuthToken: "secret", DataDir: "/var/lib/tamarackdb",
 		LogLevel:             DefaultLogLevel,
 		DefaultEventsPerPage: 500, MaxEventsPerPage: 5000, MaxEventSize: 32768,
-		MaxDocumentSize: 16384, MaxDocumentsPerRequest: 50,
+		MaxProjectionSize: 16384, MaxProjectionsPerRequest: 50,
 		TransactionTimeout: 5, MaxTransactionDuration: 15, MaxQueuedTransactions: 250, ReadPoolSize: 16,
 	}
 	if *cfg != want {
@@ -106,11 +106,11 @@ func TestLoadAppliesDefaults(t *testing.T) {
 	if cfg.MaxEventSize != DefaultEventSize {
 		t.Errorf("MaxEventSize = %d, want %d", cfg.MaxEventSize, DefaultEventSize)
 	}
-	if cfg.MaxDocumentSize != DefaultDocumentSize {
-		t.Errorf("MaxDocumentSize = %d, want %d", cfg.MaxDocumentSize, DefaultDocumentSize)
+	if cfg.MaxProjectionSize != DefaultProjectionSize {
+		t.Errorf("MaxProjectionSize = %d, want %d", cfg.MaxProjectionSize, DefaultProjectionSize)
 	}
-	if cfg.MaxDocumentsPerRequest != DefaultMaxDocumentsPerRequest {
-		t.Errorf("MaxDocumentsPerRequest = %d, want %d", cfg.MaxDocumentsPerRequest, DefaultMaxDocumentsPerRequest)
+	if cfg.MaxProjectionsPerRequest != DefaultMaxProjectionsPerRequest {
+		t.Errorf("MaxProjectionsPerRequest = %d, want %d", cfg.MaxProjectionsPerRequest, DefaultMaxProjectionsPerRequest)
 	}
 	if cfg.MaxQueuedTransactions != DefaultMaxQueuedTransactions {
 		t.Errorf("MaxQueuedTransactions = %d, want %d", cfg.MaxQueuedTransactions, DefaultMaxQueuedTransactions)
@@ -288,7 +288,7 @@ func TestLoadFileNotFoundUsesBuiltInDefaults(t *testing.T) {
 	want := Config{
 		SocketPath: DefaultSocketPath, DataDir: DefaultDataDir, LogLevel: DefaultLogLevel,
 		DefaultEventsPerPage: DefaultEventsPerPage, MaxEventsPerPage: DefaultMaxEventsPerPage, MaxEventSize: DefaultEventSize,
-		MaxDocumentSize: DefaultDocumentSize, MaxDocumentsPerRequest: DefaultMaxDocumentsPerRequest,
+		MaxProjectionSize: DefaultProjectionSize, MaxProjectionsPerRequest: DefaultMaxProjectionsPerRequest,
 		TransactionTimeout: 5, MaxTransactionDuration: 15, MaxQueuedTransactions: DefaultMaxQueuedTransactions, ReadPoolSize: DefaultReadPoolSize,
 	}
 	if *cfg != want {
@@ -417,7 +417,7 @@ func TestLoadFromEnvWithoutFile(t *testing.T) {
 		TLSCertFile: "cert.pem", TLSKeyFile: "key.pem",
 		AuthToken: "secret", DataDir: "data", LogLevel: DefaultLogLevel,
 		DefaultEventsPerPage: DefaultEventsPerPage, MaxEventsPerPage: DefaultMaxEventsPerPage, MaxEventSize: DefaultEventSize,
-		MaxDocumentSize: DefaultDocumentSize, MaxDocumentsPerRequest: DefaultMaxDocumentsPerRequest,
+		MaxProjectionSize: DefaultProjectionSize, MaxProjectionsPerRequest: DefaultMaxProjectionsPerRequest,
 		TransactionTimeout: 5, MaxTransactionDuration: 15, MaxQueuedTransactions: DefaultMaxQueuedTransactions, ReadPoolSize: DefaultReadPoolSize,
 	}
 	if *cfg != want {
@@ -672,7 +672,7 @@ func TestLoadDataDirFileTakesPrecedenceOverEnv(t *testing.T) {
 	}
 }
 
-func TestLoadMaxDocumentSizeFromFile(t *testing.T) {
+func TestLoadMaxProjectionSizeFromFile(t *testing.T) {
 	path := writeConfigFile(t, `[server]
 		bindAddress = "0.0.0.0"
 		port = 8443
@@ -680,19 +680,19 @@ func TestLoadMaxDocumentSizeFromFile(t *testing.T) {
 		tlsKeyFile = "key.pem"
 		authToken = "secret"
 		dataDir = "data"
-		maxDocumentSize = 32768
+		maxProjectionSize = 32768
 	`)
 	cfg, err := Load(path)
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	if cfg.MaxDocumentSize != 32768 {
-		t.Errorf("MaxDocumentSize = %d, want 32768", cfg.MaxDocumentSize)
+	if cfg.MaxProjectionSize != 32768 {
+		t.Errorf("MaxProjectionSize = %d, want 32768", cfg.MaxProjectionSize)
 	}
 }
 
-func TestLoadMaxDocumentSizeFromEnv(t *testing.T) {
-	setEnv(t, map[string]string{"TAMARACKDB_MAX_DOCUMENT_SIZE": "16384"})
+func TestLoadMaxProjectionSizeFromEnv(t *testing.T) {
+	setEnv(t, map[string]string{"TAMARACKDB_MAX_PROJECTION_SIZE": "16384"})
 	path := writeConfigFile(t, `[server]
 		bindAddress = "0.0.0.0"
 		port = 8443
@@ -705,12 +705,12 @@ func TestLoadMaxDocumentSizeFromEnv(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	if cfg.MaxDocumentSize != 16384 {
-		t.Errorf("MaxDocumentSize = %d, want 16384 (from env)", cfg.MaxDocumentSize)
+	if cfg.MaxProjectionSize != 16384 {
+		t.Errorf("MaxProjectionSize = %d, want 16384 (from env)", cfg.MaxProjectionSize)
 	}
 }
 
-func TestLoadMaxDocumentsPerRequestFromFile(t *testing.T) {
+func TestLoadMaxProjectionsPerRequestFromFile(t *testing.T) {
 	path := writeConfigFile(t, `[server]
 		bindAddress = "0.0.0.0"
 		port = 8443
@@ -718,19 +718,19 @@ func TestLoadMaxDocumentsPerRequestFromFile(t *testing.T) {
 		tlsKeyFile = "key.pem"
 		authToken = "secret"
 		dataDir = "data"
-		maxDocumentsPerRequest = 25
+		maxProjectionsPerRequest = 25
 	`)
 	cfg, err := Load(path)
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	if cfg.MaxDocumentsPerRequest != 25 {
-		t.Errorf("MaxDocumentsPerRequest = %d, want 25", cfg.MaxDocumentsPerRequest)
+	if cfg.MaxProjectionsPerRequest != 25 {
+		t.Errorf("MaxProjectionsPerRequest = %d, want 25", cfg.MaxProjectionsPerRequest)
 	}
 }
 
-func TestLoadMaxDocumentsPerRequestFromEnv(t *testing.T) {
-	setEnv(t, map[string]string{"TAMARACKDB_MAX_DOCUMENTS_PER_REQUEST": "10"})
+func TestLoadMaxProjectionsPerRequestFromEnv(t *testing.T) {
+	setEnv(t, map[string]string{"TAMARACKDB_MAX_PROJECTIONS_PER_REQUEST": "10"})
 	path := writeConfigFile(t, `[server]
 		bindAddress = "0.0.0.0"
 		port = 8443
@@ -743,8 +743,8 @@ func TestLoadMaxDocumentsPerRequestFromEnv(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	if cfg.MaxDocumentsPerRequest != 10 {
-		t.Errorf("MaxDocumentsPerRequest = %d, want 10 (from env)", cfg.MaxDocumentsPerRequest)
+	if cfg.MaxProjectionsPerRequest != 10 {
+		t.Errorf("MaxProjectionsPerRequest = %d, want 10 (from env)", cfg.MaxProjectionsPerRequest)
 	}
 }
 
@@ -811,7 +811,7 @@ func TestValidateLogLevelValues(t *testing.T) {
 				BindAddress: "0.0.0.0", Port: 8443,
 				AuthToken: "secret", DataDir: "data", LogLevel: lvl,
 				DefaultEventsPerPage: 1000, MaxEventsPerPage: 10000, MaxEventSize: 65536,
-				MaxDocumentSize: 65536, MaxDocumentsPerRequest: 100,
+				MaxProjectionSize: 65536, MaxProjectionsPerRequest: 100,
 				TransactionTimeout: 5, MaxTransactionDuration: 15, MaxQueuedTransactions: 100, ReadPoolSize: 8,
 			}
 			if err := cfg.Validate(); err != nil {
@@ -826,7 +826,7 @@ func TestValidateInvalidLogLevel(t *testing.T) {
 		BindAddress: "0.0.0.0", Port: 8443,
 		AuthToken: "secret", DataDir: "data", LogLevel: "verbose",
 		DefaultEventsPerPage: 1000, MaxEventsPerPage: 10000, MaxEventSize: 65536,
-		MaxDocumentSize: 65536, MaxDocumentsPerRequest: 100,
+		MaxProjectionSize: 65536, MaxProjectionsPerRequest: 100,
 		TransactionTimeout: 5, MaxTransactionDuration: 15, MaxQueuedTransactions: 100, ReadPoolSize: 8,
 	}
 	if err := cfg.Validate(); err == nil {
@@ -834,29 +834,29 @@ func TestValidateInvalidLogLevel(t *testing.T) {
 	}
 }
 
-func TestValidateNonPositiveMaxDocumentSize(t *testing.T) {
+func TestValidateNonPositiveMaxProjectionSize(t *testing.T) {
 	cfg := Config{
 		BindAddress: "0.0.0.0", Port: 8443,
 		AuthToken: "secret", DataDir: "data", LogLevel: "warning",
 		DefaultEventsPerPage: 1000, MaxEventsPerPage: 10000, MaxEventSize: 65536,
-		MaxDocumentSize: 0, MaxDocumentsPerRequest: 100,
+		MaxProjectionSize: 0, MaxProjectionsPerRequest: 100,
 		TransactionTimeout: 5, MaxTransactionDuration: 15, MaxQueuedTransactions: 100, ReadPoolSize: 8,
 	}
 	if err := cfg.Validate(); err == nil {
-		t.Error("Validate() error = nil, want error for MaxDocumentSize = 0")
+		t.Error("Validate() error = nil, want error for MaxProjectionSize = 0")
 	}
 }
 
-func TestValidateNonPositiveMaxDocumentsPerRequest(t *testing.T) {
+func TestValidateNonPositiveMaxProjectionsPerRequest(t *testing.T) {
 	cfg := Config{
 		BindAddress: "0.0.0.0", Port: 8443,
 		AuthToken: "secret", DataDir: "data", LogLevel: "warning",
 		DefaultEventsPerPage: 1000, MaxEventsPerPage: 10000, MaxEventSize: 65536,
-		MaxDocumentSize: 65536, MaxDocumentsPerRequest: 0,
+		MaxProjectionSize: 65536, MaxProjectionsPerRequest: 0,
 		TransactionTimeout: 5, MaxTransactionDuration: 15, MaxQueuedTransactions: 100, ReadPoolSize: 8,
 	}
 	if err := cfg.Validate(); err == nil {
-		t.Error("Validate() error = nil, want error for MaxDocumentsPerRequest = 0")
+		t.Error("Validate() error = nil, want error for MaxProjectionsPerRequest = 0")
 	}
 }
 
@@ -865,7 +865,7 @@ func TestValidateEmptyDataDir(t *testing.T) {
 		BindAddress: "0.0.0.0", Port: 8443,
 		AuthToken: "secret", DataDir: "", LogLevel: "warning",
 		DefaultEventsPerPage: 1000, MaxEventsPerPage: 10000, MaxEventSize: 65536,
-		MaxDocumentSize: 65536, MaxDocumentsPerRequest: 100,
+		MaxProjectionSize: 65536, MaxProjectionsPerRequest: 100,
 		TransactionTimeout: 5, MaxTransactionDuration: 15, MaxQueuedTransactions: 100, ReadPoolSize: 8,
 	}
 	if err := cfg.Validate(); err == nil {
@@ -879,7 +879,7 @@ func TestValidateDirectly(t *testing.T) {
 		EnableTLS: true, TLSCertFile: "cert.pem", TLSKeyFile: "key.pem",
 		EnableAuth: true, AuthToken: "secret", DataDir: "data", LogLevel: "warning",
 		DefaultEventsPerPage: 1000, MaxEventsPerPage: 10000, MaxEventSize: 65536,
-		MaxDocumentSize: 65536, MaxDocumentsPerRequest: 100, TransactionTimeout: 5, MaxTransactionDuration: 15, MaxQueuedTransactions: 100,
+		MaxProjectionSize: 65536, MaxProjectionsPerRequest: 100, TransactionTimeout: 5, MaxTransactionDuration: 15, MaxQueuedTransactions: 100,
 		ReadPoolSize: 8,
 	}
 	if err := cfg.Validate(); err != nil {
@@ -906,7 +906,7 @@ func TestValidateNonPositiveMaxQueuedTransactions(t *testing.T) {
 				BindAddress: "0.0.0.0", Port: 8443,
 				AuthToken: "secret", DataDir: "data", LogLevel: "warning",
 				DefaultEventsPerPage: 1000, MaxEventsPerPage: 10000, MaxEventSize: 65536,
-				MaxDocumentSize: 65536, MaxDocumentsPerRequest: 100,
+				MaxProjectionSize: 65536, MaxProjectionsPerRequest: 100,
 				TransactionTimeout: 5, MaxTransactionDuration: 15, MaxQueuedTransactions: tt.maxQueuedTransactions, ReadPoolSize: 8,
 			}
 			if err := cfg.Validate(); err == nil {
@@ -930,7 +930,7 @@ func TestValidateNonPositiveReadPoolSize(t *testing.T) {
 				BindAddress: "0.0.0.0", Port: 8443,
 				AuthToken: "secret", DataDir: "data", LogLevel: "warning",
 				DefaultEventsPerPage: 1000, MaxEventsPerPage: 10000, MaxEventSize: 65536,
-				MaxDocumentSize: 65536, MaxDocumentsPerRequest: 100,
+				MaxProjectionSize: 65536, MaxProjectionsPerRequest: 100,
 				TransactionTimeout: 5, MaxTransactionDuration: 15, MaxQueuedTransactions: 100, ReadPoolSize: tt.readPoolSize,
 			}
 			if err := cfg.Validate(); err == nil {
@@ -972,7 +972,7 @@ func TestValidateTransactionSettings(t *testing.T) {
 			c := Config{
 				SocketPath: DefaultSocketPath, DataDir: "data", LogLevel: "warning",
 				DefaultEventsPerPage: 1000, MaxEventsPerPage: 10000, MaxEventSize: 65536,
-				MaxDocumentSize: 65536, MaxDocumentsPerRequest: 100,
+				MaxProjectionSize: 65536, MaxProjectionsPerRequest: 100,
 				TransactionTimeout: tt.timeout, MaxTransactionDuration: tt.ceiling,
 				MaxQueuedTransactions: 100, ReadPoolSize: 8,
 			}

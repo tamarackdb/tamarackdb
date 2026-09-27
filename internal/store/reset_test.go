@@ -5,16 +5,16 @@ import (
 	"testing"
 
 	"github.com/tamarackdb/tamarackdb/internal/dcb"
-	"github.com/tamarackdb/tamarackdb/internal/document"
+	"github.com/tamarackdb/tamarackdb/internal/projection"
 )
 
-func TestResetDeletesEventsAndDocuments(t *testing.T) {
+func TestResetDeletesEventsAndProjections(t *testing.T) {
 	s := openTestStore(t)
 	mustAppend(t, s, []dcb.EventData{
 		eventWithIdentifier("user-created", "userId", "123"),
 		eventWithIdentifier("user-created", "userId", "456"),
 	}, nil)
-	mustWriteDocuments(t, s, document.Data{Type: "user-profile", ID: "123", Payload: strPtr("v1")})
+	mustWriteProjections(t, s, projection.Data{Type: "user-profile", ID: "123", Payload: strPtr("v1")})
 
 	if err := s.Reset(context.Background()); err != nil {
 		t.Fatalf("Reset() error = %v", err)
@@ -24,7 +24,7 @@ func TestResetDeletesEventsAndDocuments(t *testing.T) {
 	if len(events) != 0 || hasMore {
 		t.Errorf("Read() after Reset() = %d events (hasMore=%v), want none", len(events), hasMore)
 	}
-	assertDocument(t, s, "user-profile", "123", nil)
+	assertProjection(t, s, "user-profile", "123", nil)
 }
 
 func TestResetRestartsSequenceAtOne(t *testing.T) {

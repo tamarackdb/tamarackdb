@@ -25,20 +25,20 @@ import (
 // Default values for Config's optional fields, exported so callers (such as
 // a -default-config flag) can print them without duplicating the numbers.
 const (
-	DefaultSocketPath             = "/var/run/tamarackdb-server.sock"
-	DefaultBindAddress            = "127.0.0.1"
-	DefaultPort                   = 8085
-	DefaultDataDir                = "data"
-	DefaultEventsPerPage          = 1000
-	DefaultMaxEventsPerPage       = 10000
-	DefaultEventSize              = 65536 // 64 KiB
-	DefaultMaxQueuedTransactions  = 100
-	DefaultTransactionTimeout     = 5  // seconds
-	DefaultMaxTransactionDuration = 15 // seconds
-	DefaultReadPoolSize           = 8
-	DefaultDocumentSize           = 65536 // 64 KiB
-	DefaultMaxDocumentsPerRequest = 100
-	DefaultLogLevel               = "warning"
+	DefaultSocketPath               = "/var/run/tamarackdb-server.sock"
+	DefaultBindAddress              = "127.0.0.1"
+	DefaultPort                     = 8085
+	DefaultDataDir                  = "data"
+	DefaultEventsPerPage            = 1000
+	DefaultMaxEventsPerPage         = 10000
+	DefaultEventSize                = 65536 // 64 KiB
+	DefaultMaxQueuedTransactions    = 100
+	DefaultTransactionTimeout       = 5  // seconds
+	DefaultMaxTransactionDuration   = 15 // seconds
+	DefaultReadPoolSize             = 8
+	DefaultProjectionSize           = 65536 // 64 KiB
+	DefaultMaxProjectionsPerRequest = 100
+	DefaultLogLevel                 = "warning"
 )
 
 // databaseFilename and pauseFilename are the fixed filenames TamarackDB
@@ -77,7 +77,7 @@ type Config struct {
 	DataDir string `toml:"dataDir"` // default: data
 
 	// DevMode, when true, registers POST /reset, which deletes every event
-	// and document, and the /debug/pprof/ profiling endpoints. Never
+	// and projection, and the /debug/pprof/ profiling endpoints. Never
 	// enable this in production.
 	DevMode bool `toml:"devMode"`
 
@@ -94,16 +94,16 @@ type Config struct {
 	MaxEventsPerPage     int `toml:"maxEventsPerPage"`     // default: 10000
 	MaxEventSize         int `toml:"maxEventSize"`         // default: 65536 (64 KiB)
 
-	// MaxDocumentSize is the maximum UTF-8 byte size of one document's
-	// payload in a POST /documents request; only checked when the payload
+	// MaxProjectionSize is the maximum UTF-8 byte size of one projection's
+	// payload in a POST /projections request; only checked when the payload
 	// is present (a deletion has none to bound). Optional; defaulted by
 	// Load when omitted.
-	MaxDocumentSize int `toml:"maxDocumentSize"` // default: 65536 (64 KiB)
+	MaxProjectionSize int `toml:"maxProjectionSize"` // default: 65536 (64 KiB)
 
-	// MaxDocumentsPerRequest caps how many documents a single
-	// POST /documents request may carry. Optional; defaulted by Load when
+	// MaxProjectionsPerRequest caps how many projections a single
+	// POST /projections request may carry. Optional; defaulted by Load when
 	// omitted.
-	MaxDocumentsPerRequest int `toml:"maxDocumentsPerRequest"` // default: 100
+	MaxProjectionsPerRequest int `toml:"maxProjectionsPerRequest"` // default: 100
 
 	// TransactionTimeout is a transaction's idle timeout, in seconds: how
 	// long it may go without a call before it's rolled back, counted from
@@ -186,11 +186,11 @@ func Load(path string) (*Config, error) {
 	if cfg.MaxEventSize == 0 {
 		cfg.MaxEventSize = DefaultEventSize
 	}
-	if cfg.MaxDocumentSize == 0 {
-		cfg.MaxDocumentSize = DefaultDocumentSize
+	if cfg.MaxProjectionSize == 0 {
+		cfg.MaxProjectionSize = DefaultProjectionSize
 	}
-	if cfg.MaxDocumentsPerRequest == 0 {
-		cfg.MaxDocumentsPerRequest = DefaultMaxDocumentsPerRequest
+	if cfg.MaxProjectionsPerRequest == 0 {
+		cfg.MaxProjectionsPerRequest = DefaultMaxProjectionsPerRequest
 	}
 	if cfg.TransactionTimeout == 0 {
 		cfg.TransactionTimeout = DefaultTransactionTimeout
@@ -313,22 +313,22 @@ func applyEnv(cfg *Config) error {
 			cfg.MaxEventSize = n
 		}
 	}
-	if cfg.MaxDocumentSize == 0 {
-		if v, ok := os.LookupEnv("TAMARACKDB_MAX_DOCUMENT_SIZE"); ok {
+	if cfg.MaxProjectionSize == 0 {
+		if v, ok := os.LookupEnv("TAMARACKDB_MAX_PROJECTION_SIZE"); ok {
 			n, err := strconv.Atoi(v)
 			if err != nil {
-				return fmt.Errorf("invalid TAMARACKDB_MAX_DOCUMENT_SIZE %q: %w", v, err)
+				return fmt.Errorf("invalid TAMARACKDB_MAX_PROJECTION_SIZE %q: %w", v, err)
 			}
-			cfg.MaxDocumentSize = n
+			cfg.MaxProjectionSize = n
 		}
 	}
-	if cfg.MaxDocumentsPerRequest == 0 {
-		if v, ok := os.LookupEnv("TAMARACKDB_MAX_DOCUMENTS_PER_REQUEST"); ok {
+	if cfg.MaxProjectionsPerRequest == 0 {
+		if v, ok := os.LookupEnv("TAMARACKDB_MAX_PROJECTIONS_PER_REQUEST"); ok {
 			n, err := strconv.Atoi(v)
 			if err != nil {
-				return fmt.Errorf("invalid TAMARACKDB_MAX_DOCUMENTS_PER_REQUEST %q: %w", v, err)
+				return fmt.Errorf("invalid TAMARACKDB_MAX_PROJECTIONS_PER_REQUEST %q: %w", v, err)
 			}
-			cfg.MaxDocumentsPerRequest = n
+			cfg.MaxProjectionsPerRequest = n
 		}
 	}
 	if cfg.TransactionTimeout == 0 {
@@ -399,10 +399,10 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("defaultEventsPerPage (%d) must not exceed maxEventsPerPage (%d)", c.DefaultEventsPerPage, c.MaxEventsPerPage)
 	case c.MaxEventSize <= 0:
 		return fmt.Errorf("maxEventSize must be positive, got %d", c.MaxEventSize)
-	case c.MaxDocumentSize <= 0:
-		return fmt.Errorf("maxDocumentSize must be positive, got %d", c.MaxDocumentSize)
-	case c.MaxDocumentsPerRequest <= 0:
-		return fmt.Errorf("maxDocumentsPerRequest must be positive, got %d", c.MaxDocumentsPerRequest)
+	case c.MaxProjectionSize <= 0:
+		return fmt.Errorf("maxProjectionSize must be positive, got %d", c.MaxProjectionSize)
+	case c.MaxProjectionsPerRequest <= 0:
+		return fmt.Errorf("maxProjectionsPerRequest must be positive, got %d", c.MaxProjectionsPerRequest)
 	case c.TransactionTimeout <= 0:
 		return fmt.Errorf("transactionTimeout must be positive, got %d", c.TransactionTimeout)
 	case c.MaxTransactionDuration <= 0:
@@ -418,7 +418,7 @@ func (c *Config) Validate() error {
 }
 
 // DatabasePath is the SQLite file's path, holding both events and
-// documents: DataDir joined with its fixed filename.
+// projections: DataDir joined with its fixed filename.
 func (c Config) DatabasePath() string {
 	return filepath.Join(c.DataDir, databaseFilename)
 }

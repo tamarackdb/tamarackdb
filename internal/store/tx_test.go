@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/tamarackdb/tamarackdb/internal/dcb"
-	"github.com/tamarackdb/tamarackdb/internal/document"
+	"github.com/tamarackdb/tamarackdb/internal/projection"
 )
 
 func mustBegin(t *testing.T, s *Store) *Tx {
@@ -136,43 +136,43 @@ func TestTxConditionSeesEventsAppendedEarlierInTx(t *testing.T) {
 	}
 }
 
-func TestTxDocumentsVisibleInsideBeforeCommit(t *testing.T) {
+func TestTxProjectionsVisibleInsideBeforeCommit(t *testing.T) {
 	s := openTestStore(t)
 	tx := mustBegin(t, s)
-	if err := tx.WriteDocuments(context.Background(),
-		[]document.Data{{Type: "user-profile", ID: "123", Payload: strPtr("v1")}}); err != nil {
-		t.Fatalf("Tx.WriteDocuments() error = %v", err)
+	if err := tx.WriteProjections(context.Background(),
+		[]projection.Data{{Type: "user-profile", ID: "123", Payload: strPtr("v1")}}); err != nil {
+		t.Fatalf("Tx.WriteProjections() error = %v", err)
 	}
 
-	got, found, err := tx.GetDocument(context.Background(), "user-profile", "123")
+	got, found, err := tx.GetProjection(context.Background(), "user-profile", "123")
 	if err != nil || !found || got != "v1" {
-		t.Errorf("Tx.GetDocument() = (%q, %v, %v), want (v1, true, nil)", got, found, err)
+		t.Errorf("Tx.GetProjection() = (%q, %v, %v), want (v1, true, nil)", got, found, err)
 	}
-	assertDocument(t, s, "user-profile", "123", nil)
+	assertProjection(t, s, "user-profile", "123", nil)
 
 	if err := tx.Commit(); err != nil {
 		t.Fatalf("Commit() error = %v", err)
 	}
-	assertDocument(t, s, "user-profile", "123", strPtr("v1"))
+	assertProjection(t, s, "user-profile", "123", strPtr("v1"))
 }
 
-func TestTxRollbackDiscardsDocuments(t *testing.T) {
+func TestTxRollbackDiscardsProjections(t *testing.T) {
 	s := openTestStore(t)
-	mustWriteDocuments(t, s, document.Data{Type: "user-profile", ID: "123", Payload: strPtr("v1")})
+	mustWriteProjections(t, s, projection.Data{Type: "user-profile", ID: "123", Payload: strPtr("v1")})
 
 	tx := mustBegin(t, s)
-	if err := tx.WriteDocuments(context.Background(), []document.Data{
+	if err := tx.WriteProjections(context.Background(), []projection.Data{
 		{Type: "user-profile", ID: "123", Payload: strPtr("v2")},
 		{Type: "user-profile", ID: "456", Payload: strPtr("new")},
 	}); err != nil {
-		t.Fatalf("Tx.WriteDocuments() error = %v", err)
+		t.Fatalf("Tx.WriteProjections() error = %v", err)
 	}
 	if err := tx.Rollback(); err != nil {
 		t.Fatalf("Rollback() error = %v", err)
 	}
 
-	assertDocument(t, s, "user-profile", "123", strPtr("v1"))
-	assertDocument(t, s, "user-profile", "456", nil)
+	assertProjection(t, s, "user-profile", "123", strPtr("v1"))
+	assertProjection(t, s, "user-profile", "456", nil)
 }
 
 // TestBeginWaitsForOpenTx checks that only one Tx exists at a time: the
@@ -189,11 +189,11 @@ func TestBeginWaitsForOpenTx(t *testing.T) {
 	}
 }
 
-func TestStoreWriteDocumentsCommitsOnItsOwn(t *testing.T) {
+func TestStoreWriteProjectionsCommitsOnItsOwn(t *testing.T) {
 	s := openTestStore(t)
-	if err := s.WriteDocuments(context.Background(),
-		[]document.Data{{Type: "user-profile", ID: "123", Payload: strPtr("v1")}}); err != nil {
-		t.Fatalf("WriteDocuments() error = %v", err)
+	if err := s.WriteProjections(context.Background(),
+		[]projection.Data{{Type: "user-profile", ID: "123", Payload: strPtr("v1")}}); err != nil {
+		t.Fatalf("WriteProjections() error = %v", err)
 	}
-	assertDocument(t, s, "user-profile", "123", strPtr("v1"))
+	assertProjection(t, s, "user-profile", "123", strPtr("v1"))
 }

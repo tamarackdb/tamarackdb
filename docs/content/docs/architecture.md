@@ -10,8 +10,8 @@ TamarackDB is an event store in Go. It follows the [DCB (Dynamic Consistency Bou
 specification](https://dcb.events/specification/), is reachable over HTTP, and uses SQLite as its storage engine. The
 service runs as a single instance ("single brain"), not a multi-instance cluster.
 
-It also stores documents: projections an application reads and updates in the same transaction as the events that
-changed them (see Documents). An application that keeps its projections elsewhere never has to touch this mechanism.
+It also stores projections: projections an application reads and updates in the same transaction as the events that
+changed them (see Projections). An application that keeps its projections elsewhere never has to touch this mechanism.
 
 Applications can share a single TamarackDB instance when they share events. TamarackDB does not track which
 application produced an event.
@@ -38,15 +38,15 @@ TamarackDB is built for applications that process a command synchronously and at
 one request of the application:
 
 1. A Decision Model reads events, decides, and appends new events.
-2. Event handlers react to those events in the same request. Projectors update documents. Processors read events,
+2. Event handlers react to those events in the same request. Projectors update projections. Processors read events,
    including the ones just appended, and may append follow-up events, which trigger more handlers.
-3. Everything lands together, or nothing does. If any handler fails, no event and no document is persisted.
+3. Everything lands together, or nothing does. If any handler fails, no event and no projection is persisted.
 
 This needs a transaction that spans several HTTP calls: the handlers must read what the command just appended, before
 anything is committed. TamarackDB provides exactly that:
 
 - A client opens a transaction and gets a ticket. Every call that carries the ticket runs inside one SQLite
-  transaction: reading events, appending events, reading documents, writing documents.
+  transaction: reading events, appending events, reading projections, writing projections.
 - Only one transaction exists at a time. It holds SQLite's write lock from the moment its ticket is given out until it
   ends. Other clients wait their turn in a FIFO.
 - The client ends the transaction explicitly, with a commit or a rollback. A deadline rolls it back if the client
@@ -162,7 +162,7 @@ the same identifier, for example) and doesn't want to bother deduplicating them 
 
 ## HTTP API
 
-Every endpoint is named by the resource it acts on (`/events`, `/documents`) or by the transaction step it performs
+Every endpoint is named by the resource it acts on (`/events`, `/projections`) or by the transaction step it performs
 (`/begin`, `/commit`, `/rollback`). A call that belongs to a transaction carries the ticket in the
 `X-Tamarackdb-Ticket` header.
 
@@ -171,15 +171,15 @@ Every endpoint is named by the resource it acts on (`/events`, `/documents`) or 
 | `POST /begin` | none | Wait for a turn in the FIFO, open a transaction, get a ticket |
 | `QUERY /events` | optional | Read events, inside the transaction or from committed data |
 | `POST /events` | required | Append events, with an optional Append Condition |
-| `GET /documents/{type}/{id}` | optional | Read one document, inside the transaction or from committed data |
-| `POST /documents` | required, or none while paused | Write or delete documents |
+| `GET /projections/{type}/{id}` | optional | Read one projection, inside the transaction or from committed data |
+| `POST /projections` | required, or none while paused | Write or delete projections |
 | `POST /commit` | required | Commit the transaction |
 | `POST /rollback` | required | Roll the transaction back |
-| `DELETE /documents/{type}` | none, paused only | Delete every document of one type |
-| `DELETE /documents` | none, paused only | Delete every document |
+| `DELETE /projections/{type}` | none, paused only | Delete every projection of one type |
+| `DELETE /projections` | none, paused only | Delete every projection |
 | `POST /pause` | none | Stop giving out tickets, once earlier transactions are done |
 | `POST /resume` | none | Give out tickets again |
-| `POST /reset` | none, dev mode only | Delete all events and documents |
+| `POST /reset` | none, dev mode only | Delete all events and projections |
 
 `GET /health`, `GET /metrics`, and `GET /debug` are covered in Management / observability.
 
@@ -229,7 +229,7 @@ transaction has ended.
 
 A call that fails inside a transaction ends it: the transaction is rolled back, and the ticket stops being active.
 This covers every error response: a malformed request, a failed Append Condition, a payload over its size limit, an
-internal error. A `404 DocumentNotFound` from `GET /documents/{type}/{id}` is not an error in this sense: it's an
+internal error. A `404 ProjectionNotFound` from `GET /projections/{type}/{id}` is not an error in this sense: it's an
 ordinary answer, and the transaction goes on.
 
 #### Ending a transaction
@@ -244,7 +244,7 @@ A transaction ends, and gives its turn to the next one in the FIFO, in one of th
 `POST /commit` runs in this order:
 
 1. The ticket stops being active.
-2. The SQLite transaction commits. Events and documents become durable together.
+2. The SQLite transaction commits. Events and projections become durable together.
 3. The next transaction in the FIFO gets its ticket.
 
 A commit never fails with `409`: every Append Condition was already checked when its events were appended. `POST
@@ -424,8 +424,8 @@ they were sent:
 
 These values are final as soon as the call returns, even though nothing is committed yet: the transaction either
 commits them as they are, or rolls them back entirely. Event handlers can use them right away. A projection can store
-an event's `sequence` or `time` in a document, and a rebuild reads the same values back from `QUERY /events` (see
-Documents).
+an event's `sequence` or `time` in a projection, and a rebuild reads the same values back from `QUERY /events` (see
+Projections).
 
 If the Append Condition fails, the server responds `409 Conflict`, and the transaction is rolled back:
 
@@ -433,61 +433,63 @@ If the Append Condition fails, the server responds `409 Conflict`, and the trans
 { "error": "ConcurrencyException" }
 ```
 
-### Documents
+### Projections
 
-A document is a projection: an opaque payload identified by `type` + `id`, with no history. Unlike an event, a
-document can be overwritten or removed; the store only ever holds its current state. The document mechanism is
-optional: an application that keeps its projections elsewhere never has to touch it.
+A projection is the current state a projector computes from events: an opaque payload identified by `type` + `id`, with
+no history. The `type` is like a class, and each projection is one instance of it. Unlike an event, a projection can be
+overwritten or removed; the store only ever holds its current state. Every projection can be rebuilt from events,
+which is why backups leave projections out (see Backup). Storing projections in TamarackDB is optional: an application
+that keeps its projections elsewhere never has to touch it.
 
-Documents live in the same SQLite file as events (see Storage: SQLite), and are written in the same transaction. A
-commit makes events and documents durable together; a rollback discards both.
+Projections live in the same SQLite file as events (see Storage: SQLite), and are written in the same transaction. A
+commit makes events and projections durable together; a rollback discards both.
 
-**Reading a document**: `GET /documents/{type}/{id}` returns `404 DocumentNotFound` if no document exists for that
+**Reading a projection**: `GET /projections/{type}/{id}` returns `404 ProjectionNotFound` if no projection exists for that
 `type` + `id`, and `200` otherwise, with the payload as the response body, exactly as written. There's no JSON
 envelope around it, since the payload's own format (JSON, XML, plain text) is up to the writing application, not
 something the store imposes a wrapper on top of.
 
-With a ticket, the read runs inside the transaction: it sees documents written earlier in the same transaction. A
-projector uses it to read a document before changing it. Without a ticket, the read runs on the read connection pool
-and sees committed documents only: this is how an application reads a projection to display a page.
+With a ticket, the read runs inside the transaction: it sees projections written earlier in the same transaction. A
+projector uses it to read a projection before changing it. Without a ticket, the read runs on the read connection pool
+and sees committed projections only: this is how an application reads a projection to display a page.
 
-A document is always read by `type` and `id`. There is no query over documents.
+A projection is always read by `type` and `id`. There is no query over projections.
 
-**Writing documents**: `POST /documents` writes or deletes several documents at once:
+**Writing projections**: `POST /projections` writes or deletes several projections at once:
 
 ```json
 {
-  "documents": [
+  "projections": [
     { "type": "user-profile", "id": "123", "payload": "..." },
     { "type": "user-list-entry", "id": "456", "payload": null }
   ]
 }
 ```
 
-A document with a `payload` is created, or replaced if it exists. A document with a `null` payload is deleted;
-deleting a document that doesn't exist does nothing. The same `type` + `id` can't appear twice in one call: that's a
-`400 Bad Request`. A call carries at least one document and at most `maxDocumentsPerRequest`, and each payload at most
-`maxDocumentSize` bytes (see Configuration). On success, it responds `204 No Content`.
+A projection with a `payload` is created, or replaced if it exists. A projection with a `null` payload is deleted;
+deleting a projection that doesn't exist does nothing. The same `type` + `id` can't appear twice in one call: that's a
+`400 Bad Request`. A call carries at least one projection and at most `maxProjectionsPerRequest`, and each payload at most
+`maxProjectionSize` bytes (see Configuration). On success, it responds `204 No Content`.
 
-There's no version and no concurrency check on documents. None is needed: a projector reads a document inside the
+There's no version and no concurrency check on projections. None is needed: a projector reads a projection inside the
 transaction, changes it, and writes it back, while the transaction holds the write lock. Nothing else can change the
-document in between.
+projection in between.
 
-The recommended use is one `POST /documents` call per transaction, right before `POST /commit`, carrying every
-document the event handlers changed (typically about ten). The client collects the changes while the handlers run,
+The recommended use is one `POST /projections` call per transaction, right before `POST /commit`, carrying every
+projection the event handlers changed (typically about ten). The client collects the changes while the handlers run,
 instead of sending each small change as it happens. The server doesn't enforce this: several calls in one transaction
 remain valid.
 
-`POST /documents` without a ticket is accepted only while the server is paused, for projection rebuilds. Each such
+`POST /projections` without a ticket is accepted only while the server is paused, for projection rebuilds. Each such
 call commits on its own. Outside a pause, it gets `409 NotPaused` (see Pause).
 
-**Deleting documents in bulk**: `DELETE /documents/{type}` deletes every document of one type, and `DELETE /documents`
-deletes every document. Both take no ticket, are accepted only while the server is paused, and respond `204 No
+**Deleting projections in bulk**: `DELETE /projections/{type}` deletes every projection of one type, and `DELETE /projections`
+deletes every projection. Both take no ticket, are accepted only while the server is paused, and respond `204 No
 Content`. Outside a pause, they get `409 NotPaused`.
 
-**What a document may depend on.** Events are appended before the event handlers run, and `POST /events` returns each
-event's `sequence` and `time`. A document can depend on anything in an event, those two values included. A rebuild
-reads the same events back from `QUERY /events`, with the same values, so it produces the same documents.
+**What a projection may depend on.** Events are appended before the event handlers run, and `POST /events` returns each
+event's `sequence` and `time`. A projection can depend on anything in an event, those two values included. A rebuild
+reads the same events back from `QUERY /events`, with the same values, so it produces the same projections.
 
 ### Pause
 
@@ -504,10 +506,10 @@ Calling `POST /pause` while already paused also responds `204 No Content`.
 while paused, it gets `503 Paused` instead of a ticket, and the next request moves up. This single check covers both
 requests queued behind `POST /pause` and requests that arrive during the pause: nothing needs to empty the FIFO.
 
-**Calls accepted only while paused**: `POST /documents` without a ticket, `DELETE /documents/{type}`, and `DELETE
-/documents`. Outside a pause, they get `409 NotPaused`: the server isn't in the state the call requires. A `503` would
+**Calls accepted only while paused**: `POST /projections` without a ticket, `DELETE /projections/{type}`, and `DELETE
+/projections`. Outside a pause, they get `409 NotPaused`: the server isn't in the state the call requires. A `503` would
 suggest a temporary outage, and invite the client to retry for nothing. Reads without a ticket (`QUERY /events`, `GET
-/documents/{type}/{id}`) are accepted at all times.
+/projections/{type}/{id}`) are accepted at all times.
 
 **`POST /resume`** deletes the pause file, then switches the server back to giving out tickets. It doesn't join the
 FIFO: while paused, the FIFO empties itself as each waiting request gets its `503`. It responds `204 No Content`,
@@ -526,27 +528,27 @@ should be paused. A forgotten pause file blocks the application: that shows at o
 A projection rebuild runs while the server is paused, outside any transaction:
 
 1. `POST /pause`.
-2. `DELETE /documents/{type}` for each type to rebuild, or `DELETE /documents` for all of them.
+2. `DELETE /projections/{type}` for each type to rebuild, or `DELETE /projections` for all of them.
 3. Page through `QUERY /events` without a ticket, replaying each page through the projections' own logic.
-4. Write the rebuilt documents with `POST /documents` without a ticket.
+4. Write the rebuilt projections with `POST /projections` without a ticket.
 5. `POST /resume`.
 
 The application is fully down during a rebuild: nothing else writes. A rebuild has no atomicity as a whole: each
-`POST /documents` call commits on its own. A rebuild that fails, or that a TamarackDB crash interrupts, leaves partial
+`POST /projections` call commits on its own. A rebuild that fails, or that a TamarackDB crash interrupts, leaves partial
 projections behind, and is simply run again. The server stays paused in the meantime.
 
 Reads during a rebuild page through `limit`-sized requests instead of one response streaming the whole result set
 over one long connection. Holding one SQLite read transaction open for a whole large rebuild would pin one MVCC
 snapshot in place for as long as the rebuild runs, blocking WAL checkpointing that whole time while the rebuild's own
-document writes keep piling up in the WAL file. Paging keeps each read transaction short, so the WAL checkpoints
+projection writes keep piling up in the WAL file. Paging keeps each read transaction short, so the WAL checkpoints
 normally between pages.
 
-Reclaiming the disk space of deleted documents with `VACUUM` is a separate, manual step, run while the server is
+Reclaiming the disk space of deleted projections with `VACUUM` is a separate, manual step, run while the server is
 stopped (see Storage: SQLite).
 
 ### Reset (dev mode)
 
-`POST /reset` deletes every event and every document, and sets the Sequence Position counter back to zero: the next
+`POST /reset` deletes every event and every projection, and sets the Sequence Position counter back to zero: the next
 event appended gets sequence 1. It exists only when `devMode` is on (see Dev mode).
 
 It's meant for local development, where only the developer uses the application, and it doesn't wait for anyone. It
@@ -565,7 +567,7 @@ Large`.
 
 The limit is deliberate, not a technical ceiling to raise later: it keeps an event a short, meaningful statement about
 the world, rather than a data transport container, and keeps Decision Model replay fast (which can reload hundreds of
-thousands of events). Larger content (files, documents) belongs in external storage, referenced from the event
+thousands of events). Larger content (files, images) belongs in external storage, referenced from the event
 instead of embedded in it.
 
 The default of 64 KiB is configurable (see Configuration).
@@ -585,26 +587,26 @@ the problem, left out when it wouldn't add anything (as with `ConcurrencyExcepti
 |---|---|---|
 | `400` | `InvalidRequest` | Malformed or invalid body, see below |
 | `401` | `Unauthorized` | Missing or invalid Bearer token, only when `enableAuth` is on (see Security) |
-| `404` | `DocumentNotFound` | `GET /documents/{type}/{id}` for a document that doesn't exist |
+| `404` | `ProjectionNotFound` | `GET /projections/{type}/{id}` for a projection that doesn't exist |
 | `409` | `ConcurrencyException` | The Append Condition of a `POST /events` call failed |
 | `409` | `NotPaused` | A call accepted only while paused, made outside a pause |
 | `410` | `TicketNotActive` | The ticket isn't the active one: it's unknown, or its transaction has already ended |
-| `413` | `PayloadTooLarge` | An event or a document payload over its size limit |
+| `413` | `PayloadTooLarge` | An event or a projection payload over its size limit |
 | `500` | `InternalError` | An unexpected server-side failure |
 | `503` | `TransactionQueueFull` | `POST /begin` or `POST /pause` while the FIFO is at its configured depth |
 | `503` | `Paused` | A request reached the head of the FIFO while the server is paused |
 | `503` | `Unavailable` | `GET /health` only: SQLite can't be reached (see Health check) |
 
-Inside a transaction, every error except `404 DocumentNotFound` rolls the transaction back (see Calls inside a
+Inside a transaction, every error except `404 ProjectionNotFound` rolls the transaction back (see Calls inside a
 transaction).
 
-`QUERY /events`, `POST /events`, and `POST /documents` respond `400 Bad Request` for any malformed or invalid body:
+`QUERY /events`, `POST /events`, and `POST /projections` respond `400 Bad Request` for any malformed or invalid body:
 invalid JSON, a `query` / `condition.failIfEventsMatch` that isn't an array of `QueryItem` or `"*"`, an empty array
 anywhere the Query grammar needs a non-empty one (see Query grammar), a non-integer `afterSequence` or `limit`, a
 `limit` above the configured maximum (see Pagination), an invalid `time.from` / `time.before` timestamp, an event
 missing its `type`, an event carrying a duplicate identifier or metadata value, more than 20 identifiers/metadata
 entries (see Metadata), a `POST /events` call with no event or more than 100 events (see Appending events), a
-`POST /documents` call with no document, a duplicate `type` + `id`, or more than `maxDocumentsPerRequest` documents,
+`POST /projections` call with no projection, a duplicate `type` + `id`, or more than `maxProjectionsPerRequest` projections,
 and so on. A call that needs a ticket (`POST /events`, `POST /commit`, `POST /rollback`) and carries none gets
 `400 Bad Request` too: it names no transaction, so there's none to report as inactive.
 
@@ -764,7 +766,7 @@ stays active forever. A full process crash (an unrecovered panic, SIGKILL, an ou
 in-memory state down with it, so there's nothing left to leak either way.
 
 SQLite's own atomicity guarantees the store itself: a crash during an active transaction leaves an uncommitted WAL
-transaction, discarded the next time a connection opens. Neither the transaction's events nor its documents ever
+transaction, discarded the next time a connection opens. Neither the transaction's events nor its projections ever
 become visible, in whole or in part. The counter, read back from the database, matches.
 
 **Fatal storage errors:** a SQLite error that suggests the file itself may be damaged (an I/O error, detected
@@ -788,11 +790,11 @@ SQLite is used as the storage engine, for these reasons:
   format, and backed up the same way, through SQLite's own backup tools (for example `.backup`, `VACUUM INTO`) instead
   of a raw copy of the file, which can miss commits still sitting in the WAL
 
-Events and documents live in one file, `tamarackdb.sqlite`, so one SQLite transaction covers both. Documents are larger
+Events and projections live in one file, `tamarackdb.sqlite`, so one SQLite transaction covers both. Projections are larger
 than events and are rewritten in place, so they make the WAL grow faster than events alone would. This stays small in
-practice: only one transaction writes at a time anyway, and a command writes about ten documents, once, right before its
-commit (see Documents). The one heavy case is a projection rebuild, which writes every rebuilt document, but it runs
-while the server is paused, with no other writer (see Projection rebuilds). SQLite reuses the space of deleted documents
+practice: only one transaction writes at a time anyway, and a command writes about ten projections, once, right before its
+commit (see Projections). The one heavy case is a projection rebuild, which writes every rebuilt projection, but it runs
+while the server is paused, with no other writer (see Projection rebuilds). SQLite reuses the space of deleted projections
 for later writes on its own. Giving that space back to the operating system takes a `VACUUM`, which rewrites the whole
 file, events included. The server never runs one: it's run by hand, with `sqlite3`, while the server is stopped, the
 same way as a full `ANALYZE` (see below). Stopping the server costs a few seconds, on top of a rebuild's downtime that's
@@ -842,7 +844,7 @@ CREATE TABLE metadata (
 
 CREATE INDEX idx_metadata_name_value ON metadata(name, value, event_sequence);
 
-CREATE TABLE documents (
+CREATE TABLE projections (
     type    TEXT NOT NULL,
     id      TEXT NOT NULL,
     payload TEXT NOT NULL,
@@ -850,8 +852,8 @@ CREATE TABLE documents (
 ) WITHOUT ROWID;
 ```
 
-`documents` is `WITHOUT ROWID`, keyed by `(type, id)`: a document has no history, so its natural key is also its only
-key, with no separate rowid needed. The same key serves `DELETE /documents/{type}`, as a prefix of the primary key.
+`projections` is `WITHOUT ROWID`, keyed by `(type, id)`: a projection has no history, so its natural key is also its only
+key, with no separate rowid needed. The same key serves `DELETE /projections/{type}`, as a prefix of the primary key.
 
 `time` is stored as `TEXT`, not as an integer timestamp. Its fixed-width UTC format sorts the same way alphabetically
 as it does chronologically, so the `time` index serves the range filter directly, and nothing needs to be converted
@@ -886,8 +888,8 @@ application, its single source of truth with no backup copy running behind it.
 The write connection opens every transaction with `BEGIN IMMEDIATE` (`_txlock=immediate` in the DSN), taking SQLite's
 write lock at the start of the transaction, rather than waiting until the first write statement runs. For a transaction
 opened by `POST /begin`, that's the moment the ticket is given out: reads, checks, and inserts all run under the lock,
-with no window where another connection could slip in between them. A call accepted only while paused (`POST /documents`
-without a ticket, `DELETE /documents`) runs its own short `BEGIN IMMEDIATE` ... `COMMIT`. No transaction can be active
+with no window where another connection could slip in between them. A call accepted only while paused (`POST /projections`
+without a ticket, `DELETE /projections`) runs its own short `BEGIN IMMEDIATE` ... `COMMIT`. No transaction can be active
 while paused, and the pause can't end while such a call runs: it has the write connection to itself, apart from a
 `PRAGMA optimize` that waits its turn on the same single connection. The write connection also sets `_busy_timeout =
 5000` (five seconds). Since `writeDB.SetMaxOpenConns(1)` already forces every write onto one connection, and the FIFO
@@ -934,8 +936,8 @@ A page cut short (a response that ends without its trailer, see Response format)
 partial page. There's no retry inside a run: the error goes to stderr, with a non-zero exit code. Every page imported
 before the failure is already committed, so the next run resumes right after it.
 
-The backup copies events only. Documents are left out on purpose: every document can be rebuilt from events (see
-Projection rebuilds), so the backup file's `documents` table stays empty.
+The backup copies events only. Projections are left out on purpose: every projection can be rebuilt from events (see
+Projection rebuilds), so the backup file's `projections` table stays empty.
 
 The result is a regular TamarackDB database file. Unlike a raw copy of the source's file, which can miss commits still
 in the WAL, it can be opened and served by `tamarackdb-server` as a live instance. The source must be reachable over
@@ -951,7 +953,7 @@ transaction timeouts, pagination/size limits, and the FIFO depth) comes from thr
    [Backup](/docs/guides/backup/)); each binary reads only its own section.
 2. `TAMARACKDB_*` environment variables, one per configuration key.
 3. Built-in defaults, for the keys that have one (`socketPath`, `dataDir`, `logLevel`, `defaultEventsPerPage`,
-   `maxEventsPerPage`, `maxEventSize`, `maxDocumentSize`, `maxDocumentsPerRequest`, `transactionTimeout`,
+   `maxEventsPerPage`, `maxEventSize`, `maxProjectionSize`, `maxProjectionsPerRequest`, `transactionTimeout`,
    `maxTransactionDuration`, `maxQueuedTransactions`, `readPoolSize`).
 
 A value set in the configuration file always wins over the matching environment variable. The configuration file
@@ -975,8 +977,8 @@ instead.
 | `defaultEventsPerPage` | `TAMARACKDB_DEFAULT_EVENTS_PER_PAGE` | `1000` |
 | `maxEventsPerPage` | `TAMARACKDB_MAX_EVENTS_PER_PAGE` | `10000` |
 | `maxEventSize` | `TAMARACKDB_MAX_EVENT_SIZE` | `65536` (64 KiB) |
-| `maxDocumentSize` | `TAMARACKDB_MAX_DOCUMENT_SIZE` | `65536` (64 KiB) |
-| `maxDocumentsPerRequest` | `TAMARACKDB_MAX_DOCUMENTS_PER_REQUEST` | `100` |
+| `maxProjectionSize` | `TAMARACKDB_MAX_PROJECTION_SIZE` | `65536` (64 KiB) |
+| `maxProjectionsPerRequest` | `TAMARACKDB_MAX_PROJECTIONS_PER_REQUEST` | `100` |
 | `transactionTimeout` | `TAMARACKDB_TRANSACTION_TIMEOUT` | `5` (seconds) |
 | `maxTransactionDuration` | `TAMARACKDB_MAX_TRANSACTION_DURATION` | `15` (seconds) |
 | `maxQueuedTransactions` | `TAMARACKDB_MAX_QUEUED_TRANSACTIONS` | `100` |
@@ -986,9 +988,9 @@ instead.
 `tamarackdb.paused` (see Pause). Only the directory is configurable, the same convention MySQL's own `datadir` uses:
 the filenames within it are fixed.
 
-`maxDocumentSize` bounds one document's payload the same way `maxEventSize` bounds one event. `maxDocumentsPerRequest`
-caps how many documents one `POST /documents` call may carry. Unlike the fixed 100-events-per-call limit, it's
-configuration, not an architectural boundary: document volume needs vary more between applications, especially for a
+`maxProjectionSize` bounds one projection's payload the same way `maxEventSize` bounds one event. `maxProjectionsPerRequest`
+caps how many projections one `POST /projections` call may carry. Unlike the fixed 100-events-per-call limit, it's
+configuration, not an architectural boundary: projection volume needs vary more between applications, especially for a
 rebuild's calls.
 
 `transactionTimeout` is a transaction's idle timeout: how long it may go without a call before it's rolled back, counted
@@ -1084,7 +1086,7 @@ command that expired.
 
 ### Queue and connection pool observability
 
-Event and document counts, per-type breakdowns, and database file size (anything you can work out from the store's
+Event and projection counts, per-type breakdowns, and database file size (anything you can work out from the store's
 own content) are a query away, straight against the SQLite file, so the store doesn't need to expose them itself. What
 the file can't answer is live, in-memory state that only exists for the life of the process: the active transaction,
 the FIFO, the pause state, and how busy the read and write SQLite connection pools are. Two endpoints cover that, kept
@@ -1167,5 +1169,5 @@ always a quick, non-blocking read: never stuck behind a queued request or a runn
 
 The concrete Go code lives in `internal/queue` (the FIFO), `internal/txn` (tickets, deadlines, the pause, and reset),
 `internal/store` (the transaction on the write connection and the Query-to-SQL translation), and `cmd/tamarackdb-backup`
-(the backup tool). The document wire shape and its validation rules live in `internal/document`, independent of
+(the backup tool). The projection wire shape and its validation rules live in `internal/projection`, independent of
 `internal/dcb`.

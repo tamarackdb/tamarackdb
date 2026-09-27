@@ -7,7 +7,7 @@ import (
 	"net/http"
 
 	"github.com/tamarackdb/tamarackdb/internal/dcb"
-	"github.com/tamarackdb/tamarackdb/internal/document"
+	"github.com/tamarackdb/tamarackdb/internal/projection"
 	"github.com/tamarackdb/tamarackdb/internal/queue"
 	"github.com/tamarackdb/tamarackdb/internal/store"
 	"github.com/tamarackdb/tamarackdb/internal/txn"
@@ -64,20 +64,20 @@ func (s *Server) handleErr(w http.ResponseWriter, r *http.Request, err error) {
 	}
 
 	var ve *dcb.ValidationError
-	var de *document.ValidationError
+	var de *projection.ValidationError
 	var oe *oversizeError
 	switch {
 	case errors.As(err, &ve):
 		// Covers dcb.EventData.Validate(), dcb.Query.Validate(),
 		// dcb.AppendCondition.Validate(), request-shape decode errors
 		// (see decodeJSON, which wraps those as *dcb.ValidationError
-		// too), and every API-layer-invented rule (limit, event/document
-		// count caps, duplicate document key, missing ticket) that isn't
+		// too), and every API-layer-invented rule (limit, event/projection
+		// count caps, duplicate projection key, missing ticket) that isn't
 		// really a dcb domain rule but reuses this same 400 vehicle.
 		writeError(w, http.StatusBadRequest, "InvalidRequest", ve.Message)
 	case errors.As(err, &de):
-		// document.Data.Validate()'s own domain rules (missing type or
-		// id): same 400 treatment, distinct type since internal/document
+		// projection.Data.Validate()'s own domain rules (missing type or
+		// id): same 400 treatment, distinct type since internal/projection
 		// doesn't depend on internal/dcb.
 		writeError(w, http.StatusBadRequest, "InvalidRequest", de.Message)
 	case errors.As(err, &oe):
@@ -124,16 +124,16 @@ func decodeJSON(r *http.Request, v any) error {
 // (limit, event size, the ticket header) or request-shape concerns dcb has
 // no opinion about (an empty events array).
 var (
-	errMissingTicket        = errors.New("api: missing ticket header")
-	errNoEvents             = errors.New("api: request carries no events")
-	errNoDocuments          = errors.New("api: request carries no documents")
-	errTooManyEvents        = errors.New("api: request exceeds the maximum events per call")
-	errTooManyDocuments     = errors.New("api: request exceeds the maximum documents per call")
-	errDuplicateDocumentKey = errors.New("api: request carries the same document type+id more than once")
-	errNegativeLimit        = errors.New("api: limit must be non-negative")
-	errZeroLimit            = errors.New("api: limit must be greater than zero")
-	errLimitExceedsMax      = errors.New("api: limit exceeds the configured maximum")
-	errInvalidTimeRange     = errors.New("api: time.from must be earlier than time.before")
+	errMissingTicket          = errors.New("api: missing ticket header")
+	errNoEvents               = errors.New("api: request carries no events")
+	errNoProjections          = errors.New("api: request carries no projections")
+	errTooManyEvents          = errors.New("api: request exceeds the maximum events per call")
+	errTooManyProjections     = errors.New("api: request exceeds the maximum projections per call")
+	errDuplicateProjectionKey = errors.New("api: request carries the same projection type+id more than once")
+	errNegativeLimit          = errors.New("api: limit must be non-negative")
+	errZeroLimit              = errors.New("api: limit must be greater than zero")
+	errLimitExceedsMax        = errors.New("api: limit exceeds the configured maximum")
+	errInvalidTimeRange       = errors.New("api: time.from must be earlier than time.before")
 )
 
 // errMissingTicketValidation is the 400 for a call that requires a ticket

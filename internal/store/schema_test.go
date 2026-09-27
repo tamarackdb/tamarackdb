@@ -23,7 +23,7 @@ func TestOpenCreatesSchemaOnFreshFile(t *testing.T) {
 		t.Errorf("user_version = %d, want %d", version, schemaVersion)
 	}
 
-	for _, table := range []string{"events", "identifiers", "metadata", "documents"} {
+	for _, table := range []string{"events", "identifiers", "metadata", "projections"} {
 		var name string
 		err := s.writeDB.QueryRowContext(context.Background(),
 			"SELECT name FROM sqlite_master WHERE type='table' AND name=?", table).Scan(&name)
@@ -68,9 +68,9 @@ func TestOpenCreatesSchemaOnFreshFile(t *testing.T) {
 	}
 
 	wantDocColumns := map[string]bool{"type": false, "id": false, "payload": false}
-	docRows, err := s.writeDB.QueryContext(context.Background(), "PRAGMA table_info(documents)")
+	docRows, err := s.writeDB.QueryContext(context.Background(), "PRAGMA table_info(projections)")
 	if err != nil {
-		t.Fatalf("read documents table_info: %v", err)
+		t.Fatalf("read projections table_info: %v", err)
 	}
 	defer docRows.Close()
 	for docRows.Next() {
@@ -79,18 +79,18 @@ func TestOpenCreatesSchemaOnFreshFile(t *testing.T) {
 		var notNull, pk int
 		var dfltValue any
 		if err := docRows.Scan(&cid, &name, &colType, &notNull, &dfltValue, &pk); err != nil {
-			t.Fatalf("scan documents table_info: %v", err)
+			t.Fatalf("scan projections table_info: %v", err)
 		}
 		if _, ok := wantDocColumns[name]; ok {
 			wantDocColumns[name] = true
 		}
 		if name == "version" {
-			t.Error("documents table has a version column; documents are not versioned")
+			t.Error("projections table has a version column; projections are not versioned")
 		}
 	}
 	for name, found := range wantDocColumns {
 		if !found {
-			t.Errorf("documents column %q not found", name)
+			t.Errorf("projections column %q not found", name)
 		}
 	}
 }

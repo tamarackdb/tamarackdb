@@ -22,10 +22,10 @@ one request of the application:
 
 1. Open a transaction.
 2. Read the events your decision needs, decide, and append new events.
-3. Let your event handlers react. Projectors read and update documents.
+3. Let your event handlers react. Projectors read and update projections.
    Processors read events, including the ones just appended, and may append
    more.
-4. Write every changed document.
+4. Write every changed projection.
 5. Commit.
 
 Everything lands together, or nothing does. Every call in steps 2 to 5 runs
@@ -109,7 +109,7 @@ Condition was already checked when its events were appended.
 A transaction also ends, rolled back, when:
 
 - any call made with its ticket returns an error, except `404
-  DocumentNotFound` (see [Documents](#documents));
+  ProjectionNotFound` (see [Projections](#projections));
 - the client closes the connection while a call with its ticket is running;
 - the idle timeout or the total ceiling is reached (see [Deadline](#deadline)).
 
@@ -313,7 +313,7 @@ same `time`; order within a call comes from `sequence`.
 A single call carries between 1 and 100 events, each up to 64 KiB (the combined
 size of its `type`, `identifiers`, `metadata`, and `payload`). A transaction may
 make several `POST /events` calls: the limit applies to each call. Put larger
-content (files, documents) in external storage, and reference it from the event
+content (files, images) in external storage, and reference it from the event
 instead of embedding it.
 
 ### Append Condition
@@ -377,20 +377,24 @@ client appended a matching event in between, you get `409
 ConcurrencyException`: read again, decide again, and retry in a new
 transaction.
 
-## Documents
+## Projections
 
-A document is a projection: an opaque payload identified by `type` + `id`,
-with no history. It can be overwritten or deleted; the store only holds its
-current state. Documents are written in the same transaction as events, so a
-commit makes both durable together, and a rollback discards both.
+A projection is the current state a projector computes from events: an opaque
+payload identified by `type` + `id`, with no history. The `type` is like a
+class, and each projection is one instance of it. A projection can be
+overwritten or deleted; the store only holds its current state. Every
+projection can be rebuilt from events (see
+[Projection rebuilds](#projection-rebuilds)), which is why backups leave
+projections out. Projections are written in the same transaction as events, so
+a commit makes both durable together, and a rollback discards both.
 
-The document mechanism is optional. An application that keeps its projections
+Storing projections in TamarackDB is optional. An application that keeps its projections
 elsewhere never has to touch it.
 
-### Reading a document
+### Reading a projection
 
 ```sh
-curl -i http://127.0.0.1:8085/documents/user-profile/123
+curl -i http://127.0.0.1:8085/projections/user-profile/123
 ```
 
 ```
@@ -406,61 +410,61 @@ application.
 
 The ticket is optional, as for events:
 
-- **With a ticket**, the read sees documents written earlier in the same
-  transaction. A projector uses it to read a document before changing it.
-- **Without a ticket**, the read sees committed documents only. This is how you
+- **With a ticket**, the read sees projections written earlier in the same
+  transaction. A projector uses it to read a projection before changing it.
+- **Without a ticket**, the read sees committed projections only. This is how you
   read a projection to display a page.
 
-A document that doesn't exist gets `404 DocumentNotFound`. Inside a
+A projection that doesn't exist gets `404 ProjectionNotFound`. Inside a
 transaction, this is an ordinary answer, not an error: the transaction goes on.
-A projector that gets a `404` usually creates the document.
+A projector that gets a `404` usually creates the projection.
 
-A document is always read by `type` and `id`. There is no query over documents.
+A projection is always read by `type` and `id`. There is no query over projections.
 
-### Writing documents
+### Writing projections
 
-`POST /documents` writes or deletes several documents at once. The ticket is
+`POST /projections` writes or deletes several projections at once. The ticket is
 required, except during a projection rebuild (see
 [Projection rebuilds](#projection-rebuilds)).
 
 ```sh
-curl -X POST http://127.0.0.1:8085/documents \
+curl -X POST http://127.0.0.1:8085/projections \
   -H "Content-Type: application/json" \
   -H "X-Tamarackdb-Ticket: a045ad63-5d4b-4847-8eb9-fbddb4e2d65b" \
   -d '{
-    "documents": [
+    "projections": [
       { "type": "user-profile", "id": "123", "payload": "{\"name\":\"Ada Lovelace\"}" },
       { "type": "user-list-entry", "id": "456", "payload": null }
     ]
   }'
 ```
 
-- A document with a `payload` is created, or replaced if it exists.
-- A document with a `null` payload is deleted. Deleting a document that
+- A projection with a `payload` is created, or replaced if it exists.
+- A projection with a `null` payload is deleted. Deleting a projection that
   doesn't exist does nothing.
 - The same `type` + `id` can't appear twice in one call.
-- A call carries at least one document, and at most `maxDocumentsPerRequest`
+- A call carries at least one projection, and at most `maxProjectionsPerRequest`
   (100 out of the box),
-  each payload at most `maxDocumentSize` bytes (64 KiB out of the box).
+  each payload at most `maxProjectionSize` bytes (64 KiB out of the box).
 
 It responds `204 No Content`.
 
-There is no version and no concurrency check on documents. None is needed:
-your projector reads the document inside the transaction, changes it, and
+There is no version and no concurrency check on projections. None is needed:
+your projector reads the projection inside the transaction, changes it, and
 writes it back, while the transaction holds the write lock. Nothing else can
-change the document in between.
+change the projection in between.
 
-The recommended use is one `POST /documents` call per transaction, right
-before `POST /commit`, carrying every document your event handlers changed.
+The recommended use is one `POST /projections` call per transaction, right
+before `POST /commit`, carrying every projection your event handlers changed.
 Collect the changes in memory while the handlers run, instead of sending each
 small change as it happens. Several calls in one transaction still work.
 
-### What a document may depend on
+### What a projection may depend on
 
 Events are appended before your event handlers run, and `POST /events` returns
-each event's `sequence` and `time`. A document can use anything in an event,
+each event's `sequence` and `time`. A projection can use anything in an event,
 those two values included. A rebuild reads the same events back from `QUERY
-/events`, with the same values, so it produces the same documents.
+/events`, with the same values, so it produces the same projections.
 
 ## Projection rebuilds
 
@@ -477,17 +481,17 @@ from giving out tickets, so no transaction is active while you rebuild.
    responds `204 No Content`. From then on, every `POST /begin` gets
    `503 Paused`.
 
-2. Delete the documents to rebuild, one type at a time, or all of them:
+2. Delete the projections to rebuild, one type at a time, or all of them:
 
    ```sh
-   curl -X DELETE http://127.0.0.1:8085/documents/user-profile
-   curl -X DELETE http://127.0.0.1:8085/documents
+   curl -X DELETE http://127.0.0.1:8085/projections/user-profile
+   curl -X DELETE http://127.0.0.1:8085/projections
    ```
 
 3. Page through `QUERY /events` without a ticket, and run each page through
    your projections.
 
-4. Write the rebuilt documents with `POST /documents` without a ticket. Each
+4. Write the rebuilt projections with `POST /projections` without a ticket. Each
    call commits on its own.
 
 5. Resume:
@@ -496,7 +500,7 @@ from giving out tickets, so no transaction is active while you rebuild.
    curl -X POST http://127.0.0.1:8085/resume
    ```
 
-`DELETE /documents/{type}`, `DELETE /documents`, and `POST /documents` without
+`DELETE /projections/{type}`, `DELETE /projections`, and `POST /projections` without
 a ticket are accepted only while the server is paused. Outside a pause, they
 get `409 NotPaused`. Reads without a ticket work at all times.
 
@@ -511,7 +515,7 @@ Your application is expected to be fully down during a rebuild.
 ## Resetting between test runs
 
 If the server has `devMode` on, `POST /reset` deletes every event and every
-document. The next event appended gets sequence 1:
+projection. The next event appended gets sequence 1:
 
 ```sh
 curl -X POST http://127.0.0.1:8085/reset
@@ -531,15 +535,15 @@ The pause state stays as it is.
 ## Generating test data
 
 `tamarackdb-demo` fills a data directory with a large set of made-up events and
-documents. It is useful for testing a client library against realistic volume
+projections. It is useful for testing a client library against realistic volume
 instead of one or two hand-written events:
 
 ```sh
-./bin/tamarackdb-demo --data-dir /path/to/data --events 100000 --documents 10000 --seed 1
+./bin/tamarackdb-demo --data-dir /path/to/data --events 100000 --projections 10000 --seed 1
 ```
 
-Documents have types `DocumentType1` to `DocumentType5` and numeric ids from 1
-to `--documents`. Each id exists under only one of those types, picked at
+Projections have types `ProjectionType1` to `ProjectionType5` and numeric ids from 1
+to `--projections`. Each id exists under only one of those types, picked at
 random.
 
 It writes straight to the database file, not through the running server, so
@@ -558,18 +562,18 @@ Every error uses the same shape:
 `error` is a stable code your code can check. `message` is a human-readable detail,
 present when it helps and left out otherwise.
 
-Inside a transaction, every error except `404 DocumentNotFound` rolls the
+Inside a transaction, every error except `404 ProjectionNotFound` rolls the
 transaction back.
 
 | Status | `error` | Meaning |
 |---|---|---|
-| 400 | `InvalidRequest` | Malformed or invalid request body: bad JSON, invalid query shape, `limit` over the configured maximum, an invalid `time` bound, an event missing `type`, a duplicate identifier or metadata value, no event or more than 100 events in one `POST /events`, no document, too many documents, or a repeated document `type` + `id` in one `POST /documents`, a call that needs a ticket and carries none, and so on |
+| 400 | `InvalidRequest` | Malformed or invalid request body: bad JSON, invalid query shape, `limit` over the configured maximum, an invalid `time` bound, an event missing `type`, a duplicate identifier or metadata value, no event or more than 100 events in one `POST /events`, no projection, too many projections, or a repeated projection `type` + `id` in one `POST /projections`, a call that needs a ticket and carries none, and so on |
 | 401 | `Unauthorized` | Missing or invalid Bearer token (only when `enableAuth` is on) |
-| 404 | `DocumentNotFound` | `GET /documents/{type}/{id}` only: no document exists at that `type` + `id`. Doesn't end the transaction |
+| 404 | `ProjectionNotFound` | `GET /projections/{type}/{id}` only: no projection exists at that `type` + `id`. Doesn't end the transaction |
 | 409 | `ConcurrencyException` | The Append Condition of a `POST /events` call failed |
-| 409 | `NotPaused` | `DELETE /documents`, `DELETE /documents/{type}`, or `POST /documents` without a ticket, while the server isn't paused |
+| 409 | `NotPaused` | `DELETE /projections`, `DELETE /projections/{type}`, or `POST /projections` without a ticket, while the server isn't paused |
 | 410 | `TicketNotActive` | The ticket isn't the active one: it's unknown, or its transaction has already ended |
-| 413 | `PayloadTooLarge` | An event, or a document's `payload`, is bigger than the configured maximum size |
+| 413 | `PayloadTooLarge` | An event, or a projection's `payload`, is bigger than the configured maximum size |
 | 500 | `InternalError` | Unexpected server-side failure |
 | 503 | `TransactionQueueFull` | `POST /begin` or `POST /pause`: too many requests are already waiting |
 | 503 | `Paused` | `POST /begin` while the server is paused |
