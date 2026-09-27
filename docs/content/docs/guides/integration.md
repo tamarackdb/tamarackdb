@@ -134,8 +134,7 @@ instead of appending the same events twice.
 
 ## Reading events
 
-Reading uses the HTTP `QUERY` method, not `GET`, since a query can be too large or
-nested to fit in a URL:
+Read events with the HTTP `QUERY` method:
 
 ```sh
 curl -X QUERY http://127.0.0.1:8085/events \
