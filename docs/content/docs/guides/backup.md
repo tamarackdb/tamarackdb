@@ -35,7 +35,7 @@ Generate a starter config and adjust it as needed:
 : Default: none
 
 `databasePath`
-: Path to the local SQLite file the backup is written to.
+: Path to the local SQLite file the backup is written to. Its directory is created if it doesn't exist yet.
 : Env: `TAMARACKDB_BACKUP_DATABASE_PATH`
 : Default: `data/tamarackdb-backup.sqlite`
 

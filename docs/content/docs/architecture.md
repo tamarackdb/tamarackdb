@@ -521,7 +521,7 @@ reads the same events back from `QUERY /events`, with the same values, so it pro
 A pause stops the server from giving out tickets. It guarantees that no transaction is active while a projection
 rebuild runs.
 
-**`POST /pause`** joins the FIFO like a `POST /begin` request: it's subject to the same maximum wait, and a
+**`POST /pause`** joins the FIFO like a `POST /begin` request: it's subject to the same FIFO depth limit, and a
 client that disconnects while waiting leaves the FIFO, with no pause. When its turn comes, it opens no SQLite
 transaction. It writes the pause file, switches the server to paused, gives its turn to the next request in the FIFO,
 and responds `204 No Content`. The response therefore arrives only once every transaction ahead of it has ended.
@@ -771,10 +771,13 @@ table into the in-memory Sequence Position counter (see Application-controlled S
 then checks for the pause file in `dataDir`, and starts paused if it exists (see Pause). All of this finishes before the
 process gives out any ticket; reads without a ticket can be served as soon as the store is open.
 
-On `SIGINT` or `SIGTERM`, the process shuts down in order: the HTTP server stops taking new connections and finishes
-requests already in flight (`http.Server.Shutdown`, capped at 10 seconds), requests still waiting in the FIFO are
-turned away, the active transaction, if any, is rolled back, the queue manager closes, then the SQLite store closes,
-releasing its connections and the `.lock` file. A transaction is never committed on shutdown: only its client can
+On `SIGINT` or `SIGTERM`, the process shuts down in order. The HTTP server stops taking new connections
+(`http.Server.Shutdown`, capped at 10 seconds). At the same moment, the queue manager closes: requests still waiting
+in the FIFO are turned away, no new ticket is given out, and the active transaction, if any, is rolled back once a
+call already running with it finishes. The HTTP server then finishes the requests still in flight, and the SQLite
+store closes last, releasing its connections and the `.lock` file. The FIFO has to close first: a request waiting in
+it only ends once it gets its turn, so the HTTP server would otherwise wait for it, and hand out tickets that no
+client can use any more. A transaction is never committed on shutdown: only its client can
 decide to commit. A fatal storage error found mid-flight (see Fatal storage errors below) drives this same ordered
 shutdown, instead of an abrupt exit. The HTTP server also sets `ReadHeaderTimeout` to 10 seconds, closing a connection
 that never finishes sending its request headers, instead of holding it open forever.
@@ -910,13 +913,14 @@ Two more pragmas are set on every connection at startup, next to `foreign_keys`:
 mode this design assumes throughout, for MVCC reads and checkpoint behavior) and `PRAGMA synchronous = FULL`. `FULL`
 costs one extra fsync per commit compared to the `NORMAL` mode WAL usually pairs with, but at this scope's write
 volume that cost doesn't matter, and it buys the strongest durability SQLite offers, for what is, for each
-application, its single source of truth with no backup copy running behind it.
+application, its single source of truth.
 
 The write connection opens every transaction with `BEGIN IMMEDIATE` (`_txlock=immediate` in the DSN), taking SQLite's
 write lock at the start of the transaction, rather than waiting until the first write statement runs. For a transaction
 opened by `POST /begin`, that's the moment the ticket is given out: reads, checks, and inserts all run under the lock,
-with no window where another connection could slip in between them. A call accepted only while paused (`POST /projections`
-without a ticket, `DELETE /projections`) runs its own short `BEGIN IMMEDIATE` ... `COMMIT`. No transaction can be active
+with no window where another connection could slip in between them. A call accepted only while paused runs in its own
+short transaction: `POST /projections` without a ticket as its own `BEGIN IMMEDIATE` ... `COMMIT`, and
+`DELETE /projections` or `DELETE /projections/{type}` as a single statement that commits on its own. No transaction can be active
 while paused, and the pause can't end while such a call runs: it has the write connection to itself, apart from a
 `PRAGMA optimize` that waits its turn on the same single connection. The write connection also sets `_busy_timeout =
 5000` (five seconds). Since `writeDB.SetMaxOpenConns(1)` already forces every write onto one connection, and the FIFO
@@ -948,7 +952,8 @@ binary) is fatal: the process logs it and refuses to start, the same treatment a
 `tamarackdb-backup` keeps a standing copy of an instance's events in a local SQLite file. It does one catch-up run and
 exits; a scheduler runs it again (see [Backup](/docs/guides/backup/)). Each run:
 
-1. Opens the local file with `store.Open`, the same path the server uses: the file gets the server's schema, and the
+1. Creates the local file's directory if it doesn't exist yet, then opens the file with `store.Open`, the same path
+   the server uses: the file gets the server's schema, and the
    run holds the file's `.lock` (see Storage: SQLite). A backup file can't be updated while a server is serving it.
 2. Reads the highest Sequence Position already in the file.
 3. Pages through the source's `QUERY /events`, without a ticket, with `afterSequence` set to that position and `limit`
@@ -960,7 +965,8 @@ exits; a scheduler runs it again (see [Backup](/docs/guides/backup/)). Each run:
 5. Stops once a page's trailer reads `hasMore: false`.
 
 A page cut short (a response that ends without its trailer, see Response format) fails the run instead of importing a
-partial page. There's no retry inside a run: the error goes to stderr, with a non-zero exit code. Every page imported
+partial page. So does a page request that takes more than 5 minutes, so a source that stops answering never holds
+the backup file's lock past that. There's no retry inside a run: the error goes to stderr, with a non-zero exit code. Every page imported
 before the failure is already committed, so the next run resumes right after it.
 
 The backup copies events only. Projections are left out on purpose: every projection can be rebuilt from events (see
@@ -1122,8 +1128,8 @@ separate since they serve different needs:
 **`GET /metrics`**: Prometheus exposition format, for scraping into existing monitoring:
 - `tamarackdb_paused` (gauge): whether the server is paused (`1`) or not (`0`)
 - `tamarackdb_transaction_active` (gauge): whether a transaction is currently active (`1`) or not (`0`)
-- `tamarackdb_requests_queued` (gauge): number of requests (`POST /begin` or `POST /pause`) currently waiting in
-  the FIFO
+- `tamarackdb_requests_queued` (gauge): number of requests (`POST /begin`, `POST /pause`, or the hourly
+  `PRAGMA optimize`) currently waiting in the FIFO
 - `tamarackdb_queue_longest_wait_seconds` (gauge): longest current wait, in seconds, among queued requests; `0` when
   the FIFO is empty
 - `tamarackdb_transactions_started_total` (counter): total transactions given a ticket since startup

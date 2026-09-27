@@ -29,7 +29,7 @@ Each binary reads only its own section and ignores the rest, so a shared
 file works whether you run one binary or both.
 
 `socketPath`
-: Unix socket the server listens on.
+: Unix socket the server listens on. The server must be able to create it: `/var/run` is usually writable only by root, so a server running as a regular user needs a path it owns. On startup, the server removes a socket left at that path by an earlier run, and refuses to start if the path holds anything other than a socket.
 : Env: `TAMARACKDB_SOCKET_PATH`
 : Default: `/var/run/tamarackdb-server.sock`
 
@@ -39,7 +39,7 @@ file works whether you run one binary or both.
 : Default: `127.0.0.1` / `8085`, used only once either one is set; otherwise the server listens on `socketPath`
 
 `enableTls` / `tlsCertFile` / `tlsKeyFile`
-: TLS termination (Go's own `ListenAndServeTLS`, no reverse proxy).
+: TLS termination (Go's own `net/http` TLS, no reverse proxy).
 : Env: `TAMARACKDB_ENABLE_TLS` / `TAMARACKDB_TLS_CERT_FILE` / `TAMARACKDB_TLS_KEY_FILE`
 : Default: `false` / none / none
 
@@ -187,11 +187,12 @@ pod or `docker-compose` setup, override `TAMARACKDB_SOCKET_PATH`: it wins over
 the image's own `TAMARACKDB_BIND_ADDRESS`/`TAMARACKDB_PORT`. Mount a shared
 volume for the socket path so the other container can reach it.
 
-`tamarackdb-init` is also in the image, for running against the mounted
-volume:
+`tamarackdb-init` is also in the image. The server creates its database on its
+first start anyway, so you only need it to prepare a volume before that first
+start:
 
 ```sh
-docker exec <container> ./tamarackdb-init --data-dir /data
+docker run --rm -v tamarackdb-data:/data --entrypoint ./tamarackdb-init tamarackdb --data-dir /data
 ```
 
 ## Health check

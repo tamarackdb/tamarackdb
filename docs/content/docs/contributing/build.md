@@ -61,7 +61,9 @@ directory replaces the projections of the first one.
 
 ## Other Makefile targets
 
-- `make run`: build, then start the server with the default config
+- `make run`: build, then start the server with `config.toml` from the repository root, or the built-in defaults if
+  there's none. The default `socketPath`, under `/var/run`, usually needs root: set `socketPath`, or `bindAddress` and
+  `port`, in `config.toml` to run it as a regular user.
 - `make fmt` / `make vet` / `make tidy`: standard Go housekeeping
 - `make clean`: removes `bin/`
 

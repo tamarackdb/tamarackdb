@@ -40,7 +40,7 @@ Docs are split by audience, not by topic. Paths below are relative to
   provisioning tool usage, health check, observability
   (`/metrics`, `/debug`), logs. Audience: whoever runs an instance.
 - `contributing/build.md`: compiling, testing, Makefile targets, the demo/seed
-  tool (`cmd/demo`). Audience: contributors building TamarackDB from
+  tool (`cmd/tamarackdb-demo`). Audience: contributors building TamarackDB from
   source.
 - `guides/backup.md`: `tamarackdb-backup` usage, how it works, scheduling
   with cron/systemd. Audience: whoever needs a standing backup copy of an
