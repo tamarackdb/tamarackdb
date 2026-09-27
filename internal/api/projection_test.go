@@ -115,7 +115,8 @@ func TestWriteProjectionFailuresRollBack(t *testing.T) {
 	}{
 		{"missing type", `{"projections":[{"id":"123","payload":"x"}]}`, 400, "InvalidRequest"},
 		{"missing id", `{"projections":[{"type":"user-profile","payload":"x"}]}`, 400, "InvalidRequest"},
-		{"no projections", `{"projections":[]}`, 400, "InvalidRequest"},
+		{"missing projections", `{}`, 400, "InvalidRequest"},
+		{"misspelled projections", `{"projection":[{"type":"user-profile","id":"123","payload":"x"}]}`, 400, "InvalidRequest"},
 		{"too many projections", `{"projections":[` + strings.Join(tooMany, ",") + `]}`, 400, "InvalidRequest"},
 		{"duplicate key", `{"projections":[{"type":"user-profile","id":"123","payload":"a"},{"type":"user-profile","id":"123","payload":"b"}]}`, 400, "InvalidRequest"},
 		{"oversized payload", fmt.Sprintf(`{"projections":[{"type":"user-profile","id":"123","payload":%q}]}`, strings.Repeat("x", 70000)), 413, "PayloadTooLarge"},
@@ -132,6 +133,23 @@ func TestWriteProjectionFailuresRollBack(t *testing.T) {
 				t.Errorf("commit after the failed write status = %d, want 410", rec.Code)
 			}
 		})
+	}
+}
+
+// TestWriteEmptyProjectionsIsANoOp checks that an empty projections array
+// writes nothing and leaves the transaction active, and that the same call
+// without a ticket succeeds during a pause.
+func TestWriteEmptyProjectionsIsANoOp(t *testing.T) {
+	srv, _, _ := newTestServer(t)
+	ticket := begin(t, srv)
+	if rec := doTicketRequest(t, srv, "POST", "/projections", ticket, `{"projections":[]}`); rec.Code != 204 {
+		t.Fatalf("status = %d, body = %s, want 204", rec.Code, rec.Body.String())
+	}
+	commit(t, srv, ticket)
+
+	pause(t, srv)
+	if rec := doRequest(t, srv, "POST", "/projections", `{"projections":[]}`); rec.Code != 204 {
+		t.Fatalf("paused status = %d, body = %s, want 204", rec.Code, rec.Body.String())
 	}
 }
 

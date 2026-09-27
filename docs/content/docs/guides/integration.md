@@ -324,9 +324,11 @@ the transaction either commits them as they are, or rolls them back entirely.
 Your event handlers can use them right away. Every event of one call shares the
 same `time`; order within a call comes from `sequence`.
 
-A single call carries between 1 and 100 events, each up to 64 KiB (the combined
-size of its `type`, `identifiers`, `metadata`, and `payload`). A transaction may
-make several `POST /events` calls: the limit applies to each call. Put larger
+A single call carries at most 100 events, each up to 64 KiB (the combined size
+of its `type`, `identifiers`, `metadata`, and `payload`). A transaction may make
+several `POST /events` calls: the limit applies to each call. An empty `events`
+array appends nothing, skips the condition, and returns `{ "events": [] }`. A
+missing `events` field gets `400`: it's most likely a misspelled key. Put larger
 content (files, images) in external storage, and reference it from the event
 instead of embedding it.
 
@@ -454,9 +456,12 @@ curl -X POST http://127.0.0.1:8085/projections \
 - A projection with a `null` payload is deleted. Deleting a projection that
   doesn't exist does nothing.
 - The same `type` + `id` can't appear twice in one call.
-- A call carries at least one projection, and at most `maxProjectionsPerRequest`
-  (100 out of the box),
-  each payload at most `maxProjectionSize` bytes (64 KiB out of the box).
+- A call carries at most `maxProjectionsPerRequest` projections (100 out of
+  the box), each payload at most `maxProjectionSize` bytes (64 KiB out of the
+  box).
+- An empty `projections` array writes nothing. Your application can send its
+  usual call even when its event handlers changed no projection. A missing
+  `projections` field gets `400`: it's most likely a misspelled key.
 
 It responds `204 No Content`.
 
@@ -578,7 +583,7 @@ transaction back.
 
 | Status | `error` | Meaning |
 |---|---|---|
-| 400 | `InvalidRequest` | Malformed or invalid request body: bad JSON, invalid query shape, `limit` over the configured maximum, an invalid `time` bound, an event missing `type`, a duplicate identifier or metadata value, no event or more than 100 events in one `POST /events`, no projection, too many projections, or a repeated projection `type` + `id` in one `POST /projections`, a call that needs a ticket and carries none, and so on |
+| 400 | `InvalidRequest` | Malformed or invalid request body: bad JSON, invalid query shape, `limit` over the configured maximum, an invalid `time` bound, an event missing `type`, a duplicate identifier or metadata value, a missing `events` field or more than 100 events in one `POST /events`, a missing `projections` field, too many projections, or a repeated projection `type` + `id` in one `POST /projections`, a call that needs a ticket and carries none, and so on |
 | 401 | `Unauthorized` | Missing or invalid Bearer token (only when `enableAuth` is on) |
 | 404 | `ProjectionNotFound` | `GET /projections/{type}/{id}` only: no projection exists at that `type` + `id`. Doesn't end the transaction |
 | 409 | `ConcurrencyException` | The Append Condition of a `POST /events` call failed |

@@ -239,7 +239,9 @@ func TestAppendFailuresRollBack(t *testing.T) {
 	}{
 		{"missing type", `{"events":[{"identifiers":{},"metadata":{},"payload":""}]}`, 400, "InvalidRequest"},
 		{"duplicate identifier", `{"events":[{"type":"t","identifiers":{"a":["1","1"]},"metadata":{},"payload":""}]}`, 400, "InvalidRequest"},
-		{"empty events", `{"events":[]}`, 400, "InvalidRequest"},
+		{"missing events", `{}`, 400, "InvalidRequest"},
+		{"null events", `{"events":null}`, 400, "InvalidRequest"},
+		{"misspelled events", `{"event":[{"type":"t","identifiers":{},"metadata":{},"payload":""}]}`, 400, "InvalidRequest"},
 		{"malformed json", `{"events":`, 400, "InvalidRequest"},
 		{"negative afterSequence in condition", `{"events":[{"type":"t","identifiers":{},"metadata":{},"payload":""}],"condition":{"afterSequence":-1}}`, 400, "InvalidRequest"},
 		{"too many identifiers", `{"events":[{"type":"t","identifiers":{` + identifiers.String() + `},"metadata":{},"payload":""}]}`, 400, "InvalidRequest"},
@@ -262,6 +264,21 @@ func TestAppendFailuresRollBack(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestAppendEmptyEventsIsANoOp checks that an empty events array appends
+// nothing, skips the condition, and leaves the transaction active.
+func TestAppendEmptyEventsIsANoOp(t *testing.T) {
+	srv, _, _ := newTestServer(t)
+	appendCommitted(t, srv, `{"events":[{"type":"t","identifiers":{"userId":"123"},"metadata":{},"payload":""}]}`)
+
+	ticket := begin(t, srv)
+	body := `{"events":[],"condition":{"failIfEventsMatch":[{"identifiers":[{"name":"userId","value":"123"}]}],"afterSequence":0}}`
+	rec := doTicketRequest(t, srv, "POST", "/events", ticket, body)
+	if rec.Code != 200 || strings.TrimSpace(rec.Body.String()) != `{"events":[]}` {
+		t.Fatalf("status = %d, body = %s, want 200 {\"events\":[]}", rec.Code, rec.Body.String())
+	}
+	commit(t, srv, ticket)
 }
 
 func TestAppendConcurrencyConflictEndToEnd(t *testing.T) {

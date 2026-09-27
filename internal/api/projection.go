@@ -86,14 +86,17 @@ func (s *Server) handleWriteProjections(w http.ResponseWriter, r *http.Request) 
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// validateProjectionsRequest checks request-shape rules (between 1 and
-// maxProjectionsPerRequest projections), then, per projection,
+// validateProjectionsRequest checks request-shape rules (a projections
+// field, with at most maxProjectionsPerRequest projections), then, per projection,
 // projection.Data.Validate() and its size limit, rejecting a repeated
 // type+id pair within the same request rather than leaving its outcome to
 // write order.
 func validateProjectionsRequest(req projectionsRequest, maxProjectionSize, maxProjectionsPerRequest int) error {
-	if len(req.Projections) == 0 {
-		return &dcb.ValidationError{Err: errNoProjections, Message: "request must carry at least one projection"}
+	// A missing field (nil) is most likely a misspelled key, so it's
+	// rejected. An empty array writes nothing: a command whose event
+	// handlers changed no projection can still send its usual call.
+	if req.Projections == nil {
+		return &dcb.ValidationError{Err: errMissingProjections, Message: "request is missing its projections field"}
 	}
 	if len(req.Projections) > maxProjectionsPerRequest {
 		return &dcb.ValidationError{Err: errTooManyProjections, Message: fmt.Sprintf(

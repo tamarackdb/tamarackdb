@@ -276,14 +276,17 @@ func (s *Server) handleAppendEvents(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(resp)
 }
 
-// validateAppendRequest checks request-shape rules (between 1 and
-// dcb.MaxEventsPerWrite events), then, per event and in order,
+// validateAppendRequest checks request-shape rules (an events field, with
+// at most dcb.MaxEventsPerWrite events), then, per event and in order,
 // dcb.EventData.Validate() (fail-fast on the first domain violation) and
 // the configured size limit, then condition.Validate() if a condition was
 // given.
 func validateAppendRequest(req appendRequest, maxEventSize int) error {
-	if len(req.Events) == 0 {
-		return &dcb.ValidationError{Err: errNoEvents, Message: "request must carry at least one event"}
+	// A missing field (nil) is most likely a misspelled key, so it's
+	// rejected. An empty array is a command that decided to append
+	// nothing: it appends nothing, and its condition isn't checked.
+	if req.Events == nil {
+		return &dcb.ValidationError{Err: errMissingEvents, Message: "request is missing its events field"}
 	}
 	if len(req.Events) > dcb.MaxEventsPerWrite {
 		return &dcb.ValidationError{Err: errTooManyEvents, Message: fmt.Sprintf(

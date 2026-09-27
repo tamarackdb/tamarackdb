@@ -122,11 +122,11 @@ func decodeJSON(r *http.Request, v any) error {
 // api-layer validation sentinels: rules with no dcb.Validate() equivalent
 // to reuse, because they concern purely HTTP-layer/configured concepts
 // (limit, event size, the ticket header) or request-shape concerns dcb has
-// no opinion about (an empty events array).
+// no opinion about (a request missing its events field).
 var (
 	errMissingTicket          = errors.New("api: missing ticket header")
-	errNoEvents               = errors.New("api: request carries no events")
-	errNoProjections          = errors.New("api: request carries no projections")
+	errMissingEvents          = errors.New("api: request is missing its events field")
+	errMissingProjections     = errors.New("api: request is missing its projections field")
 	errTooManyEvents          = errors.New("api: request exceeds the maximum events per call")
 	errTooManyProjections     = errors.New("api: request exceeds the maximum projections per call")
 	errDuplicateProjectionKey = errors.New("api: request carries the same projection type+id more than once")
