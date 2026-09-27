@@ -175,10 +175,20 @@ own limit and closes the connection when it's reached.
 
 ## Run
 
+Run every command that creates or rewrites files under `dataDir` as the user
+the server runs as: the server, `tamarackdb-init`, and any `sqlite3` you run on
+the database by hand. The data directory is readable by its owner only, so a
+file created by another user, such as root, is one the server can't open, and
+it refuses to start. The examples below assume the server runs as a user named
+`tamarackdb`:
+
 ```sh
-./bin/tamarackdb-init --data-dir /path/to/data
-./bin/tamarackdb-server --config /path/to/config.toml
+sudo -u tamarackdb ./bin/tamarackdb-init --data-dir /path/to/data
+sudo -u tamarackdb ./bin/tamarackdb-server --config /path/to/config.toml
 ```
+
+Under systemd, set `User=tamarackdb` in the service unit instead of using
+`sudo`.
 
 Once running, the server logs one line per request to stdout, tagged with a
 severity level: method, path, status code, response size, and time taken,
@@ -302,10 +312,10 @@ runs one itself.
 Do it at the end of a rebuild, while the application is already down:
 
 1. Stop `tamarackdb-server`.
-2. Run the `VACUUM`:
+2. Run the `VACUUM`, as the server's user (see [Run](#run)):
 
    ```sh
-   sqlite3 /path/to/data/tamarackdb.sqlite 'VACUUM;'
+   sudo -u tamarackdb sqlite3 /path/to/data/tamarackdb.sqlite 'VACUUM;'
    ```
 
 3. Start `tamarackdb-server` again. It starts paused, since the pause file is

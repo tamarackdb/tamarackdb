@@ -62,8 +62,20 @@ The backup file is a regular TamarackDB database. If the source is ever lost,
 serve it as the new instance:
 
 1. Wait for any `tamarackdb-backup` run to finish, and stop scheduling new ones.
-2. Copy the backup file into an empty directory, under the name
-   `tamarackdb.sqlite`: the server only opens that name inside its `dataDir`.
+2. Create a new data directory, owned by the user the server runs as (here
+   `tamarackdb`) and readable by that user only, and copy the backup file into
+   it under the name `tamarackdb.sqlite`, the only name the server opens
+   inside its `dataDir`:
+
+   ```sh
+   sudo install -d -o tamarackdb -g tamarackdb -m 700 /path/to/new-data
+   sudo install -o tamarackdb -g tamarackdb -m 600 /path/to/tamarackdb-backup.sqlite /path/to/new-data/tamarackdb.sqlite
+   ```
+
+   A directory made with a plain `mkdir`, or a file copied with a plain `cp`,
+   gets the umask's permissions, which usually let every user read the
+   events. A file copied by another user, such as root, is one the server
+   can't write, and it refuses to start.
 3. Start `tamarackdb-server` with `dataDir` set to that directory.
 
 It holds events only, not projections. Before an application uses a restored

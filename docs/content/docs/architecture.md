@@ -860,7 +860,8 @@ commit (see Projections). The one heavy case is a projection rebuild, which writ
 while the server is paused, with no other writer (see Projection rebuilds). SQLite reuses the space of deleted projections
 for later writes on its own. Giving that space back to the operating system takes a `VACUUM`, which rewrites the whole
 file, events included. The server never runs one: it's run by hand, with `sqlite3`, while the server is stopped, the
-same way as a full `ANALYZE` (see below). Stopping the server costs a few seconds, on top of a rebuild's downtime that's
+same way as a full `ANALYZE` (see below). Both run as the server's own user: the data directory is readable by its
+owner only, and a WAL file left behind by another user is one the server can't open. Stopping the server costs a few seconds, on top of a rebuild's downtime that's
 already accepted, and keeps the server free of a long operation it would have to coordinate with reads still in flight.
 
 **Enforcing single-writer at the OS level:** `writeDB.SetMaxOpenConns(1)`, WAL, and `_busy_timeout` only keep writes
