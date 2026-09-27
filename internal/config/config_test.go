@@ -1021,3 +1021,11 @@ func TestLoadRejectsTLSKeys(t *testing.T) {
 		t.Fatalf("Load() error = %v, want an unknown key error naming server.enableTls", err)
 	}
 }
+
+func TestLoadReportsEveryInvalidEnvVar(t *testing.T) {
+	setEnv(t, map[string]string{"TAMARACKDB_PORT": "not-a-port", "TAMARACKDB_DEV_MODE": "maybe"})
+	_, err := Load(filepath.Join(t.TempDir(), "missing.toml"))
+	if err == nil || !strings.Contains(err.Error(), "TAMARACKDB_PORT") || !strings.Contains(err.Error(), "TAMARACKDB_DEV_MODE") {
+		t.Fatalf("Load() error = %v, want it to name both invalid variables", err)
+	}
+}

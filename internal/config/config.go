@@ -13,6 +13,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -229,148 +230,76 @@ type fileBools struct {
 }
 
 // applyEnv fills in any field of cfg still at its zero value from the
-// matching TAMARACKDB_* environment variable, in the same order fields
-// appear in Config. A boolean is filled in only when the file left it out
-// (see fileBools).
+// matching TAMARACKDB_* environment variable. A boolean is filled in only
+// when the file left it out (see fileBools). Every invalid variable is
+// reported, not just the first.
 func applyEnv(cfg *Config, inFile fileBools) error {
-	if cfg.SocketPath == "" {
-		if v, ok := os.LookupEnv("TAMARACKDB_SOCKET_PATH"); ok {
-			cfg.SocketPath = v
-		}
+	envString(&cfg.SocketPath, "TAMARACKDB_SOCKET_PATH")
+	envString(&cfg.SocketMode, "TAMARACKDB_SOCKET_MODE")
+	envString(&cfg.BindAddress, "TAMARACKDB_BIND_ADDRESS")
+	envString(&cfg.AuthToken, "TAMARACKDB_AUTH_TOKEN")
+	envString(&cfg.DataDir, "TAMARACKDB_DATA_DIR")
+	envString(&cfg.LogLevel, "TAMARACKDB_LOG_LEVEL")
+	return errors.Join(
+		envInt(&cfg.Port, "TAMARACKDB_PORT"),
+		envBool(&cfg.EnableAuth, inFile.EnableAuth != nil, "TAMARACKDB_ENABLE_AUTH"),
+		envBool(&cfg.DevMode, inFile.DevMode != nil, "TAMARACKDB_DEV_MODE"),
+		envInt(&cfg.DefaultEventsPerPage, "TAMARACKDB_DEFAULT_EVENTS_PER_PAGE"),
+		envInt(&cfg.MaxEventsPerPage, "TAMARACKDB_MAX_EVENTS_PER_PAGE"),
+		envInt(&cfg.MaxEventSize, "TAMARACKDB_MAX_EVENT_SIZE"),
+		envInt(&cfg.MaxProjectionSize, "TAMARACKDB_MAX_PROJECTION_SIZE"),
+		envInt(&cfg.MaxProjectionsPerRequest, "TAMARACKDB_MAX_PROJECTIONS_PER_REQUEST"),
+		envInt(&cfg.TransactionTimeout, "TAMARACKDB_TRANSACTION_TIMEOUT"),
+		envInt(&cfg.MaxTransactionDuration, "TAMARACKDB_MAX_TRANSACTION_DURATION"),
+		envInt(&cfg.MaxQueuedTransactions, "TAMARACKDB_MAX_QUEUED_TRANSACTIONS"),
+		envInt(&cfg.ReadPoolSize, "TAMARACKDB_READ_POOL_SIZE"),
+	)
+}
+
+// envString sets *dst from the environment variable name, when *dst is
+// still empty and the variable is set.
+func envString(dst *string, name string) {
+	if *dst != "" {
+		return
 	}
-	if cfg.SocketMode == "" {
-		if v, ok := os.LookupEnv("TAMARACKDB_SOCKET_MODE"); ok {
-			cfg.SocketMode = v
-		}
+	if v, ok := os.LookupEnv(name); ok {
+		*dst = v
 	}
-	if cfg.BindAddress == "" {
-		if v, ok := os.LookupEnv("TAMARACKDB_BIND_ADDRESS"); ok {
-			cfg.BindAddress = v
-		}
+}
+
+// envInt sets *dst from the environment variable name, when *dst is still
+// zero and the variable is set.
+func envInt(dst *int, name string) error {
+	if *dst != 0 {
+		return nil
 	}
-	if cfg.Port == 0 {
-		if v, ok := os.LookupEnv("TAMARACKDB_PORT"); ok {
-			p, err := strconv.Atoi(v)
-			if err != nil {
-				return fmt.Errorf("invalid TAMARACKDB_PORT %q: %w", v, err)
-			}
-			cfg.Port = p
-		}
+	v, ok := os.LookupEnv(name)
+	if !ok {
+		return nil
 	}
-	if inFile.EnableAuth == nil {
-		if v, ok := os.LookupEnv("TAMARACKDB_ENABLE_AUTH"); ok {
-			b, err := strconv.ParseBool(v)
-			if err != nil {
-				return fmt.Errorf("invalid TAMARACKDB_ENABLE_AUTH %q: %w", v, err)
-			}
-			cfg.EnableAuth = b
-		}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return fmt.Errorf("invalid %s %q: %w", name, v, err)
 	}
-	if cfg.AuthToken == "" {
-		if v, ok := os.LookupEnv("TAMARACKDB_AUTH_TOKEN"); ok {
-			cfg.AuthToken = v
-		}
+	*dst = n
+	return nil
+}
+
+// envBool sets *dst from the environment variable name, when the file
+// didn't set it (inFile) and the variable is set.
+func envBool(dst *bool, inFile bool, name string) error {
+	if inFile {
+		return nil
 	}
-	if cfg.DataDir == "" {
-		if v, ok := os.LookupEnv("TAMARACKDB_DATA_DIR"); ok {
-			cfg.DataDir = v
-		}
+	v, ok := os.LookupEnv(name)
+	if !ok {
+		return nil
 	}
-	if cfg.LogLevel == "" {
-		if v, ok := os.LookupEnv("TAMARACKDB_LOG_LEVEL"); ok {
-			cfg.LogLevel = v
-		}
+	b, err := strconv.ParseBool(v)
+	if err != nil {
+		return fmt.Errorf("invalid %s %q: %w", name, v, err)
 	}
-	if inFile.DevMode == nil {
-		if v, ok := os.LookupEnv("TAMARACKDB_DEV_MODE"); ok {
-			b, err := strconv.ParseBool(v)
-			if err != nil {
-				return fmt.Errorf("invalid TAMARACKDB_DEV_MODE %q: %w", v, err)
-			}
-			cfg.DevMode = b
-		}
-	}
-	if cfg.DefaultEventsPerPage == 0 {
-		if v, ok := os.LookupEnv("TAMARACKDB_DEFAULT_EVENTS_PER_PAGE"); ok {
-			n, err := strconv.Atoi(v)
-			if err != nil {
-				return fmt.Errorf("invalid TAMARACKDB_DEFAULT_EVENTS_PER_PAGE %q: %w", v, err)
-			}
-			cfg.DefaultEventsPerPage = n
-		}
-	}
-	if cfg.MaxEventsPerPage == 0 {
-		if v, ok := os.LookupEnv("TAMARACKDB_MAX_EVENTS_PER_PAGE"); ok {
-			n, err := strconv.Atoi(v)
-			if err != nil {
-				return fmt.Errorf("invalid TAMARACKDB_MAX_EVENTS_PER_PAGE %q: %w", v, err)
-			}
-			cfg.MaxEventsPerPage = n
-		}
-	}
-	if cfg.MaxEventSize == 0 {
-		if v, ok := os.LookupEnv("TAMARACKDB_MAX_EVENT_SIZE"); ok {
-			n, err := strconv.Atoi(v)
-			if err != nil {
-				return fmt.Errorf("invalid TAMARACKDB_MAX_EVENT_SIZE %q: %w", v, err)
-			}
-			cfg.MaxEventSize = n
-		}
-	}
-	if cfg.MaxProjectionSize == 0 {
-		if v, ok := os.LookupEnv("TAMARACKDB_MAX_PROJECTION_SIZE"); ok {
-			n, err := strconv.Atoi(v)
-			if err != nil {
-				return fmt.Errorf("invalid TAMARACKDB_MAX_PROJECTION_SIZE %q: %w", v, err)
-			}
-			cfg.MaxProjectionSize = n
-		}
-	}
-	if cfg.MaxProjectionsPerRequest == 0 {
-		if v, ok := os.LookupEnv("TAMARACKDB_MAX_PROJECTIONS_PER_REQUEST"); ok {
-			n, err := strconv.Atoi(v)
-			if err != nil {
-				return fmt.Errorf("invalid TAMARACKDB_MAX_PROJECTIONS_PER_REQUEST %q: %w", v, err)
-			}
-			cfg.MaxProjectionsPerRequest = n
-		}
-	}
-	if cfg.TransactionTimeout == 0 {
-		if v, ok := os.LookupEnv("TAMARACKDB_TRANSACTION_TIMEOUT"); ok {
-			n, err := strconv.Atoi(v)
-			if err != nil {
-				return fmt.Errorf("invalid TAMARACKDB_TRANSACTION_TIMEOUT %q: %w", v, err)
-			}
-			cfg.TransactionTimeout = n
-		}
-	}
-	if cfg.MaxTransactionDuration == 0 {
-		if v, ok := os.LookupEnv("TAMARACKDB_MAX_TRANSACTION_DURATION"); ok {
-			n, err := strconv.Atoi(v)
-			if err != nil {
-				return fmt.Errorf("invalid TAMARACKDB_MAX_TRANSACTION_DURATION %q: %w", v, err)
-			}
-			cfg.MaxTransactionDuration = n
-		}
-	}
-	if cfg.MaxQueuedTransactions == 0 {
-		if v, ok := os.LookupEnv("TAMARACKDB_MAX_QUEUED_TRANSACTIONS"); ok {
-			n, err := strconv.Atoi(v)
-			if err != nil {
-				return fmt.Errorf("invalid TAMARACKDB_MAX_QUEUED_TRANSACTIONS %q: %w", v, err)
-			}
-			cfg.MaxQueuedTransactions = n
-		}
-	}
-	if cfg.ReadPoolSize == 0 {
-		if v, ok := os.LookupEnv("TAMARACKDB_READ_POOL_SIZE"); ok {
-			n, err := strconv.Atoi(v)
-			if err != nil {
-				return fmt.Errorf("invalid TAMARACKDB_READ_POOL_SIZE %q: %w", v, err)
-			}
-			cfg.ReadPoolSize = n
-		}
-	}
+	*dst = b
 	return nil
 }
 

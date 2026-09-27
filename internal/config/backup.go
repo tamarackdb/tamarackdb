@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net/url"
 	"os"
-	"strconv"
 )
 
 // Default values for BackupConfig's optional fields, exported so callers
@@ -79,26 +78,9 @@ func applyBackupEnv(cfg *BackupConfig, sourceInFile bool) error {
 			cfg.SourceSocket = v
 		}
 	}
-	if cfg.SourceToken == "" {
-		if v, ok := os.LookupEnv("TAMARACKDB_BACKUP_SOURCE_TOKEN"); ok {
-			cfg.SourceToken = v
-		}
-	}
-	if cfg.DatabasePath == "" {
-		if v, ok := os.LookupEnv("TAMARACKDB_BACKUP_DATABASE_PATH"); ok {
-			cfg.DatabasePath = v
-		}
-	}
-	if cfg.PageLimit == 0 {
-		if v, ok := os.LookupEnv("TAMARACKDB_BACKUP_PAGE_LIMIT"); ok {
-			n, err := strconv.Atoi(v)
-			if err != nil {
-				return fmt.Errorf("invalid TAMARACKDB_BACKUP_PAGE_LIMIT %q: %w", v, err)
-			}
-			cfg.PageLimit = n
-		}
-	}
-	return nil
+	envString(&cfg.SourceToken, "TAMARACKDB_BACKUP_SOURCE_TOKEN")
+	envString(&cfg.DatabasePath, "TAMARACKDB_BACKUP_DATABASE_PATH")
+	return envInt(&cfg.PageLimit, "TAMARACKDB_BACKUP_PAGE_LIMIT")
 }
 
 // Validate checks structural sanity only: exactly one source, well formed,
