@@ -355,8 +355,9 @@ published one if that's what you run.
 The image is set up entirely through `TAMARACKDB_*` environment variables (see
 Configure above); no `config.toml` is needed inside the container. It sets
 `TAMARACKDB_BIND_ADDRESS=0.0.0.0` and `TAMARACKDB_PORT=8085` itself, so it
-listens over TCP by default, unlike a plain `tamarackdb-server` binary. It
-also sets `TAMARACKDB_DATA_DIR=/data`, so mount a volume on `/data` to keep
+listens over TCP, on port `8085`, unlike a plain `tamarackdb-server` binary.
+The unix socket is for a server installed directly on the host (see
+[Production](#production)); in a container, use TCP. It also sets `TAMARACKDB_DATA_DIR=/data`, so mount a volume on `/data` to keep
 the database, and the pause state (see [Pause](#pause)), across restarts.
 
 The server runs as user and group `tamarackdb`, UID and GID `10001`. A named
@@ -368,15 +369,6 @@ sudo install -d -o 10001 -g 10001 -m 700 /srv/tamarackdb
 docker run -d -p 127.0.0.1:8085:8085 -v /srv/tamarackdb:/data tamarackdb
 ```
 
-To use a unix socket instead, e.g. for a reverse proxy container in the same
-pod or `docker-compose` setup, override `TAMARACKDB_SOCKET_PATH`: it wins over
-the image's own `TAMARACKDB_BIND_ADDRESS`/`TAMARACKDB_PORT`. Put the socket on
-a volume shared with the other container, in a directory UID `10001` can
-write. The other container runs as another user, and the default `socketMode`
-of `"0600"` would turn it away: set `TAMARACKDB_SOCKET_MODE=0660`, and run the
-other container with the `10001` group, for example with
-`docker run --group-add 10001`.
-
 `tamarackdb-init` is also in the image. The server creates its database on its
 first start anyway, so you only need it to prepare a volume before that first
 start:
@@ -384,6 +376,34 @@ start:
 ```sh
 docker run --rm -v tamarackdb-data:/data --entrypoint ./tamarackdb-init tamarackdb --data-dir /data
 ```
+
+### Alongside the application
+
+When the application runs in a container too, put both on the same Docker
+network, and publish no port at all: the application reaches TamarackDB by its
+service name, and nothing is reachable from outside the host. With
+`docker compose`:
+
+```yaml
+services:
+  tamarackdb:
+    image: ghcr.io/tamarackdb/tamarackdb:latest
+    volumes:
+      - tamarackdb-data:/data
+  app:
+    image: my-app
+    environment:
+      # The application's own setting, whatever it's named.
+      TAMARACKDB_URL: http://tamarackdb:8085
+
+volumes:
+  tamarackdb-data:
+```
+
+Every container on that network can reach the API. If the network holds
+containers you don't trust, turn `enableAuth` on (`TAMARACKDB_ENABLE_AUTH` and
+`TAMARACKDB_AUTH_TOKEN` on the `tamarackdb` service), and give the token to
+the application.
 
 ## Health check
 
