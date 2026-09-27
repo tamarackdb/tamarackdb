@@ -217,8 +217,9 @@ Each release publishes an image for `linux/amd64` and `linux/arm64`:
 docker run -d -p 8085:8085 -v tamarackdb-data:/data ghcr.io/tamarackdb/tamarackdb:latest
 ```
 
-Use a version tag, such as `ghcr.io/tamarackdb/tamarackdb:v0.20.0`, to pin a
-release. To build the image from source instead:
+Use a version tag, such as `ghcr.io/tamarackdb/tamarackdb:v<version>`, to pin a
+release (see the [releases](https://github.com/tamarackdb/tamarackdb/releases)).
+To build the image from source instead:
 
 ```sh
 docker build -t tamarackdb .
