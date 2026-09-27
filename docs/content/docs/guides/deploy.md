@@ -45,10 +45,12 @@ Check each point before an instance holds real data:
 2. **A private data directory.** `dataDir` is readable by the server's user
    only (`0700`). The server creates it that way; give a directory you create
    yourself the same permissions (see [Configure](#configure)).
-3. **The same host, over the unix socket.** Run TamarackDB next to the
-   application, on the socket. If the application runs as another user, set
-   `socketMode = "0660"` and add that user to the server's group (see
-   [Configure](#configure)).
+3. **The same host, over the unix socket.** Installed directly on the host,
+   run TamarackDB next to the application, on the socket. If the application
+   runs as another user, set `socketMode = "0660"` and add that user to the
+   server's group (see [Configure](#configure)). In Docker, use TCP on a
+   private network instead (see
+   [Alongside the application](#alongside-the-application)).
 4. **A reverse proxy and a token over the network.** If the application must
    reach TamarackDB from another host, put a reverse proxy in front of the
    socket to handle TLS, and turn `enableAuth` on (see
@@ -306,24 +308,12 @@ next time the machine starts. For a lasting service, use the systemd unit in
 [Production](#production): `User=tamarackdb` replaces `sudo`, and
 `RuntimeDirectory=tamarackdb` creates the directory at every start.
 
-Once running, the server logs one line per request to stdout, tagged with a
-severity level: method, path, status code, response size, and time taken,
-e.g. `tamarackdb-server: [WARNING] POST /begin 503 35B 30001.52ms`. Only lines
-at or above `logLevel` are printed; by default that's `warning`, so a plain
-successful request or an expected rejection like a concurrency conflict
-stays quiet, and only capacity issues and real failures show up. See
-[Logs](#logs) for the full list of severities. It opens everything it needs
-under `dataDir`, creating it, with its schema, if it doesn't exist yet.
-
-## Provisioning
-
-`tamarackdb-init` creates a new data directory, as shown above. The server
-also creates the database on its first start if it doesn't exist yet.
-
-On startup, the server checks that the database's schema version matches the
-one built into the binary, and refuses to start if it doesn't. The server
-never changes the schema on its own (see
-[Architecture](/docs/architecture/#schema)).
+`tamarackdb-init` is optional: the server creates `dataDir` and its database,
+with the schema, on its first start. On every start, it checks that the
+database's schema version matches the one built into the binary, and refuses
+to start if it doesn't; it never changes the schema on its own (see
+[Architecture](/docs/architecture/#schema)). Once running, it logs one line
+per request to stdout (see [Logs](#logs)).
 
 ## Docker
 
