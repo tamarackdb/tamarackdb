@@ -142,7 +142,11 @@ curl -X QUERY http://127.0.0.1:8085/events \
   -H "X-Tamarackdb-Ticket: a045ad63-5d4b-4847-8eb9-fbddb4e2d65b" \
   -d '{
     "query": [
-      { "identifiers": [ { "name": "userId", "value": "123" } ] }
+      {
+        "identifiers": [
+          { "name": "userId", "value": "123" }
+        ]
+      }
     ]
   }'
 ```
@@ -313,9 +317,21 @@ curl -X POST http://127.0.0.1:8085/events \
   -H "Content-Type: application/json" \
   -H "X-Tamarackdb-Ticket: a045ad63-5d4b-4847-8eb9-fbddb4e2d65b" \
   -d '{
-    "events": [ { "type": "user-renamed", "identifiers": { "userId": "123" }, "payload": "..." } ],
+    "events": [
+      {
+        "type": "user-renamed",
+        "identifiers": { "userId": "123" },
+        "payload": "..."
+      }
+    ],
     "condition": {
-      "failIfEventsMatch": [ { "identifiers": [ { "name": "userId", "value": "123" } ] } ],
+      "failIfEventsMatch": [
+        {
+          "identifiers": [
+            { "name": "userId", "value": "123" }
+          ]
+        }
+      ],
       "afterSequence": 12345
     }
   }'
