@@ -235,10 +235,23 @@ listens over TCP by default, unlike a plain `tamarackdb-server` binary. It
 also sets `TAMARACKDB_DATA_DIR=/data`, so mount a volume on `/data` to keep
 the database, and the pause state (see [Pause](#pause)), across restarts.
 
+The server runs as user and group `tamarackdb`, UID and GID `10001`. A named
+volume, as above, works as is. To mount a directory of the host instead, give
+it to that UID first, readable by it only:
+
+```sh
+sudo install -d -o 10001 -g 10001 -m 700 /srv/tamarackdb
+docker run -d -p 8085:8085 -v /srv/tamarackdb:/data tamarackdb
+```
+
 To use a unix socket instead, e.g. for a reverse proxy container in the same
 pod or `docker-compose` setup, override `TAMARACKDB_SOCKET_PATH`: it wins over
-the image's own `TAMARACKDB_BIND_ADDRESS`/`TAMARACKDB_PORT`. Mount a shared
-volume for the socket path so the other container can reach it.
+the image's own `TAMARACKDB_BIND_ADDRESS`/`TAMARACKDB_PORT`. Put the socket on
+a volume shared with the other container, in a directory UID `10001` can
+write. The other container runs as another user, and the default `socketMode`
+of `"0600"` would turn it away: set `TAMARACKDB_SOCKET_MODE=0660`, and run the
+other container with the `10001` group, for example with
+`docker run --group-add 10001`.
 
 `tamarackdb-init` is also in the image. The server creates its database on its
 first start anyway, so you only need it to prepare a volume before that first
@@ -251,8 +264,12 @@ docker run --rm -v tamarackdb-data:/data --entrypoint ./tamarackdb-init tamarack
 ## Health check
 
 ```sh
-curl --unix-socket /var/run/tamarackdb-server.sock http://localhost/health
+sudo -u tamarackdb curl --unix-socket /var/run/tamarackdb-server.sock http://localhost/health
 ```
+
+The socket only lets in the users `socketMode` allows (see
+[Configure](#configure)): the server's own user by default, hence the
+`sudo -u`.
 
 Or, on a TCP deployment:
 
@@ -296,7 +313,7 @@ If a rebuild failed and won't be run again, or a pause was left behind by
 mistake, end it yourself:
 
 ```sh
-curl --unix-socket /var/run/tamarackdb-server.sock -X POST http://localhost/resume
+sudo -u tamarackdb curl --unix-socket /var/run/tamarackdb-server.sock -X POST http://localhost/resume
 ```
 
 Use `POST /resume`, not a manual delete of the pause file: the running server

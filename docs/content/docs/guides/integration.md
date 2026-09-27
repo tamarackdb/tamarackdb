@@ -12,7 +12,9 @@ Examples below assume a server running locally on `127.0.0.1:8085`, with
 authentication off. TamarackDB listens on a unix socket by default; the
 examples apply the same way once you point curl at it with
 `--unix-socket <path> http://localhost/...` instead of a host and port (see
-[Deployment](/docs/guides/deployment/#configure)). Add `-H "Authorization: Bearer <token>"` to
+[Deployment](/docs/guides/deployment/#configure)). The socket's permissions
+decide who may connect: your application's user must be allowed by the
+server's `socketMode`, which by default lets in the server's own user only. Add `-H "Authorization: Bearer <token>"` to
 every request when `enableAuth` is on (see [Deployment](/docs/guides/deployment/#configure)).
 
 ## Terms
