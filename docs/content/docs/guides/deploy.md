@@ -95,15 +95,17 @@ With this `config.toml`, readable by `tamarackdb` only:
 
 ```toml
 [server]
-socketPath = "/run/tamarackdb/tamarackdb.sock"
 socketMode = "0660"
 dataDir = "/var/lib/tamarackdb"
 ```
 
+The socket stays at its default path, `/run/tamarackdb/tamarackdb.sock`, in the
+directory systemd creates.
+
 To create the user and start the service:
 
 ```sh
-sudo useradd --system --no-create-home --shell /usr/sbin/nologin tamarackdb
+sudo useradd --system --user-group --no-create-home --shell /usr/sbin/nologin tamarackdb
 sudo systemctl enable --now tamarackdb
 ```
 
@@ -131,9 +133,9 @@ Each binary reads only its own section and ignores the rest, so a shared
 file works whether you run one binary or both.
 
 `socketPath`
-: Unix socket the server listens on. The server must be able to create it: `/var/run` is usually writable only by root, so a server running as a regular user needs a path it owns. On startup, the server removes a socket left at that path by an earlier run, and refuses to start if the path holds anything other than a socket. The path can be at most 107 bytes long, the limit Linux sets for a unix socket.
+: Unix socket the server listens on. The server must be able to create it: the default's directory, `/run/tamarackdb`, must exist and be writable by the server's user. Under systemd, `RuntimeDirectory=tamarackdb` creates it (see [Production](#production)); elsewhere, create it yourself, or set a path the server's user owns. On startup, the server removes a socket left at that path by an earlier run, and refuses to start if the path holds anything other than a socket. The path can be at most 107 bytes long, the limit Linux sets for a unix socket.
 : Env: `TAMARACKDB_SOCKET_PATH`
-: Default: `/var/run/tamarackdb-server.sock`
+: Default: `/run/tamarackdb/tamarackdb.sock`
 
 `socketMode`
 : Permissions of the unix socket, as an octal string, set right after the server creates it. Only used with `socketPath`.
@@ -322,8 +324,15 @@ never changes the schema on its own (see
 Each release publishes an image for `linux/amd64` and `linux/arm64`:
 
 ```sh
-docker run -d -p 8085:8085 -v tamarackdb-data:/data ghcr.io/tamarackdb/tamarackdb:latest
+docker run -d -p 127.0.0.1:8085:8085 -v tamarackdb-data:/data ghcr.io/tamarackdb/tamarackdb:latest
 ```
+
+The container speaks plain HTTP, with `enableAuth` off unless you turn it on,
+so the examples publish its port on `127.0.0.1` only. A plain `-p 8085:8085`
+would publish it on every interface of the host, and give anyone who can reach
+the host full access to the API. To expose it to the network, turn
+`enableAuth` on (`TAMARACKDB_ENABLE_AUTH`, `TAMARACKDB_AUTH_TOKEN`), and put a
+reverse proxy in front of it for TLS (see [Configure](#configure)).
 
 Use a version tag, such as `ghcr.io/tamarackdb/tamarackdb:v<version>`, to pin a
 release (see the [releases](https://github.com/tamarackdb/tamarackdb/releases)).
@@ -331,7 +340,7 @@ To build the image from source instead:
 
 ```sh
 docker build -t tamarackdb .
-docker run -d -p 8085:8085 -v tamarackdb-data:/data tamarackdb
+docker run -d -p 127.0.0.1:8085:8085 -v tamarackdb-data:/data tamarackdb
 ```
 
 The examples below use the local `tamarackdb` image; replace it with the
@@ -350,7 +359,7 @@ it to that UID first, readable by it only:
 
 ```sh
 sudo install -d -o 10001 -g 10001 -m 700 /srv/tamarackdb
-docker run -d -p 8085:8085 -v /srv/tamarackdb:/data tamarackdb
+docker run -d -p 127.0.0.1:8085:8085 -v /srv/tamarackdb:/data tamarackdb
 ```
 
 To use a unix socket instead, e.g. for a reverse proxy container in the same
@@ -373,7 +382,7 @@ docker run --rm -v tamarackdb-data:/data --entrypoint ./tamarackdb-init tamarack
 ## Health check
 
 ```sh
-sudo -u tamarackdb curl --unix-socket /var/run/tamarackdb-server.sock http://localhost/health
+sudo -u tamarackdb curl --unix-socket /run/tamarackdb/tamarackdb.sock http://localhost/health
 ```
 
 The socket only lets in the users `socketMode` allows (see
@@ -422,7 +431,7 @@ If a rebuild failed and won't be run again, or a pause was left behind by
 mistake, end it yourself:
 
 ```sh
-sudo -u tamarackdb curl --unix-socket /var/run/tamarackdb-server.sock -X POST http://localhost/resume
+sudo -u tamarackdb curl --unix-socket /run/tamarackdb/tamarackdb.sock -X POST http://localhost/resume
 ```
 
 Use `POST /resume`, not a manual delete of the pause file: the running server

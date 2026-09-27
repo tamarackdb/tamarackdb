@@ -1035,7 +1035,7 @@ instead.
 
 | Key | Environment variable | Default |
 |---|---|---|
-| `socketPath` | `TAMARACKDB_SOCKET_PATH` | `/var/run/tamarackdb-server.sock` |
+| `socketPath` | `TAMARACKDB_SOCKET_PATH` | `/run/tamarackdb/tamarackdb.sock` |
 | `socketMode` | `TAMARACKDB_SOCKET_MODE` | `"0600"` (only with `socketPath`) |
 | `bindAddress` | `TAMARACKDB_BIND_ADDRESS` | `127.0.0.1` |
 | `port` | `TAMARACKDB_PORT` | `8085` |
