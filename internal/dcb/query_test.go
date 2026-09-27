@@ -3,6 +3,7 @@ package dcb
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 )
 
@@ -185,5 +186,38 @@ func TestAppendConditionValidate(t *testing.T) {
 				t.Errorf("Validate() = %v, want %v", err, tt.wantErr)
 			}
 		})
+	}
+}
+
+func TestQueryValidateSizeLimits(t *testing.T) {
+	item := func(n int) QueryItem {
+		types := make([]string, n)
+		for i := range types {
+			types[i] = fmt.Sprint("t", i)
+		}
+		return QueryItem{Types: types}
+	}
+	items := func(n int) []QueryItem {
+		out := make([]QueryItem, n)
+		for i := range out {
+			out[i] = QueryItem{Types: []string{fmt.Sprint("t", i)}}
+		}
+		return out
+	}
+
+	if err := NewQuery(items(MaxQueryItems)).Validate(); err != nil {
+		t.Errorf("%d items: Validate() error = %v, want nil", MaxQueryItems, err)
+	}
+	if err := NewQuery(items(MaxQueryItems + 1)).Validate(); !errors.Is(err, ErrQueryTooLarge) {
+		t.Errorf("%d items: Validate() error = %v, want ErrQueryTooLarge", MaxQueryItems+1, err)
+	}
+	if err := NewQuery([]QueryItem{item(MaxQueryItemValues)}).Validate(); err != nil {
+		t.Errorf("%d values: Validate() error = %v, want nil", MaxQueryItemValues, err)
+	}
+
+	mixed := item(MaxQueryItemValues)
+	mixed.Metadata = []Metadata{{Name: "tenantId", Value: "acme"}}
+	if err := NewQuery([]QueryItem{mixed}).Validate(); !errors.Is(err, ErrQueryTooLarge) {
+		t.Errorf("%d values across types and metadata: Validate() error = %v, want ErrQueryTooLarge", MaxQueryItemValues+1, err)
 	}
 }

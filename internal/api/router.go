@@ -42,10 +42,9 @@ type Options struct {
 	// Default: 65536 (64 KiB).
 	MaxEventSize int
 
-	// MaxProjectionSize is the maximum UTF-8 byte size of one projection's
-	// payload in a POST /projections request; over it, 413. Only checked
-	// when the payload is present (a deletion has none to bound).
-	// Default: 65536 (64 KiB).
+	// MaxProjectionSize is the maximum combined UTF-8 byte size of one
+	// projection's type, id, and payload (a deletion has no payload) in a
+	// POST /projections request; over it, 413. Default: 65536 (64 KiB).
 	MaxProjectionSize int
 
 	// MaxProjectionsPerRequest caps how many projections a single
@@ -97,6 +96,10 @@ type Server struct {
 	// withLogging.
 	logThreshold level
 
+	// maxRequestBody is MaxRequestBody(opts), computed once at
+	// construction; see withBodyLimit.
+	maxRequestBody int64
+
 	handler http.Handler
 }
 
@@ -132,7 +135,7 @@ func New(tm *txn.Manager, st *store.Store, opts Options) *Server {
 		panic(`api: New: Options.LogLevel must be one of "debug", "info", "warning", "error"`)
 	}
 
-	s := &Server{tm: tm, st: st, opts: opts, logThreshold: logThreshold}
+	s := &Server{tm: tm, st: st, opts: opts, logThreshold: logThreshold, maxRequestBody: MaxRequestBody(opts)}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /begin", s.handleBegin)
@@ -176,7 +179,7 @@ func New(tm *txn.Manager, st *store.Store, opts Options) *Server {
 		mux.HandleFunc("GET /debug/pprof/trace", pprof.Trace)
 	}
 
-	var h http.Handler = withBodyLimit(mux)
+	var h http.Handler = s.withBodyLimit(mux)
 	if opts.EnableAuth {
 		h = s.withAuth(h)
 	}

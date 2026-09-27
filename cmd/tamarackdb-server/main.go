@@ -79,7 +79,12 @@ func main() {
 	fmt.Printf("transactionTimeout: %d\n", cfg.TransactionTimeout)
 	fmt.Printf("maxTransactionDuration: %d\n", cfg.MaxTransactionDuration)
 	fmt.Printf("maxQueuedTransactions: %d\n", cfg.MaxQueuedTransactions)
-	fmt.Printf("readPoolSize: %d\n\n", cfg.ReadPoolSize)
+	fmt.Printf("readPoolSize: %d\n", cfg.ReadPoolSize)
+	fmt.Printf("maxRequestBody: %d (derived from the size limits above)\n\n", api.MaxRequestBody(api.Options{
+		MaxEventSize:             cfg.MaxEventSize,
+		MaxProjectionSize:        cfg.MaxProjectionSize,
+		MaxProjectionsPerRequest: cfg.MaxProjectionsPerRequest,
+	}))
 
 	if err := os.MkdirAll(cfg.DataDir, 0o755); err != nil {
 		log.Fatalf("tamarackdb-server: create data directory: %v", err)
@@ -128,6 +133,9 @@ func main() {
 	httpServer := &http.Server{
 		Handler:           srv,
 		ReadHeaderTimeout: 10 * time.Second,
+		// A keep-alive connection with no request in flight is closed
+		// after this long, so idle clients can't pile up open connections.
+		IdleTimeout: 2 * time.Minute,
 	}
 	// Shutdown waits for every request in flight, and a request waiting in
 	// the FIFO only ends once it gets its turn. Closing the transaction

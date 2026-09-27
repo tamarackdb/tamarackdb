@@ -69,7 +69,7 @@ func (s *Server) handleReadEvents(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				return err
 			}
-			return streamEvents(w, it)
+			return streamEvents(w, it, nil) // bounded by the ceiling, see doInTx
 		})
 		if err != nil {
 			s.handleErr(w, r, err)
@@ -89,10 +89,30 @@ func (s *Server) handleReadEvents(w http.ResponseWriter, r *http.Request) {
 		s.handleErr(w, r, err)
 		return
 	}
-	if err := streamEvents(w, it); err != nil {
+	// A read without a ticket holds a read connection, and pins its
+	// SQLite snapshot, until the page is fully sent. A client that stops
+	// reading would hold both forever: each line gets readStallTimeout to
+	// go out, renewed on every line, so a page that keeps moving is never
+	// cut, and a stalled one frees its connection.
+	rc := http.NewResponseController(w)
+	renew := func() { _ = rc.SetWriteDeadline(time.Now().Add(readStallTimeout)) }
+	defer func() {
+		// Send what's still buffered under the deadline too, then clear
+		// it, so it never carries over to the next request on the
+		// connection.
+		renew()
+		_ = rc.Flush()
+		_ = rc.SetWriteDeadline(time.Time{})
+	}()
+	if err := streamEvents(w, it, renew); err != nil {
 		s.handleErr(w, r, err)
 	}
 }
+
+// readStallTimeout is how long a line of a QUERY /events page without a
+// ticket may take to go out before the server gives up on the client. A
+// variable, not a constant, so tests can shorten it.
+var readStallTimeout = 30 * time.Second
 
 // parseReadRequest decodes and validates a QUERY /events body into a
 // store.ReadFilter.
@@ -142,19 +162,25 @@ func (s *Server) parseReadRequest(r *http.Request) (store.ReadFilter, error) {
 }
 
 // streamEvents writes it as an NDJSON page, closing it before returning.
+// beforeWrite, if non-nil, runs before each write, to renew a deadline.
 // The first line commits to 200 and starts sending bytes before the page
 // is known to succeed: a failure past that point can no longer produce a
 // clean error response (see readTrailer's doc comment). It can only end
 // the response early, with no trailer, and be returned so the caller
 // still sees it (handleErr writes nothing once the response has started).
-func streamEvents(w http.ResponseWriter, it *store.EventIterator) error {
+func streamEvents(w http.ResponseWriter, it *store.EventIterator, beforeWrite func()) error {
 	defer it.Close()
+	if beforeWrite == nil {
+		beforeWrite = func() {}
+	}
 
 	w.Header().Set("Content-Type", "application/x-ndjson")
+	beforeWrite()
 	w.WriteHeader(http.StatusOK)
 
 	nw := ndjson.NewWriter(w)
 	for it.Next() {
+		beforeWrite()
 		ev := it.Event()
 		wire := readEventWire{
 			Sequence:    ev.Sequence,
@@ -173,6 +199,7 @@ func streamEvents(w http.ResponseWriter, it *store.EventIterator) error {
 	if err := it.Err(); err != nil {
 		return err // no trailer: signals a cut-short page, see readTrailer
 	}
+	beforeWrite()
 	return nw.WriteValue(readTrailer{HasMore: it.HasMore()})
 }
 

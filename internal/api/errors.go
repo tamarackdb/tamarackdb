@@ -156,34 +156,60 @@ func decode(dec *json.Decoder, v any) error {
 	}
 }
 
-// maxRequestBody is the largest request body the server reads, in bytes.
-// It sits well above the largest valid body (100 events of 64 KiB each,
-// with their JSON framing), and keeps a client from making the server
-// read an unbounded body into memory before any size limit is checked.
-const maxRequestBody = 8 << 20 // 8 MiB
+// Inputs to MaxRequestBody.
+const (
+	// jsonEscapeFactor is the most a JSON string can grow once escaped:
+	// a control character, written \u0000, takes 6 bytes for 1. The size
+	// limits count decoded bytes, but the body limit counts raw ones.
+	jsonEscapeFactor = 6
 
-// withBodyLimit caps every request body at maxRequestBody.
-func withBodyLimit(next http.Handler) http.Handler {
+	// itemFraming covers what the size limits don't count in each event
+	// or projection: JSON keys and punctuation, and a projection's
+	// version (a 36-byte UUID).
+	itemFraming = 4 << 10 // 4 KiB
+
+	// bodyMargin covers the rest of a body: an Append Condition, or a
+	// QUERY /events query. No size limit bounds the strings of a query, so
+	// the body limit guarantees room for one of up to bodyMargin bytes.
+	bodyMargin = 1 << 20 // 1 MiB
+)
+
+// MaxRequestBody returns the largest request body a Server built with opts
+// reads, in bytes. It's derived from the configured limits, so it never
+// turns away a body they allow, however its strings are escaped: the
+// largest valid POST /events or POST /projections content, times
+// jsonEscapeFactor, plus framing and a margin. It keeps a client from
+// making the server read an unbounded body into memory before those
+// limits are checked.
+func MaxRequestBody(opts Options) int64 {
+	events := int64(dcb.MaxEventsPerWrite) * int64(opts.MaxEventSize)
+	projections := int64(opts.MaxProjectionsPerRequest) * int64(opts.MaxProjectionSize)
+	items := int64(max(dcb.MaxEventsPerWrite, opts.MaxProjectionsPerRequest))
+	return jsonEscapeFactor*max(events, projections) + items*itemFraming + bodyMargin
+}
+
+// withBodyLimit caps every request body at s.maxRequestBody.
+func (s *Server) withBodyLimit(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		r.Body = http.MaxBytesReader(w, r.Body, maxRequestBody)
+		r.Body = http.MaxBytesReader(w, r.Body, s.maxRequestBody)
 		next.ServeHTTP(w, r)
 	})
 }
 
-// bodyTooLargeError is returned when a request body goes past
-// maxRequestBody.
-type bodyTooLargeError struct{}
+// bodyTooLargeError is returned when a request body goes past the
+// server's body limit.
+type bodyTooLargeError struct{ limit int64 }
 
-func (*bodyTooLargeError) Error() string {
-	return fmt.Sprintf("request body exceeds the maximum of %d bytes", maxRequestBody)
+func (e *bodyTooLargeError) Error() string {
+	return fmt.Sprintf("request body exceeds the maximum of %d bytes", e.limit)
 }
 
 // bodyTooLarge returns a *bodyTooLargeError if err comes from reading past
-// maxRequestBody, or nil otherwise.
+// the body limit, or nil otherwise.
 func bodyTooLarge(err error) error {
 	var mbe *http.MaxBytesError
 	if errors.As(err, &mbe) {
-		return &bodyTooLargeError{}
+		return &bodyTooLargeError{limit: mbe.Limit}
 	}
 	return nil
 }

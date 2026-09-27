@@ -94,10 +94,9 @@ type Config struct {
 	MaxEventsPerPage     int `toml:"maxEventsPerPage"`     // default: 10000
 	MaxEventSize         int `toml:"maxEventSize"`         // default: 65536 (64 KiB)
 
-	// MaxProjectionSize is the maximum UTF-8 byte size of one projection's
-	// payload in a POST /projections request; only checked when the payload
-	// is present (a deletion has none to bound). Optional; defaulted by
-	// Load when omitted.
+	// MaxProjectionSize is the maximum combined UTF-8 byte size of one
+	// projection's type, id, and payload (a deletion has no payload) in a
+	// POST /projections request. Optional; defaulted by Load when omitted.
 	MaxProjectionSize int `toml:"maxProjectionSize"` // default: 65536 (64 KiB)
 
 	// MaxProjectionsPerRequest caps how many projections a single

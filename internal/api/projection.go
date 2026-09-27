@@ -161,10 +161,14 @@ func validateProjectionsRequest(req projection.Writes, maxProjectionSize, maxPro
 				"%s has the same type and id as %s", at, first)}
 		}
 		seen[key] = at
+		// Measured like an event: every string the projection carries
+		// counts, not just its payload, so type and id are bounded too.
+		size := len(typ) + len(id)
 		if payload != nil {
-			if size := len(*payload); size > maxProjectionSize {
-				return &oversizeError{kind: "projection in " + op, index: i, size: size, max: maxProjectionSize}
-			}
+			size += len(*payload)
+		}
+		if size > maxProjectionSize {
+			return &oversizeError{kind: "projection in " + op, index: i, size: size, max: maxProjectionSize}
 		}
 		return nil
 	}

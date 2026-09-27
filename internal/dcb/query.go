@@ -22,6 +22,15 @@ type QueryItem struct {
 	Metadata    []Metadata   `json:"metadata,omitempty"`
 }
 
+// Fixed limits on a Query's size, not configuration. They keep the SQL a
+// Query turns into (see internal/store/query.go) well inside SQLite's own
+// limits on expression depth and bound parameters, so a large Query gets a
+// clear 400 instead of failing inside SQLite.
+const (
+	MaxQueryItems      = 100 // max QueryItem in one Query
+	MaxQueryItemValues = 100 // max types, identifiers, and metadata, combined, in one QueryItem
+)
+
 func (i QueryItem) Validate() error {
 	if i.Types == nil && i.Identifiers == nil && i.Metadata == nil {
 		return &ValidationError{Err: ErrEmptyQueryItem, Message: "a QueryItem must specify at least one of types, identifiers, or metadata"}
@@ -34,6 +43,10 @@ func (i QueryItem) Validate() error {
 	}
 	if i.Metadata != nil && len(i.Metadata) == 0 {
 		return &ValidationError{Err: ErrEmptyQueryItemArray, Message: "metadata must be non-empty when present"}
+	}
+	if n := len(i.Types) + len(i.Identifiers) + len(i.Metadata); n > MaxQueryItemValues {
+		return &ValidationError{Err: ErrQueryTooLarge, Message: fmt.Sprintf(
+			"a QueryItem carries %d types, identifiers, and metadata combined, more than the maximum of %d", n, MaxQueryItemValues)}
 	}
 	return nil
 }
@@ -149,6 +162,10 @@ func (q Query) Validate() error {
 	if len(q.items) == 0 {
 		return &ValidationError{Err: ErrEmptyQuery, Message: "query must be a non-empty array of QueryItem, or \"*\""}
 	}
+	if len(q.items) > MaxQueryItems {
+		return &ValidationError{Err: ErrQueryTooLarge, Message: fmt.Sprintf(
+			"query carries %d QueryItem, more than the maximum of %d", len(q.items), MaxQueryItems)}
+	}
 	for _, item := range q.items {
 		if err := item.Validate(); err != nil {
 			return err
@@ -187,4 +204,5 @@ var (
 	ErrEmptyQueryItem        = errors.New("empty QueryItem")
 	ErrEmptyQueryItemArray   = errors.New("empty QueryItem array")
 	ErrNegativeAfterSequence = errors.New("negative afterSequence")
+	ErrQueryTooLarge         = errors.New("query too large")
 )
