@@ -97,7 +97,7 @@ func TestAccessLogLevelPerOutcome(t *testing.T) {
 			srv, _, _ := newTestServer(t)
 			return doRequest(t, srv, "DELETE", "/documents", "")
 		}},
-		{"TransactionNotActive", "INFO", func(t *testing.T) *httptest.ResponseRecorder {
+		{"TicketNotActive", "INFO", func(t *testing.T) *httptest.ResponseRecorder {
 			srv, _, _ := newTestServer(t)
 			return doTicketRequest(t, srv, "POST", "/commit", "not-a-ticket", "")
 		}},

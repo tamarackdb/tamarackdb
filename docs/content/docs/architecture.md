@@ -224,7 +224,8 @@ so how long one client may hold it is the operator's decision: it's what every o
 #### Calls inside a transaction
 
 A call with a ticket that isn't active (unknown, already committed, rolled back, or expired) gets
-`410 TransactionNotActive`.
+`410 TicketNotActive`. The server keeps only the active ticket, so it can't tell an unknown ticket from one whose
+transaction has ended.
 
 A call that fails inside a transaction ends it: the transaction is rolled back, and the ticket stops being active.
 This covers every error response: a malformed request, a failed Append Condition, a payload over its size limit, an
@@ -552,7 +553,7 @@ It's meant for local development, where only the developer uses the application,
 doesn't join the FIFO. If a transaction is active, its ticket stops being active and its SQLite transaction is rolled
 back, then all data is deleted, and the FIFO moves on. The only thing `POST /reset` waits for is a call already
 running on the write connection, so that the two never use the connection at the same time. The client whose
-transaction was cut off gets `410 TransactionNotActive` on its next call. Requests waiting in the FIFO stay there, and
+transaction was cut off gets `410 TicketNotActive` on its next call. Requests waiting in the FIFO stay there, and
 get their ticket on an empty store. `POST /reset` leaves the pause state as it is. It responds `204 No Content`.
 
 ### Event size limit
@@ -587,7 +588,7 @@ the problem, left out when it wouldn't add anything (as with `ConcurrencyExcepti
 | `404` | `DocumentNotFound` | `GET /documents/{type}/{id}` for a document that doesn't exist |
 | `409` | `ConcurrencyException` | The Append Condition of a `POST /events` call failed |
 | `409` | `NotPaused` | A call accepted only while paused, made outside a pause |
-| `410` | `TransactionNotActive` | The ticket is unknown, or its transaction has already ended |
+| `410` | `TicketNotActive` | The ticket isn't the active one: it's unknown, or its transaction has already ended |
 | `413` | `PayloadTooLarge` | An event or a document payload over its size limit |
 | `500` | `InternalError` | An unexpected server-side failure |
 | `503` | `TransactionQueueFull` | `POST /begin` or `POST /pause` while the FIFO is at its configured depth |
@@ -674,14 +675,14 @@ one allowed to touch the write connection) and **Queued** (every other request, 
    by its ticket, until it ends (see Ending a transaction). Then the next request moves up.
 
 **The active transaction outlives any single request.** Every call with a ticket looks up the active transaction.
-A ticket that doesn't match it gets `410 TransactionNotActive`. Calls with the same ticket run one at a time: a mutex
+A ticket that doesn't match it gets `410 TicketNotActive`. Calls with the same ticket run one at a time: a mutex
 guards the write connection, and a second call made in parallel waits for the first to finish. The mutex is also what
 the deadline timer and `POST /reset` wait on, so nothing ever uses the write connection at the same time as a call.
 
 **Deadline.** A timer tracks the active transaction's deadline and ceiling. When it fires, it takes the mutex, which
 waits for a call already running to finish, then rolls the transaction back and gives the turn to the next request.
 A call that was already running when the deadline passed finishes normally; if it was `POST /commit`, the commit
-wins. The next call with that ticket gets `410 TransactionNotActive`. Every call with the ticket resets the timer
+wins. The next call with that ticket gets `410 TicketNotActive`. Every call with the ticket resets the timer
 when it ends, up to the ceiling.
 
 **A call can't outlive the ceiling.** Since the timer waits for a running call, a call stuck on the network (a client

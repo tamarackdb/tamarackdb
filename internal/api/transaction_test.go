@@ -44,8 +44,8 @@ func TestCallsAfterTheTransactionEndedGet410(t *testing.T) {
 		{"POST", "/documents", `{"documents":[{"type":"user-profile","id":"123","payload":"x"}]}`},
 	} {
 		rec := doTicketRequest(t, srv, call.method, call.path, ticket, call.body)
-		if rec.Code != 410 || errorCode(t, rec) != "TransactionNotActive" {
-			t.Errorf("%s %s status = %d, body = %s, want 410 TransactionNotActive", call.method, call.path, rec.Code, rec.Body.String())
+		if rec.Code != 410 || errorCode(t, rec) != "TicketNotActive" {
+			t.Errorf("%s %s status = %d, body = %s, want 410 TicketNotActive", call.method, call.path, rec.Code, rec.Body.String())
 		}
 	}
 }

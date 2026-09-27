@@ -88,8 +88,8 @@ func (s *Server) handleErr(w http.ResponseWriter, r *http.Request, err error) {
 		// 409, not 503: the server isn't in the state the call requires.
 		// A 503 would suggest a temporary outage worth retrying.
 		writeError(w, http.StatusConflict, "NotPaused", "")
-	case errors.Is(err, txn.ErrNotActive):
-		writeError(w, http.StatusGone, "TransactionNotActive", "")
+	case errors.Is(err, txn.ErrTicketNotActive):
+		writeError(w, http.StatusGone, "TicketNotActive", "")
 	case errors.Is(err, txn.ErrPaused):
 		writeError(w, http.StatusServiceUnavailable, "Paused", "")
 	case errors.Is(err, queue.ErrFull):

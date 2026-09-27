@@ -107,8 +107,8 @@ func TestCommitMakesEventsVisible(t *testing.T) {
 	if n := committedEvents(t, env.st); n != 1 {
 		t.Errorf("committed events after Commit() = %d, want 1", n)
 	}
-	if err := env.m.Do(ticket, appendEvent("b")); !errors.Is(err, ErrNotActive) {
-		t.Errorf("Do() after Commit() error = %v, want ErrNotActive", err)
+	if err := env.m.Do(ticket, appendEvent("b")); !errors.Is(err, ErrTicketNotActive) {
+		t.Errorf("Do() after Commit() error = %v, want ErrTicketNotActive", err)
 	}
 	if got := env.m.Snapshot().Stats; got.Started != 1 || got.Committed != 1 {
 		t.Errorf("Stats = %+v, want 1 started, 1 committed", got)
@@ -127,8 +127,8 @@ func TestRollbackDiscardsEvents(t *testing.T) {
 	if n := committedEvents(t, env.st); n != 0 {
 		t.Errorf("committed events = %d, want 0", n)
 	}
-	if err := env.m.Commit(ticket); !errors.Is(err, ErrNotActive) {
-		t.Errorf("Commit() after Rollback() error = %v, want ErrNotActive", err)
+	if err := env.m.Commit(ticket); !errors.Is(err, ErrTicketNotActive) {
+		t.Errorf("Commit() after Rollback() error = %v, want ErrTicketNotActive", err)
 	}
 	if got := env.m.Snapshot().Stats.RolledBack[ReasonClient]; got != 1 {
 		t.Errorf("RolledBack[client] = %d, want 1", got)
@@ -138,8 +138,8 @@ func TestRollbackDiscardsEvents(t *testing.T) {
 func TestUnknownTicketIsNotActive(t *testing.T) {
 	env := newTestEnv(t, time.Second, 5*time.Second)
 	mustBegin(t, env.m)
-	if err := env.m.Do("not-the-ticket", appendEvent("a")); !errors.Is(err, ErrNotActive) {
-		t.Errorf("Do() error = %v, want ErrNotActive", err)
+	if err := env.m.Do("not-the-ticket", appendEvent("a")); !errors.Is(err, ErrTicketNotActive) {
+		t.Errorf("Do() error = %v, want ErrTicketNotActive", err)
 	}
 }
 
@@ -154,8 +154,8 @@ func TestFailedCallRollsBack(t *testing.T) {
 	if err := env.m.Do(ticket, func(*store.Tx) error { return boom }); !errors.Is(err, boom) {
 		t.Fatalf("Do() error = %v, want the call's own error", err)
 	}
-	if err := env.m.Do(ticket, appendEvent("b")); !errors.Is(err, ErrNotActive) {
-		t.Errorf("Do() after a failed call error = %v, want ErrNotActive", err)
+	if err := env.m.Do(ticket, appendEvent("b")); !errors.Is(err, ErrTicketNotActive) {
+		t.Errorf("Do() after a failed call error = %v, want ErrTicketNotActive", err)
 	}
 	if n := committedEvents(t, env.st); n != 0 {
 		t.Errorf("committed events = %d, want 0", n)
@@ -178,8 +178,8 @@ func TestPanickingCallRollsBack(t *testing.T) {
 		env.m.Do(ticket, func(*store.Tx) error { panic("boom") })
 	}()
 
-	if err := env.m.Do(ticket, appendEvent("a")); !errors.Is(err, ErrNotActive) {
-		t.Errorf("Do() after a panic error = %v, want ErrNotActive", err)
+	if err := env.m.Do(ticket, appendEvent("a")); !errors.Is(err, ErrTicketNotActive) {
+		t.Errorf("Do() after a panic error = %v, want ErrTicketNotActive", err)
 	}
 	mustBegin(t, env.m) // the turn was given back
 }
@@ -237,8 +237,8 @@ func TestIdleTimeoutRollsBack(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("transaction never expired")
 	}
-	if err := env.m.Do(ticket, appendEvent("b")); !errors.Is(err, ErrNotActive) {
-		t.Errorf("Do() after expiry error = %v, want ErrNotActive", err)
+	if err := env.m.Do(ticket, appendEvent("b")); !errors.Is(err, ErrTicketNotActive) {
+		t.Errorf("Do() after expiry error = %v, want ErrTicketNotActive", err)
 	}
 	if n := committedEvents(t, env.st); n != 0 {
 		t.Errorf("committed events = %d, want 0", n)
@@ -285,8 +285,8 @@ func TestCeilingRollsBackABusyTransaction(t *testing.T) {
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		if err := env.m.Do(ticket, appendEvent("a")); err != nil {
-			if !errors.Is(err, ErrNotActive) {
-				t.Fatalf("Do() error = %v, want ErrNotActive once the ceiling passed", err)
+			if !errors.Is(err, ErrTicketNotActive) {
+				t.Fatalf("Do() error = %v, want ErrTicketNotActive once the ceiling passed", err)
 			}
 			break
 		}
@@ -461,8 +461,8 @@ func TestResetCutsTheActiveTransaction(t *testing.T) {
 	if err := env.m.Reset(context.Background()); err != nil {
 		t.Fatalf("Reset() error = %v", err)
 	}
-	if err := env.m.Do(ticket, appendEvent("b")); !errors.Is(err, ErrNotActive) {
-		t.Errorf("Do() after Reset() error = %v, want ErrNotActive", err)
+	if err := env.m.Do(ticket, appendEvent("b")); !errors.Is(err, ErrTicketNotActive) {
+		t.Errorf("Do() after Reset() error = %v, want ErrTicketNotActive", err)
 	}
 	if n := committedEvents(t, env.st); n != 0 {
 		t.Errorf("committed events = %d, want 0", n)

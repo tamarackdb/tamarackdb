@@ -22,9 +22,10 @@ import (
 )
 
 var (
-	// ErrNotActive is returned for a ticket that is unknown, or whose
-	// transaction has already ended.
-	ErrNotActive = errors.New("txn: transaction not active")
+	// ErrTicketNotActive is returned for a ticket that isn't the active
+	// transaction's: it's unknown, or its transaction has already ended.
+	// Only the active ticket is kept, so the two cases look the same.
+	ErrTicketNotActive = errors.New("txn: ticket not active")
 	// ErrPaused is returned by Begin when the server is paused.
 	ErrPaused = errors.New("txn: server is paused")
 	// ErrNotPaused is returned by RunPaused when the server isn't paused.
@@ -300,19 +301,19 @@ func (m *Manager) Rollback(ticket string) error {
 }
 
 // lock finds the active transaction for ticket and returns it with its
-// callMu held, or ErrNotActive.
+// callMu held, or ErrTicketNotActive.
 func (m *Manager) lock(ticket string) (*transaction, error) {
 	m.mu.Lock()
 	t := m.active
 	m.mu.Unlock()
 	if t == nil || subtle.ConstantTimeCompare([]byte(t.ticket), []byte(ticket)) != 1 {
-		return nil, ErrNotActive
+		return nil, ErrTicketNotActive
 	}
 
 	t.callMu.Lock()
 	if t.ended {
 		t.callMu.Unlock()
-		return nil, ErrNotActive
+		return nil, ErrTicketNotActive
 	}
 	m.mu.Lock()
 	t.calls++

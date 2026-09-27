@@ -113,8 +113,8 @@ A transaction also ends, rolled back, when:
 - the client closes the connection while a call with its ticket is running;
 - the idle timeout or the total ceiling is reached (see [Deadline](#deadline)).
 
-Once a transaction has ended, any call with its ticket gets `410
-TransactionNotActive`. After an error, don't try to continue: open a new
+Once a transaction has ended, its ticket is no longer active: any call with it
+gets `410 TicketNotActive`. After an error, don't try to continue: open a new
 transaction and run the whole command again.
 
 ### A lost commit response
@@ -492,7 +492,7 @@ behind. It responds `204 No Content` and only exists when `devMode` is on; see
 a production instance.
 
 `POST /reset` doesn't wait for its turn. If a transaction is active, it's
-rolled back, and its next call gets `410 TransactionNotActive`. Requests
+rolled back, and the next call with its ticket gets `410 TicketNotActive`. Requests
 waiting for a ticket keep waiting, and get their ticket on the empty store.
 The pause state stays as it is.
 
@@ -536,7 +536,7 @@ transaction back.
 | 404 | `DocumentNotFound` | `GET /documents/{type}/{id}` only: no document exists at that `type` + `id`. Doesn't end the transaction |
 | 409 | `ConcurrencyException` | The Append Condition of a `POST /events` call failed |
 | 409 | `NotPaused` | `DELETE /documents`, `DELETE /documents/{type}`, or `POST /documents` without a ticket, while the server isn't paused |
-| 410 | `TransactionNotActive` | The ticket is unknown, or its transaction has already ended |
+| 410 | `TicketNotActive` | The ticket isn't the active one: it's unknown, or its transaction has already ended |
 | 413 | `PayloadTooLarge` | An event, or a document's `payload`, is bigger than the configured maximum size |
 | 500 | `InternalError` | Unexpected server-side failure |
 | 503 | `TransactionQueueFull` | `POST /begin` or `POST /pause`: too many requests are already waiting |
