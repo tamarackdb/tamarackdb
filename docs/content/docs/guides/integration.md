@@ -203,7 +203,12 @@ the last event line you got.
 ```json
 {
   "query": [
-    { "types": ["user-created", "user-updated"], "identifiers": [{ "name": "userId", "value": "123" }] },
+    {
+      "types": ["user-created", "user-updated"],
+      "identifiers": [
+        { "name": "userId", "value": "123" }
+      ]
+    },
     { "types": ["some-other-event"] }
   ]
 }
@@ -226,7 +231,11 @@ Two more, optional, top-level keys narrow a query further:
   to UTC before comparing.
 
 ```json
-{ "query": "*", "afterSequence": 12345, "time": { "from": "2026-01-01T00:00:00.000000Z" } }
+{
+  "query": "*",
+  "afterSequence": 12345,
+  "time": { "from": "2026-01-01T00:00:00.000000Z" }
+}
 ```
 
 The `time` filter is for search and inspection. Only the Sequence Position
