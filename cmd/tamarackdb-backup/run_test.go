@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -20,20 +21,48 @@ import (
 	"github.com/tamarackdb/tamarackdb/internal/txn"
 )
 
-func newSourceServer(t *testing.T, st *store.Store) *httptest.Server {
+// newSourceAPI builds a real API server over st, to back up from.
+func newSourceAPI(t *testing.T, st *store.Store) http.Handler {
 	t.Helper()
 	tm, err := txn.New(st, txn.Config{Timeout: 5 * time.Second, Ceiling: 15 * time.Second})
 	if err != nil {
 		t.Fatalf("txn.New() error = %v", err)
 	}
 	t.Cleanup(tm.Close)
-	srv := api.New(tm, st, api.Options{
+	return api.New(tm, st, api.Options{
 		DefaultEventsPerPage: 1000, MaxEventsPerPage: 10000, MaxEventSize: 65536, MaxProjectionSize: 65536, MaxProjectionsPerRequest: 100,
 		LogLevel: "debug",
 	})
-	ts := httptest.NewServer(srv)
+}
+
+func newSourceServer(t *testing.T, st *store.Store) *httptest.Server {
+	t.Helper()
+	ts := httptest.NewServer(newSourceAPI(t, st))
 	t.Cleanup(ts.Close)
 	return ts
+}
+
+// newSocketSourceServer serves the API over a unix socket, and returns the
+// socket's path. The socket lives in a short directory of its own: a
+// t.TempDir path can run past the 107-byte limit on a unix socket path.
+func newSocketSourceServer(t *testing.T, st *store.Store) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "tdb")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	path := filepath.Join(dir, "s.sock")
+	l, err := net.Listen("unix", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewUnstartedServer(newSourceAPI(t, st))
+	ts.Listener.Close()
+	ts.Listener = l
+	ts.Start()
+	t.Cleanup(ts.Close)
+	return path
 }
 
 func writeBackupConfig(t *testing.T, sourceURL, databasePath string, pageLimit int) string {
@@ -191,7 +220,7 @@ func TestFetchPageFailsOnMissingTrailer(t *testing.T) {
 	defer ts.Close()
 
 	cfg := &config.BackupConfig{SourceURL: ts.URL, PageLimit: 100}
-	_, _, err := fetchPage(context.Background(), cfg, 0)
+	_, _, err := fetchPage(context.Background(), newSource(cfg), cfg, 0)
 	if err == nil {
 		t.Fatal("fetchPage() error = nil, want error for a response with no trailing hasMore line")
 	}
@@ -227,5 +256,42 @@ func TestRunFailsWithoutTouchingAlreadyImportedPages(t *testing.T) {
 
 	if got := mustReadAllFrom(t, backupPath); len(got) != 1 {
 		t.Fatalf("len(got) after failed run = %d, want 1 (unaffected by the failed attempt)", len(got))
+	}
+}
+
+func TestRunCopiesAllEventsThroughUnixSocket(t *testing.T) {
+	sourceStore, err := store.Open(context.Background(), filepath.Join(t.TempDir(), "source.db"), 0)
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer sourceStore.Close()
+	for i := range 5 {
+		if _, err := sourceStore.Append(context.Background(), []dcb.EventData{{
+			Type:    "Seeded",
+			Payload: fmt.Sprintf(`{"i":%d}`, i),
+		}}, nil, projection.Writes{}); err != nil {
+			t.Fatalf("Append() error = %v", err)
+		}
+	}
+
+	socketPath := newSocketSourceServer(t, sourceStore)
+	backupPath := filepath.Join(t.TempDir(), "tamarackdb-backup.sqlite")
+	configPath := filepath.Join(t.TempDir(), "backup-config.toml")
+	data := fmt.Sprintf("[backup]\nsourceSocket = %q\ndatabasePath = %q\npageLimit = 2\n", socketPath, backupPath)
+	if err := os.WriteFile(configPath, []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := run(context.Background(), configPath); err != nil {
+		t.Fatalf("run() error = %v", err)
+	}
+	got := mustReadAllFrom(t, backupPath)
+	if len(got) != 5 {
+		t.Fatalf("len(got) = %d, want 5", len(got))
+	}
+	for i, ev := range got {
+		if ev.Sequence != int64(i+1) || ev.Payload != fmt.Sprintf(`{"i":%d}`, i) {
+			t.Errorf("event %d = sequence %d, payload %q", i, ev.Sequence, ev.Payload)
+		}
 	}
 }

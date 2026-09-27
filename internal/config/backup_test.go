@@ -2,6 +2,7 @@ package config
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -162,5 +163,82 @@ func TestLoadBackupInvalidPageLimitEnvValue(t *testing.T) {
 	`)
 	if _, err := LoadBackup(path); err == nil {
 		t.Fatal("LoadBackup() error = nil, want error for invalid TAMARACKDB_BACKUP_PAGE_LIMIT")
+	}
+}
+
+func TestLoadBackupSourceSocket(t *testing.T) {
+	path := writeConfigFile(t, `[backup]
+		sourceSocket = "/run/tamarackdb/tamarackdb.sock"
+	`)
+	cfg, err := LoadBackup(path)
+	if err != nil {
+		t.Fatalf("LoadBackup() error = %v", err)
+	}
+	if cfg.SourceSocket != "/run/tamarackdb/tamarackdb.sock" || cfg.SourceURL != "" {
+		t.Errorf("SourceSocket, SourceURL = %q, %q, want the socket only", cfg.SourceSocket, cfg.SourceURL)
+	}
+}
+
+func TestLoadBackupSourceSocketFromEnv(t *testing.T) {
+	setEnv(t, map[string]string{"TAMARACKDB_BACKUP_SOURCE_SOCKET": "/run/t.sock"})
+	cfg, err := LoadBackup(filepath.Join(t.TempDir(), "missing.toml"))
+	if err != nil {
+		t.Fatalf("LoadBackup() error = %v", err)
+	}
+	if cfg.SourceSocket != "/run/t.sock" {
+		t.Errorf("SourceSocket = %q, want %q (from env)", cfg.SourceSocket, "/run/t.sock")
+	}
+}
+
+func TestLoadBackupRejectsBothSources(t *testing.T) {
+	path := writeConfigFile(t, `[backup]
+		sourceUrl = "http://127.0.0.1:8085"
+		sourceSocket = "/run/t.sock"
+	`)
+	if _, err := LoadBackup(path); err == nil || !strings.Contains(err.Error(), "both") {
+		t.Fatalf("LoadBackup() error = %v, want an error for both sourceUrl and sourceSocket", err)
+	}
+}
+
+func TestLoadBackupRequiresASource(t *testing.T) {
+	path := writeConfigFile(t, `[backup]
+		pageLimit = 10
+	`)
+	if _, err := LoadBackup(path); err == nil || !strings.Contains(err.Error(), "sourceSocket") {
+		t.Fatalf("LoadBackup() error = %v, want an error naming both source keys", err)
+	}
+}
+
+func TestLoadBackupFileSourceIgnoresEnvSource(t *testing.T) {
+	setEnv(t, map[string]string{"TAMARACKDB_BACKUP_SOURCE_SOCKET": "/run/t.sock"})
+	path := writeConfigFile(t, `[backup]
+		sourceUrl = "http://127.0.0.1:8085"
+	`)
+	cfg, err := LoadBackup(path)
+	if err != nil {
+		t.Fatalf("LoadBackup() error = %v, want nil: the file's sourceUrl wins over the env's socket", err)
+	}
+	if cfg.SourceSocket != "" {
+		t.Errorf("SourceSocket = %q, want empty", cfg.SourceSocket)
+	}
+}
+
+func TestLoadBackupRejectsSourceSocketTooLong(t *testing.T) {
+	path := writeConfigFile(t, `[backup]
+		sourceSocket = "/`+strings.Repeat("s", maxSocketPathLen)+`"
+	`)
+	if _, err := LoadBackup(path); err == nil || !strings.Contains(err.Error(), "sourceSocket must be at most") {
+		t.Fatalf("LoadBackup() error = %v, want a sourceSocket length error", err)
+	}
+}
+
+func TestLoadBackupRejectsNonHTTPSourceURL(t *testing.T) {
+	for _, u := range []string{"127.0.0.1:8085", "ftp://host", "unix:///run/t.sock", "http://"} {
+		path := writeConfigFile(t, `[backup]
+		sourceUrl = "`+u+`"
+	`)
+		if _, err := LoadBackup(path); err == nil || !strings.Contains(err.Error(), "http:// or https://") {
+			t.Errorf("sourceUrl %q: LoadBackup() error = %v, want an http/https error", u, err)
+		}
 	}
 }

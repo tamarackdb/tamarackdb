@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -30,8 +31,38 @@ const maxNDJSONLine = 16 * 1024 * 1024
 // the backup file's lock, and every later scheduled run would fail on it.
 const fetchTimeout = 5 * time.Minute
 
-// httpClient is the client every page is fetched with.
-var httpClient = &http.Client{Timeout: fetchTimeout}
+// source is where pages are read from: the source instance's base URL, and
+// the client that reaches it, over TCP or over a unix socket.
+type source struct {
+	client  *http.Client
+	baseURL string
+	name    string // for error messages
+}
+
+// newSource builds the source cfg names. With sourceSocket, every
+// connection goes to the unix socket, whatever the URL's host: the base URL
+// only supplies the scheme and the path.
+func newSource(cfg *config.BackupConfig) source {
+	if cfg.SourceSocket != "" {
+		path := cfg.SourceSocket
+		transport := &http.Transport{
+			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+				var d net.Dialer
+				return d.DialContext(ctx, "unix", path)
+			},
+		}
+		return source{
+			client:  &http.Client{Timeout: fetchTimeout, Transport: transport},
+			baseURL: "http://tamarackdb",
+			name:    "unix socket " + path,
+		}
+	}
+	return source{
+		client:  &http.Client{Timeout: fetchTimeout},
+		baseURL: strings.TrimRight(cfg.SourceURL, "/"),
+		name:    cfg.SourceURL,
+	}
+}
 
 // readTrailer is the last NDJSON line of every QUERY /events response. Its
 // absence (the stream ends without one) means the source cut the page
@@ -56,10 +87,11 @@ func run(ctx context.Context, configPath string) error {
 	}
 	defer st.Close()
 
+	src := newSource(cfg)
 	lastSeq := st.LastSequence()
 	var imported int
 	for {
-		events, hasMore, err := fetchPage(ctx, cfg, lastSeq)
+		events, hasMore, err := fetchPage(ctx, src, cfg, lastSeq)
 		if err != nil {
 			return err
 		}
@@ -82,7 +114,7 @@ func run(ctx context.Context, configPath string) error {
 // fetchPage issues one QUERY /events request against the source for every
 // event after afterSeq, up to cfg.PageLimit events, and decodes the NDJSON
 // response.
-func fetchPage(ctx context.Context, cfg *config.BackupConfig, afterSeq int64) ([]dcb.Event, bool, error) {
+func fetchPage(ctx context.Context, src source, cfg *config.BackupConfig, afterSeq int64) ([]dcb.Event, bool, error) {
 	body, err := json.Marshal(struct {
 		Query         string `json:"query"`
 		AfterSequence int64  `json:"afterSequence"`
@@ -92,8 +124,7 @@ func fetchPage(ctx context.Context, cfg *config.BackupConfig, afterSeq int64) ([
 		return nil, false, fmt.Errorf("build read request: %w", err)
 	}
 
-	url := strings.TrimRight(cfg.SourceURL, "/") + "/events"
-	req, err := http.NewRequestWithContext(ctx, "QUERY", url, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, "QUERY", src.baseURL+"/events", bytes.NewReader(body))
 	if err != nil {
 		return nil, false, fmt.Errorf("build read request: %w", err)
 	}
@@ -102,15 +133,15 @@ func fetchPage(ctx context.Context, cfg *config.BackupConfig, afterSeq int64) ([
 		req.Header.Set("Authorization", "Bearer "+cfg.SourceToken)
 	}
 
-	resp, err := httpClient.Do(req)
+	resp, err := src.client.Do(req)
 	if err != nil {
-		return nil, false, fmt.Errorf("read from %s: %w", cfg.SourceURL, err)
+		return nil, false, fmt.Errorf("read from %s: %w", src.name, err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return nil, false, fmt.Errorf("read from %s: unexpected status %s: %s", cfg.SourceURL, resp.Status, snippet)
+		return nil, false, fmt.Errorf("read from %s: unexpected status %s: %s", src.name, resp.Status, snippet)
 	}
 
 	scanner := bufio.NewScanner(resp.Body)
@@ -141,7 +172,7 @@ func fetchPage(ctx context.Context, cfg *config.BackupConfig, afterSeq int64) ([
 		return nil, false, fmt.Errorf("read response body: %w", err)
 	}
 	if trailer == nil {
-		return nil, false, fmt.Errorf("read %s: response ended before the page finished (no trailing hasMore line); retry", cfg.SourceURL)
+		return nil, false, fmt.Errorf("read %s: response ended before the page finished (no trailing hasMore line); retry", src.name)
 	}
 
 	return events, trailer.HasMore, nil
