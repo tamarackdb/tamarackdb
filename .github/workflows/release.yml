@@ -57,6 +57,10 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
+          # No provenance attestations: each would show up as one more
+          # untagged sha256 version in the package, next to the per-platform
+          # images the tagged index needs.
+          provenance: false
           build-args: |
             VERSION=${{ github.ref_name }}
           tags: |
