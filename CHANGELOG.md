@@ -4,6 +4,31 @@ This file follows [Keep a Changelog](https://keepachangelog.com), and
 TamarackDB follows [Semantic Versioning](https://semver.org). Before 1.0, a
 minor version may break the API.
 
+## [Unreleased]
+
+### Changed
+
+- A query carries at most 100 query items, and an item at most 100 values
+  across its `types`, `identifiers`, and `metadata`. A larger `query` or
+  `failIfEventsMatch` gets `400 InvalidRequest`. It used to fail inside
+  SQLite with `500 InternalError` from about 1,000 terms.
+- `maxProjectionSize` bounds a projection's `type`, `id`, and `payload`
+  together, the way `maxEventSize` bounds an event. It used to count the
+  payload only, leaving `type` and `id` unbounded.
+
+### Fixed
+
+- A client that stops reading a `QUERY /events` page without a ticket no
+  longer holds a read connection forever. Each line gets 30 seconds to go
+  out; past that, the connection is closed and the read connection goes
+  back to the pool.
+- The server closes a keep-alive connection that stays idle for 2 minutes.
+- The request body limit no longer turns away valid requests. It was a
+  fixed 8 MiB, below what the size limits allow once JSON escapes strings,
+  and it ignored a raised `maxEventSize`, `maxProjectionSize`, or
+  `maxProjectionsPerRequest`. It's now derived from those settings (about
+  39 MiB by default), and printed at startup as `maxRequestBody`.
+
 ## [0.20.0] - 2026-09-27
 
 ### Added
@@ -92,6 +117,7 @@ minor version may break the API.
   incremental backups of the events, and `tamarackdb-demo` to seed a large
   made-up dataset.
 
+[Unreleased]: https://github.com/tamarackdb/tamarackdb/compare/v0.20.0...HEAD
 [0.20.0]: https://github.com/tamarackdb/tamarackdb/releases/tag/v0.20.0
 [0.19.1]: https://github.com/tamarackdb/tamarackdb/releases/tag/v0.19.1
 [0.19.0]: https://github.com/tamarackdb/tamarackdb/releases/tag/v0.19.0

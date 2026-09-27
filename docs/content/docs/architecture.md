@@ -157,6 +157,12 @@ place of `query`, instead of an empty array.
 A `QueryItem` must specify at least one of `types`, `identifiers`, or `metadata`. An empty item (`{}`) is invalid and
 gets `400 Bad Request`: it poses no constraint.
 
+A Query carries at most **100** `QueryItem`, and a `QueryItem` at most **100** values across its `types`,
+`identifiers`, and `metadata` combined. These are fixed limits, not configuration: they keep the SQL a Query turns into
+well inside SQLite's own limits on expression depth and bound parameters, which a Query of about 1,000 terms would
+otherwise hit, failing inside SQLite instead of getting a clear `400 Bad Request`. They apply to `query` and to
+`condition.failIfEventsMatch` alike, counted after duplicate items are dropped.
+
 If two `QueryItem` in the same array are exact duplicates (same types, identifiers, and metadata, in any order),
 TamarackDB silently keeps one and drops the rest: a repeated item adds nothing to the OR beyond a wasted clause. This
 applies to `query` on `QUERY /events` and to `condition.failIfEventsMatch` on `POST /events` alike, since both use
@@ -459,7 +465,8 @@ With a ticket, the read runs inside the transaction: it sees projections written
 projector uses it to read a projection before changing it. Without a ticket, the read runs on the read connection pool
 and sees committed projections only: this is how an application reads a projection to display a page.
 
-A projection is always read by `type` and `id`. There is no query over projections.
+A projection is always read by `type` and `id`. There is no query over projections. In the URL, both are
+percent-encoded as path segments: an `id` of `a/b` is written `a%2Fb`.
 
 **Writing projections**: `POST /projections` creates, replaces, and deletes several projections at once:
 
@@ -480,8 +487,8 @@ transaction needs no special case when its handlers changed nothing; a body with
 Request`. This body is decoded strictly: an unknown key, at any level, gets `400 Bad Request`, since a misspelled
 optional key would otherwise drop a whole list without a word. The same `type` + `id` can't appear twice in one call,
 across the three lists, so the order in which the lists are applied doesn't matter. A call carries at most
-`maxProjectionsPerRequest` projections in total, and each payload at most `maxProjectionSize` bytes (see
-Configuration).
+`maxProjectionsPerRequest` projections in total, and each projection at most `maxProjectionSize` bytes, measured like
+an event: the combined UTF-8 byte length of its `type`, `id`, and `payload` (see Configuration).
 
 On success, it responds `200 OK` with the new version of each created and replaced projection, in request order:
 `{"create": [{"version": "..."}], "replace": [{"version": "..."}]}`. Both keys are always present.
@@ -506,7 +513,8 @@ instead of sending each small change as it happens. The server doesn't enforce t
 remain valid.
 
 `POST /projections` without a ticket is accepted only while the server is paused, for projection rebuilds. Each such
-call commits on its own. Outside a pause, it gets `409 NotPaused` (see Pause).
+call commits on its own. Outside a pause, a valid call gets `409 NotPaused` (see Pause). The body is read and checked
+before the pause, so an invalid one gets `400 Bad Request` either way.
 
 **Deleting projections in bulk**: `DELETE /projections/{type}` deletes every projection of one type, and `DELETE /projections`
 deletes every projection. Both take no ticket, are accepted only while the server is paused, and respond `204 No
@@ -532,7 +540,8 @@ while paused, it gets `503 Paused` instead of a ticket, and the next request mov
 requests queued behind `POST /pause` and requests that arrive during the pause: nothing needs to empty the FIFO.
 
 **Calls accepted only while paused**: `POST /projections` without a ticket, `DELETE /projections/{type}`, and `DELETE
-/projections`. Outside a pause, they get `409 NotPaused`: the server isn't in the state the call requires. A `503` would
+/projections`. Outside a pause, they get `409 NotPaused` (after `400 Bad Request` for an invalid `POST /projections`
+body, which is checked first): the server isn't in the state the call requires. A `503` would
 suggest a temporary outage, and invite the client to retry for nothing. Reads without a ticket (`QUERY /events`, `GET
 /projections/{type}/{id}`) are accepted at all times.
 
@@ -600,7 +609,7 @@ The default of 64 KiB is configurable (see Configuration).
 
 ### Error responses
 
-Every error response uses the same JSON envelope:
+Every error response from an endpoint of the API uses the same JSON envelope:
 
 ```json
 { "error": "InvalidRequest", "message": "afterSequence must be a non-negative integer" }
@@ -608,6 +617,10 @@ Every error response uses the same JSON envelope:
 
 `error` is a stable code a client can check. `message` is a human-readable detail, included when it helps figure out
 the problem, left out when it wouldn't add anything (as with a failed Append Condition).
+
+A few responses come from Go's `net/http` before any endpoint runs, and carry plain text instead: `404` for an unknown
+path, `405` for a known path with the wrong method, and the errors `net/http` itself returns for a malformed HTTP
+request or oversized headers.
 
 | Status | `error` | When |
 |---|---|---|
@@ -617,7 +630,7 @@ the problem, left out when it wouldn't add anything (as with a failed Append Con
 | `409` | `ConcurrencyException` | The Append Condition of a `POST /events` call failed, or a `POST /projections` entry doesn't match the stored projection (see Projections) |
 | `409` | `NotPaused` | A call accepted only while paused, made outside a pause |
 | `410` | `TicketNotActive` | The ticket isn't the active one: it's unknown, or its transaction has already ended |
-| `413` | `PayloadTooLarge` | An event or a projection payload over its size limit, or a request body over 8 MiB |
+| `413` | `PayloadTooLarge` | An event or a projection over its size limit, or a request body over the body limit |
 | `500` | `InternalError` | An unexpected server-side failure |
 | `503` | `TransactionQueueFull` | `POST /begin` or `POST /pause` while the FIFO is at its configured depth |
 | `503` | `Paused` | A request reached the head of the FIFO while the server is paused |
@@ -629,8 +642,8 @@ transaction).
 
 `QUERY /events`, `POST /events`, and `POST /projections` respond `400 Bad Request` for any malformed or invalid body:
 invalid JSON, anything after the JSON value other than whitespace, a `query` / `condition.failIfEventsMatch` that
-isn't an array of `QueryItem` or `"*"`, an empty array anywhere the Query grammar needs a non-empty one (see Query
-grammar), a non-integer `afterSequence` or `limit`, a `limit` below 1 or above the configured maximum (see
+isn't an array of `QueryItem` or `"*"`, an empty array anywhere the Query grammar needs a non-empty one, more than 100
+`QueryItem` or more than 100 values in one `QueryItem` (see Query grammar), a non-integer `afterSequence` or `limit`, a `limit` below 1 or above the configured maximum (see
 Pagination), an invalid `time.from` / `time.before` timestamp, a `time.from` that isn't earlier than `time.before`, an event
 missing its `type`, an event carrying a duplicate identifier or metadata value, more than 20 identifiers/metadata
 entries (see Metadata), a `POST /events` call missing its `events` field or carrying more than 100 events (see Appending events), a
@@ -638,9 +651,16 @@ entries (see Metadata), a `POST /events` call missing its `events` field or carr
 and so on. A call that needs a ticket (`POST /events`, `POST /commit`, `POST /rollback`) and carries none gets
 `400 Bad Request` too: it names no transaction, so there's none to report as inactive.
 
-Every request body is capped at 8 MiB, a fixed limit well above the largest valid body (100 events of 64 KiB). The
-server stops reading past it and responds `413 Payload Too Large`, so a client can't make it read an unbounded body
-into memory before the per-event and per-projection limits are checked.
+Every request body is capped, so a client can't make the server read an unbounded body into memory before the
+per-event and per-projection limits are checked. Past the cap, the server stops reading and responds `413 Payload Too
+Large`. The cap is derived from the configuration, so it never turns away a `POST /events` or `POST /projections` body
+the size limits allow: the largest valid `POST /events` body (100 events of `maxEventSize`) or `POST /projections` body
+(`maxProjectionsPerRequest` projections of `maxProjectionSize`), whichever is larger, times 6, plus 4 KiB per event or
+projection and 1 MiB. The factor covers JSON escaping: the size limits count decoded bytes, and one byte can take up to
+6 once escaped (a control character, written `\u0000`). The 4 KiB cover JSON keys, punctuation, and a projection's
+version. No size limit bounds the strings of a query, so the last 1 MiB is what guarantees room for a `QUERY /events`
+query or an Append Condition: one of up to 1 MiB always fits. With the default configuration, the cap is 40,779,776 bytes (about 39 MiB). The
+server prints it at startup, next to its resolved configuration.
 
 ## Append Condition and concurrency
 
@@ -765,6 +785,13 @@ and never sees an active transaction's changes. It's never blocked by the active
 runs. A read that starts just before a commit simply won't see the new events, which is fine: a client that then
 appends with an Append Condition uses the Sequence Position it actually read as `afterSequence`.
 
+A `QUERY /events` page without a ticket holds its read connection, and pins its snapshot, until the page is fully
+sent. So each line of the page gets 30 seconds to go out, renewed on every line: a page that keeps moving is never
+cut, however slow the client, but a client that stops reading loses its connection after 30 seconds, and the read
+connection goes back to the pool. Without this, `readPoolSize` stalled clients would block every read without a
+ticket, `/health` included, and keep the WAL from checkpointing. The client sees a page with no trailer, and resumes
+like after any dropped connection (see Response format).
+
 ### Startup, shutdown, and crash behavior
 
 On startup, before opening the store, the process prints a banner and its resolved configuration to stdout: bind
@@ -786,7 +813,8 @@ it only ends once it gets its turn, so the HTTP server would otherwise wait for 
 client can use any more. A transaction is never committed on shutdown: only its client can
 decide to commit. A fatal storage error found mid-flight (see Fatal storage errors below) drives this same ordered
 shutdown, instead of an abrupt exit. The HTTP server also sets `ReadHeaderTimeout` to 10 seconds, closing a connection
-that never finishes sending its request headers, instead of holding it open forever.
+that never finishes sending its request headers, instead of holding it open forever, and `IdleTimeout` to 2 minutes,
+closing a keep-alive connection that has no request in flight for that long.
 
 The queue manager's state (the active transaction, its ticket and deadline, the requests waiting) is purely
 transient, held only in memory for the life of the process. Nothing is saved, and nothing needs to be rebuilt on
@@ -936,7 +964,7 @@ file (a passive checkpoint, an external `sqlite3` shell), not against another tr
 Checkpointing relies on SQLite's own automatic passive checkpoint (triggered on its own once the WAL crosses its
 default size, without blocking any reader or writer), instead of a separate checkpoint goroutine or schedule. Two
 things can hold it back: a long read without a ticket, which pins an MVCC snapshot (bounded by pagination, see
-Projection rebuilds), and a long transaction, whose changes can't be checkpointed before it commits (bounded by the
+Projection rebuilds, and by the 30-second limit on a stalled page, see Reads), and a long transaction, whose changes can't be checkpointed before it commits (bounded by the
 transaction ceiling, see Deadline and ceiling). Nothing about the checkpoint itself needs to be triggered by hand.
 
 Query planner statistics are kept up to date the same hands-off way: once an hour, the process runs `PRAGMA optimize`
@@ -1029,7 +1057,7 @@ instead.
 `tamarackdb.paused` (see Pause). Only the directory is configurable, the same convention MySQL's own `datadir` uses:
 the filenames within it are fixed.
 
-`maxProjectionSize` bounds one projection's payload the same way `maxEventSize` bounds one event. `maxProjectionsPerRequest`
+`maxProjectionSize` bounds one projection (its `type`, `id`, and `payload`) the same way `maxEventSize` bounds one event. `maxProjectionsPerRequest`
 caps how many projections one `POST /projections` call may carry. Unlike the fixed 100-events-per-call limit, it's
 configuration, not an architectural boundary: projection volume needs vary more between applications, especially for a
 rebuild's calls.

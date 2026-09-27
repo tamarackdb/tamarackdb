@@ -64,7 +64,7 @@ file works whether you run one binary or both.
 : Default: `65536` (64 KiB)
 
 `maxProjectionSize`
-: Maximum size in bytes of a single projection's payload.
+: Maximum size in bytes of a single projection: the combined length of its `type`, `id`, and `payload`.
 : Env: `TAMARACKDB_MAX_PROJECTION_SIZE`
 : Default: `65536` (64 KiB)
 
@@ -72,6 +72,12 @@ file works whether you run one binary or both.
 : Maximum projections in a single `POST /projections` call.
 : Env: `TAMARACKDB_MAX_PROJECTIONS_PER_REQUEST`
 : Default: `100`
+
+The server also caps every request body, at a size derived from `maxEventSize`,
+`maxProjectionSize`, and `maxProjectionsPerRequest`, so raising those limits
+raises the cap with them. It prints the cap at startup as `maxRequestBody`
+(40,779,776 bytes, about 39 MiB, by default). See
+[Architecture](/docs/architecture/#error-responses) for how it's computed.
 
 `transactionTimeout`
 : Seconds a transaction may go without a call before it's rolled back. Each call renews it.

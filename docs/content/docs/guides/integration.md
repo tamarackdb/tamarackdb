@@ -237,6 +237,10 @@ when present: send `"*"`, or leave the key out, rather than `[]`. There is no
 way to say "not X": a query only ever describes a set of matching events,
 never an exclusion.
 
+A query carries at most 100 query items, and an item at most 100 values across
+its `types`, `identifiers`, and `metadata` combined. A larger query gets `400`.
+The same limits apply to `failIfEventsMatch`.
+
 Two more, optional, top-level keys narrow a query further:
 
 - `afterSequence`: only events with a Sequence Position strictly greater than this
@@ -270,6 +274,11 @@ fetch the next page, repeat the same `query` with `afterSequence` set to the
 Sequence Position of the last event you got. Do this on every call, not just the
 first one: it also lets you resume a response that was cut off mid-transfer, from
 the last full line you received, with no events skipped or repeated.
+
+Read each page as it arrives. Without a ticket, the server gives each line of a
+page 30 seconds to go out: a client that stops reading for longer gets its
+connection closed, and sees a page with no trailer. Resume it the same way,
+from the last full line.
 
 The same loop that pages through history can also follow new events live: keep
 polling without a ticket, with `afterSequence` set to the last Sequence
@@ -439,6 +448,10 @@ A projector that gets a `404` usually creates the projection.
 
 A projection is always read by `type` and `id`. There is no query over projections.
 
+`type` and `id` go in the URL as path segments, so percent-encode them: an
+`id` of `a/b` is `/projections/user-profile/a%2Fb`, and a space is `%20`. The
+same goes for `DELETE /projections/{type}`.
+
 ### Writing projections
 
 `POST /projections` creates, replaces, and deletes several projections at
@@ -481,8 +494,8 @@ curl -X POST http://127.0.0.1:8085/projections \
 - The same `type` + `id` can't appear twice in one call, across all three
   lists.
 - A call carries at most `maxProjectionsPerRequest` projections in total (100
-  out of the box), each payload at most `maxProjectionSize` bytes (64 KiB out
-  of the box).
+  out of the box), each at most `maxProjectionSize` bytes (64 KiB out of the
+  box), counting its `type`, `id`, and `payload` together.
 
 On success (`200 OK`), the response gives the new version of each created and
 replaced projection, in the order you sent them:
@@ -565,7 +578,8 @@ from giving out tickets, so no transaction is active while you rebuild.
 
 `DELETE /projections/{type}`, `DELETE /projections`, and `POST /projections` without
 a ticket are accepted only while the server is paused. Outside a pause, they
-get `409 NotPaused`. Reads without a ticket work at all times.
+get `409 NotPaused`. A `POST /projections` body is checked first, so an
+invalid one gets `400` either way. Reads without a ticket work at all times.
 
 `POST /pause` and `POST /resume` both respond `204 No Content`, whether the
 server was already in that state or not.
@@ -616,7 +630,7 @@ its flags do.
 
 ## Error responses
 
-Every error uses the same shape:
+Every error from an endpoint uses the same shape:
 
 ```json
 { "error": "InvalidRequest", "message": "afterSequence must be a non-negative integer" }
@@ -625,18 +639,22 @@ Every error uses the same shape:
 `error` is a stable code your code can check. `message` is a human-readable detail,
 present when it helps and left out otherwise.
 
+A few responses carry plain text instead, since they come from Go's HTTP server
+before any endpoint runs: `404` for an unknown path, `405` for a known path with
+the wrong method, and errors for a malformed HTTP request.
+
 Inside a transaction, every error except `404 ProjectionNotFound` rolls the
 transaction back.
 
 | Status | `error` | Meaning |
 |---|---|---|
-| 400 | `InvalidRequest` | Malformed or invalid request body: bad JSON, trailing text after the JSON value, invalid query shape, `limit` below 1 or over the configured maximum, an invalid `time` bound, a `time.from` not earlier than `time.before`, an event missing `type`, a duplicate identifier or metadata value, a missing `events` field or more than 100 events in one `POST /events`, a `POST /projections` body with none of `create`, `replace`, `delete`, an unknown key in it, a projection missing its `payload` or `version`, too many projections, or a repeated projection `type` + `id`, a call that needs a ticket and carries none, and so on |
+| 400 | `InvalidRequest` | Malformed or invalid request body: bad JSON, trailing text after the JSON value, invalid query shape, more than 100 query items or more than 100 values in one item, `limit` below 1 or over the configured maximum, an invalid `time` bound, a `time.from` not earlier than `time.before`, an event missing `type`, a duplicate identifier or metadata value, a missing `events` field or more than 100 events in one `POST /events`, a `POST /projections` body with none of `create`, `replace`, `delete`, an unknown key in it, a projection missing its `payload` or `version`, too many projections, or a repeated projection `type` + `id`, a call that needs a ticket and carries none, and so on |
 | 401 | `Unauthorized` | Missing or invalid Bearer token (only when `enableAuth` is on) |
 | 404 | `ProjectionNotFound` | `GET /projections/{type}/{id}` only: no projection exists at that `type` + `id`. Doesn't end the transaction |
 | 409 | `ConcurrencyException` | The Append Condition of a `POST /events` call failed, or a `POST /projections` entry doesn't match the stored projection (see [Versions](#versions)) |
 | 409 | `NotPaused` | `DELETE /projections`, `DELETE /projections/{type}`, or `POST /projections` without a ticket, while the server isn't paused |
 | 410 | `TicketNotActive` | The ticket isn't the active one: it's unknown, or its transaction has already ended |
-| 413 | `PayloadTooLarge` | An event, or a projection's `payload`, is bigger than the configured maximum size, or the request body is over 8 MiB |
+| 413 | `PayloadTooLarge` | An event, or a projection (its `type`, `id`, and `payload` together), is bigger than the configured maximum size, or the request body is over the body limit (about 39 MiB with the default configuration, see [Architecture](/docs/architecture/#error-responses)) |
 | 500 | `InternalError` | Unexpected server-side failure |
 | 503 | `TransactionQueueFull` | `POST /begin` or `POST /pause`: too many requests are already waiting |
 | 503 | `Paused` | `POST /begin` while the server is paused |
