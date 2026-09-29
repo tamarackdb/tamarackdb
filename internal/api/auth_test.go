@@ -17,16 +17,14 @@ func TestAuthRejectsEveryRoute(t *testing.T) {
 		{"POST", "/commit", ""},
 		{"POST", "/rollback", ""},
 		{"GET", "/projections/user-profile/123", ""},
-		// /pause comes before /begin, so the valid-token /begin gets 503
-		// Paused instead of opening a transaction nothing would end.
-		{"POST", "/pause", ""},
-		{"POST", "/begin", ""},
 		{"POST", "/projections", `{"create":[{"type":"t","id":"1","payload":"x"}]}`},
 		{"DELETE", "/projections", ""},
-		{"POST", "/resume", ""},
 		{"GET", "/health", ""},
 		{"GET", "/metrics", ""},
 		{"GET", "/debug", ""},
+		// /begin comes last: the transaction the valid-token call opens
+		// would hold up every later write without a ticket.
+		{"POST", "/begin", ""},
 	}
 
 	for _, route := range routes {

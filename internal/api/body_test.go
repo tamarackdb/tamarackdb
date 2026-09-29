@@ -44,27 +44,28 @@ func TestRequestBodyWithTrailingDataGets400(t *testing.T) {
 	}
 }
 
-func TestSlowRebuildBodyDoesNotBlockResume(t *testing.T) {
+func TestSlowProjectionsBodyDoesNotHoldTheTurn(t *testing.T) {
 	srv, _, _ := newTestServer(t)
-	pause(t, srv)
 
 	pr, pw := io.Pipe()
 	defer pw.Close()
 	go func() {
 		req := httptest.NewRequest("POST", "/projections", pr)
+		req.Header.Set("Authorization", "Bearer "+testToken)
+		req.Header.Set("Content-Type", "application/json")
 		srv.ServeHTTP(httptest.NewRecorder(), req)
 	}()
 	time.Sleep(50 * time.Millisecond) // the handler is now waiting for the body
 
 	done := make(chan int, 1)
-	go func() { done <- doRequest(t, srv, "POST", "/resume", "").Code }()
+	go func() { done <- doRequest(t, srv, "POST", "/begin", "").Code }()
 	select {
 	case code := <-done:
-		if code != 204 {
-			t.Errorf("resume status = %d, want 204", code)
+		if code != 200 {
+			t.Errorf("begin status = %d, want 200", code)
 		}
 	case <-time.After(2 * time.Second):
-		t.Fatal("POST /resume blocked behind a POST /projections still sending its body")
+		t.Fatal("POST /begin blocked behind a POST /projections still sending its body")
 	}
 }
 

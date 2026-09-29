@@ -86,9 +86,9 @@ type Server struct {
 
 	// writeHTTPOpen and readHTTPOpen count requests in flight on each
 	// side, exposed by GET /debug. The write side is every request that
-	// waits in the FIFO or uses the write connection: POST /begin,
-	// POST /pause, calls with a ticket, and calls accepted only while
-	// paused. The read side is every read without a ticket.
+	// waits in the FIFO or uses the write connection: POST /begin, calls
+	// with a ticket, and projection writes without a ticket. The read side
+	// is every read without a ticket.
 	writeHTTPOpen atomic.Int64
 	readHTTPOpen  atomic.Int64
 
@@ -147,8 +147,6 @@ func New(tm *txn.Manager, st *store.Store, opts Options) *Server {
 	mux.HandleFunc("POST /projections", s.handleWriteProjections)
 	mux.HandleFunc("DELETE /projections/{type}", s.handleDeleteProjectionsByType)
 	mux.HandleFunc("DELETE /projections", s.handleDeleteAllProjections)
-	mux.HandleFunc("POST /pause", s.handlePause)
-	mux.HandleFunc("POST /resume", s.handleResume)
 	mux.HandleFunc("GET /health", s.handleHealth)
 	mux.HandleFunc("GET /metrics", s.handleMetrics)
 	mux.HandleFunc("GET /debug", s.handleDebug)

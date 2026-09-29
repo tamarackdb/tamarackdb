@@ -57,7 +57,7 @@ func TestDebugReflectsActiveTransactionAndQueue(t *testing.T) {
 func TestDebugEmptyState(t *testing.T) {
 	srv, _, _ := newTestServer(t)
 	resp, body := getDebug(t, srv)
-	for _, want := range []string{`"paused":null`, `"active":null`, `"queued":[]`} {
+	for _, want := range []string{`"active":null`, `"queued":[]`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("body = %s, want it to contain %s", body, want)
 		}
@@ -67,16 +67,6 @@ func TestDebugEmptyState(t *testing.T) {
 	}
 	if resp.Read.HTTPOpen != 0 {
 		t.Errorf("Read.HTTPOpen = %d, want 0 (no reads in flight)", resp.Read.HTTPOpen)
-	}
-}
-
-func TestDebugReportsPause(t *testing.T) {
-	srv, _, _ := newTestServer(t)
-	before := time.Now()
-	pause(t, srv)
-	resp, _ := getDebug(t, srv)
-	if resp.Paused == nil || resp.Paused.Since.Before(before.Add(-time.Second)) {
-		t.Errorf("Paused = %+v, want since about now", resp.Paused)
 	}
 }
 

@@ -330,7 +330,7 @@ func TestSnapshotReportsKinds(t *testing.T) {
 	defer cancel()
 	ch := make(chan joinOutcome, 1)
 	go func() {
-		turn, err := m.Join(ctx, KindPause)
+		turn, err := m.Join(ctx, KindProjections)
 		ch <- joinOutcome{turn: turn, err: err}
 	}()
 	time.Sleep(30 * time.Millisecond) // ensure it's queued
@@ -339,8 +339,8 @@ func TestSnapshotReportsKinds(t *testing.T) {
 	if !snap.Active || snap.ActiveKind != KindOptimize {
 		t.Errorf("Snapshot() active = %v %q, want true %q", snap.Active, snap.ActiveKind, KindOptimize)
 	}
-	if len(snap.Queued) != 1 || snap.Queued[0].Kind != KindPause {
-		t.Errorf("Snapshot().Queued = %+v, want one pause", snap.Queued)
+	if len(snap.Queued) != 1 || snap.Queued[0].Kind != KindProjections {
+		t.Errorf("Snapshot().Queued = %+v, want one projections", snap.Queued)
 	}
 
 	holder.Done()
@@ -348,8 +348,8 @@ func TestSnapshotReportsKinds(t *testing.T) {
 	if out.err != nil {
 		t.Fatalf("queued Join() error = %v", out.err)
 	}
-	if snap := m.Snapshot(); snap.ActiveKind != KindPause {
-		t.Errorf("Snapshot().ActiveKind = %q after promotion, want %q", snap.ActiveKind, KindPause)
+	if snap := m.Snapshot(); snap.ActiveKind != KindProjections {
+		t.Errorf("Snapshot().ActiveKind = %q after promotion, want %q", snap.ActiveKind, KindProjections)
 	}
 	out.turn.Done()
 }

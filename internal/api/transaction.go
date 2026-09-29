@@ -104,26 +104,6 @@ func (s *Server) handleRollback(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// handlePause implements POST /pause: it waits for its turn in the FIFO,
-// behind every transaction already queued, then pauses the server.
-func (s *Server) handlePause(w http.ResponseWriter, r *http.Request) {
-	defer s.trackWrite()()
-	if err := s.tm.Pause(r.Context()); err != nil {
-		s.handleErr(w, r, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
-// handleResume implements POST /resume. It doesn't join the FIFO.
-func (s *Server) handleResume(w http.ResponseWriter, r *http.Request) {
-	if err := s.tm.Resume(); err != nil {
-		s.handleErr(w, r, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
 // handleReset implements POST /reset, deleting every event and projection
 // and cutting off the active transaction, if any (see
 // txn.Manager.Reset). Only registered by New when Options.DevMode is true.

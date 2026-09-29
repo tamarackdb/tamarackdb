@@ -33,7 +33,6 @@ func TestMetricsOutput(t *testing.T) {
 
 	values := parseMetrics(t, rec.Body.String())
 	for name, want := range map[string]float64{
-		"tamarackdb_paused":                                           0,
 		"tamarackdb_transaction_active":                               1,
 		"tamarackdb_requests_queued":                                  1,
 		"tamarackdb_transactions_started_total":                       4,

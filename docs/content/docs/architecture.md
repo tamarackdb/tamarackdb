@@ -181,13 +181,11 @@ Every endpoint is named by the resource it acts on (`/events`, `/projections`) o
 | `QUERY /events` | optional | Read events, inside the transaction or from committed data |
 | `POST /events` | required | Append events, with an optional Append Condition |
 | `GET /projections/{type}/{id}` | optional | Read one projection, inside the transaction or from committed data |
-| `POST /projections` | required, or none while paused | Write or delete projections |
+| `POST /projections` | optional | Write or delete projections, inside the transaction or in a turn of its own |
 | `POST /commit` | required | Commit the transaction |
 | `POST /rollback` | required | Roll the transaction back |
-| `DELETE /projections/{type}` | none, paused only | Delete every projection of one type |
-| `DELETE /projections` | none, paused only | Delete every projection |
-| `POST /pause` | none | Stop giving out tickets, once earlier transactions are done |
-| `POST /resume` | none | Give out tickets again |
+| `DELETE /projections/{type}` | none | Delete every projection of one type, in a turn of its own |
+| `DELETE /projections` | none | Delete every projection, in a turn of its own |
 | `POST /reset` | none, dev mode only | Delete all events and projections |
 
 `GET /health`, `GET /metrics`, and `GET /debug` are covered in Management / observability.
@@ -212,8 +210,8 @@ held from the first operation, reads included, until the transaction ends.
 A client that disconnects while waiting leaves the FIFO. The server puts no limit on how long a request waits: only
 the client knows how long its own caller can wait, so the client ends the wait by closing the connection. A request
 that has waited a long time is close to the head of the FIFO; turning it away would send its retry to the back, behind
-every request that arrived after it. A request that arrives when the FIFO is already at its configured depth gets `503 TransactionQueueFull` right away, instead of joining (see Configuration). While the server
-is paused, a request that reaches the head of the FIFO gets `503 Paused` (see Pause).
+every request that arrived after it. A request that arrives when the FIFO is already at its configured depth gets
+`503 TransactionQueueFull` right away, instead of joining (see Configuration).
 
 #### Deadline and ceiling
 
@@ -512,65 +510,41 @@ projection the event handlers changed (typically about ten). The client collects
 instead of sending each small change as it happens. The server doesn't enforce this: several calls in one transaction
 remain valid.
 
-`POST /projections` without a ticket is accepted only while the server is paused, for projection rebuilds. Each such
-call commits on its own. Outside a pause, a valid call gets `409 NotPaused` (see Pause). The body is read and checked
-before the pause, so an invalid one gets `400 Bad Request` either way.
+**Writing projections without a ticket**: `POST /projections` without a ticket is meant for projection rebuilds (see
+Projection rebuilds). It joins the FIFO like a `POST /begin` request: it's subject to the same FIFO depth limit, and a
+client that disconnects while waiting leaves the FIFO, with nothing written. When its turn comes, the call runs in its
+own SQLite transaction, commits, and gives its turn to the next request in the FIFO. The body is read and checked
+before the call joins the FIFO: a client sending its body slowly never holds the turn, and an invalid body gets `400
+Bad Request` without waiting.
 
 **Deleting projections in bulk**: `DELETE /projections/{type}` deletes every projection of one type, and `DELETE /projections`
-deletes every projection. Both take no ticket, are accepted only while the server is paused, and respond `204 No
-Content`. Outside a pause, they get `409 NotPaused`.
+deletes every projection. Both take no ticket, wait for their turn in the FIFO the same way, and respond `204 No
+Content`.
 
 **What a projection may depend on.** Events are appended before the event handlers run, and `POST /events` returns each
 event's `sequence` and `time`. A projection can depend on anything in an event, those two values included. A rebuild
 reads the same events back from `QUERY /events`, with the same values, so it produces the same projections.
 
-### Pause
-
-A pause stops the server from giving out tickets. It guarantees that no transaction is active while a projection
-rebuild runs.
-
-**`POST /pause`** joins the FIFO like a `POST /begin` request: it's subject to the same FIFO depth limit, and a
-client that disconnects while waiting leaves the FIFO, with no pause. When its turn comes, it opens no SQLite
-transaction. It writes the pause file, switches the server to paused, gives its turn to the next request in the FIFO,
-and responds `204 No Content`. The response therefore arrives only once every transaction ahead of it has ended.
-Calling `POST /pause` while already paused also responds `204 No Content`.
-
-**Effect on the FIFO.** The FIFO keeps moving while the server is paused. When a request reaches the head of the FIFO
-while paused, it gets `503 Paused` instead of a ticket, and the next request moves up. This single check covers both
-requests queued behind `POST /pause` and requests that arrive during the pause: nothing needs to empty the FIFO.
-
-**Calls accepted only while paused**: `POST /projections` without a ticket, `DELETE /projections/{type}`, and `DELETE
-/projections`. Outside a pause, they get `409 NotPaused` (after `400 Bad Request` for an invalid `POST /projections`
-body, which is checked first): the server isn't in the state the call requires. A `503` would
-suggest a temporary outage, and invite the client to retry for nothing. Reads without a ticket (`QUERY /events`, `GET
-/projections/{type}/{id}`) are accepted at all times.
-
-**`POST /resume`** deletes the pause file, then switches the server back to giving out tickets. It doesn't join the
-FIFO: while paused, the FIFO empties itself as each waiting request gets its `503`. It responds `204 No Content`,
-whether the server was paused or not.
-
-**The pause survives a restart.** The pause file, `tamarackdb.paused` in `dataDir`, exists exactly while the server is
-paused. On startup, TamarackDB starts paused if the file is there. A crash or restart during a rebuild leaves the
-server paused, so the application can't write on half-rebuilt projections: it stays blocked until the rebuild is run
-again and `POST /resume` is called. The file is written before `POST /pause` responds, and deleted before `POST
-/resume` switches the server back, so a crash between the two steps never leaves the server running unpaused when it
-should be paused. A forgotten pause file blocks the application: that shows at once (every `POST /begin` gets
-`503 Paused`), and `/health` and `/debug` report it (see Management / observability).
-
 ### Projection rebuilds
 
-A projection rebuild runs while the server is paused, outside any transaction:
+A projection rebuild runs outside any transaction. The application is fully down while it runs: it serves no reads
+and makes no writes. TamarackDB doesn't enforce this; keeping every other request away is the application's job.
 
-1. `POST /pause`.
-2. `DELETE /projections/{type}` for each type to rebuild, or `DELETE /projections` for all of them.
-3. Page through `QUERY /events` without a ticket, replaying each page through the application's projectors.
-4. Write the rebuilt projections with `POST /projections` without a ticket: a `create` the first time, then a
-   `replace` with the version the previous call returned.
-5. `POST /resume`.
+How the rebuild is organized is up to the application: one thread replaying every event in order, several projectors
+in parallel, or anything else. TamarackDB provides the calls it's built from:
 
-The application is fully down during a rebuild: nothing else writes. A rebuild has no atomicity as a whole: each
-`POST /projections` call commits on its own. A rebuild that fails, or that a TamarackDB crash interrupts, leaves partial
-projections behind, and is simply run again. The server stays paused in the meantime.
+- `DELETE /projections/{type}` and `DELETE /projections` clear the projections to rebuild.
+- `QUERY /events` without a ticket pages through the events to replay.
+- `POST /projections` without a ticket writes the rebuilt projections, in as many calls as needed: a `create` the
+  first time, then a `replace` with the version the previous call returned.
+- `GET /projections/{type}/{id}` without a ticket reads a projection back, with its version.
+
+Reads without a ticket run side by side on the read connection pool. Writes without a ticket each wait for a turn in
+the FIFO, so calls from several threads interleave, one at a time. Each waiting write counts toward the FIFO depth:
+many writers at once can get `503 TransactionQueueFull`, and retry.
+
+A rebuild has no atomicity as a whole: each call commits on its own. A rebuild that fails, or that a TamarackDB crash
+interrupts, leaves partial projections behind, and is simply run again from the start.
 
 Reads during a rebuild page through `limit`-sized requests instead of one response streaming the whole result set
 over one long connection. Holding one SQLite read transaction open for a whole large rebuild would pin one MVCC
@@ -591,7 +565,7 @@ doesn't join the FIFO. If a transaction is active, its ticket stops being active
 back, then all data is deleted, and the FIFO moves on. The only thing `POST /reset` waits for is a call already
 running on the write connection, so that the two never use the connection at the same time. The client whose
 transaction was cut off gets `410 TicketNotActive` on its next call. Requests waiting in the FIFO stay there, and
-get their ticket on an empty store. `POST /reset` leaves the pause state as it is. It responds `204 No Content`.
+get their ticket on an empty store. It responds `204 No Content`.
 
 ### Event size limit
 
@@ -628,12 +602,10 @@ request or oversized headers.
 | `401` | `Unauthorized` | Missing or invalid Bearer token, only when `enableAuth` is on (see Security) |
 | `404` | `ProjectionNotFound` | `GET /projections/{type}/{id}` for a projection that doesn't exist |
 | `409` | `ConcurrencyException` | The Append Condition of a `POST /events` call failed, or a `POST /projections` entry doesn't match the stored projection (see Projections) |
-| `409` | `NotPaused` | A call accepted only while paused, made outside a pause |
 | `410` | `TicketNotActive` | The ticket isn't the active one: it's unknown, or its transaction has already ended |
 | `413` | `PayloadTooLarge` | An event or a projection over its size limit, or a request body over the body limit |
 | `500` | `InternalError` | An unexpected server-side failure |
-| `503` | `TransactionQueueFull` | `POST /begin` or `POST /pause` while the FIFO is at its configured depth |
-| `503` | `Paused` | A request reached the head of the FIFO while the server is paused |
+| `503` | `TransactionQueueFull` | `POST /begin`, or a projection write without a ticket, while the FIFO is at its configured depth |
 | `503` | `ShuttingDown` | A request waiting in the FIFO, or arriving after it closed, while the server shuts down |
 | `503` | `Unavailable` | `GET /health` only: SQLite can't be reached (see Health check) |
 
@@ -711,7 +683,8 @@ that relies on it.
 ### Principle: the transaction FIFO
 
 A queue manager gives out the single active turn, strictly in the order requests arrive. Three kinds of requests join
-its FIFO: `POST /begin`, `POST /pause`, and the hourly `PRAGMA optimize` (see Storage: SQLite). It knows nothing about
+its FIFO: `POST /begin`, projection writes without a ticket (`POST /projections`, `DELETE /projections`, `DELETE
+/projections/{type}`), and the hourly `PRAGMA optimize` (see Storage: SQLite). It knows nothing about
 what a transaction will read or append. Only two states exist: **Active** (at most one transaction at a time, the only
 one allowed to touch the write connection) and **Queued** (every other request, waiting its turn in line).
 
@@ -723,10 +696,9 @@ one allowed to touch the write connection) and **Queued** (every other request, 
    disconnects, the request leaves the line right away, and everyone behind it moves up one spot. There is no other
    way out of the line.
 4. When it reaches the head of the line:
-   - If it's a `POST /begin` and the server is paused, it gets `503 Paused`, and the next request moves up.
-   - If it's a `POST /begin` otherwise, the handler runs `BEGIN IMMEDIATE` on the write connection, creates a
+   - If it's a `POST /begin`, the handler runs `BEGIN IMMEDIATE` on the write connection, creates a
      ticket, sets the transaction's deadline and ceiling, and responds with the ticket.
-   - If it's a `POST /pause`, the server writes the pause file, switches to paused, and the next request moves up.
+   - If it's a projection write without a ticket, it runs and commits on its own, then the next request moves up.
    - If it's `PRAGMA optimize`, it runs, then the next request moves up.
 5. The transaction stays active after the `POST /begin` response: the queue manager holds it in memory, keyed
    by its ticket, until it ends (see Ending a transaction). Then the next request moves up.
@@ -800,9 +772,8 @@ the transaction timeouts, and the pagination/event-size/queue-depth limits. This
 checking at a glance what a given instance is actually set up to do, not a machine-readable format meant for parsing.
 
 Opening the store checks the schema version (see Schema), then reads the current highest `sequence` in the `events`
-table into the in-memory Sequence Position counter (see Application-controlled Sequence Position above). The process
-then checks for the pause file in `dataDir`, and starts paused if it exists (see Pause). All of this finishes before the
-process gives out any ticket; reads without a ticket can be served as soon as the store is open.
+table into the in-memory Sequence Position counter (see Application-controlled Sequence Position above). This finishes
+before the process gives out any ticket; reads without a ticket can be served as soon as the store is open.
 
 On `SIGINT` or `SIGTERM`, the process shuts down in order. The HTTP server stops taking new connections
 (`http.Server.Shutdown`, capped at 10 seconds). At the same moment, the queue manager closes: requests still waiting
@@ -819,9 +790,8 @@ closing a keep-alive connection that has no request in flight for that long.
 The queue manager's state (the active transaction, its ticket and deadline, the requests waiting) is purely
 transient, held only in memory for the life of the process. Nothing is saved, and nothing needs to be rebuilt on
 startup: a freshly started process begins with an empty FIFO and no active transaction, which is correct, since every
-client that existed before a crash lost its connection or its ticket too. Two pieces of state are rebuilt on startup,
-because they have to match what's on disk: the Sequence Position counter, read from the database, and the pause
-state, read from the pause file.
+client that existed before a crash lost its connection or its ticket too. One piece of state is rebuilt on startup,
+because it has to match what's on disk: the Sequence Position counter, read from the database.
 
 A panic in one request handler is caught by the HTTP server, without crashing the process. The handler's deferred
 rollback and release still run during the panic's unwind (see Calls inside a transaction), so no transaction
@@ -857,7 +827,7 @@ Events and projections live in one file, `tamarackdb.sqlite`, so one SQLite tran
 than events and are rewritten in place, so they make the WAL grow faster than events alone would. This stays small in
 practice: only one transaction writes at a time anyway, and a command writes about ten projections, once, right before its
 commit (see Projections). The one heavy case is a projection rebuild, which writes every rebuilt projection, but it runs
-while the server is paused, with no other writer (see Projection rebuilds). SQLite reuses the space of deleted projections
+while the application is down, with no other writer (see Projection rebuilds). SQLite reuses the space of deleted projections
 for later writes on its own. Giving that space back to the operating system takes a `VACUUM`, which rewrites the whole
 file, events included. The server never runs one: it's run by hand, with `sqlite3`, while the server is stopped, the
 same way as a full `ANALYZE` (see below). Both run as the server's own user: the data directory is readable by its
@@ -953,11 +923,10 @@ application, its single source of truth.
 The write connection opens every transaction with `BEGIN IMMEDIATE` (`_txlock=immediate` in the DSN), taking SQLite's
 write lock at the start of the transaction, rather than waiting until the first write statement runs. For a transaction
 opened by `POST /begin`, that's the moment the ticket is given out: reads, checks, and inserts all run under the lock,
-with no window where another connection could slip in between them. A call accepted only while paused runs in its own
-short transaction: `POST /projections` without a ticket as its own `BEGIN IMMEDIATE` ... `COMMIT`, and
-`DELETE /projections` or `DELETE /projections/{type}` as a single statement that commits on its own. No transaction can be active
-while paused, and the pause can't end while such a call runs: it has the write connection to itself, apart from a
-`PRAGMA optimize` that waits its turn on the same single connection. The write connection also sets `_busy_timeout =
+with no window where another connection could slip in between them. A projection write without a ticket runs in its
+own short transaction, during its own turn in the FIFO: `POST /projections` as its own `BEGIN IMMEDIATE` ...
+`COMMIT`, and `DELETE /projections` or `DELETE /projections/{type}` as a single statement that commits on its own. No
+transaction is active during that turn, so it has the write connection to itself. The write connection also sets `_busy_timeout =
 5000` (five seconds). Since `writeDB.SetMaxOpenConns(1)` already forces every write onto one connection, and the FIFO
 already lets only one transaction run at a time, the busy timeout only guards against something else briefly holding the
 file (a passive checkpoint, an external `sqlite3` shell), not against another transaction.
@@ -1054,9 +1023,8 @@ instead.
 | `maxQueuedTransactions` | `TAMARACKDB_MAX_QUEUED_TRANSACTIONS` | `100` |
 | `readPoolSize` | `TAMARACKDB_READ_POOL_SIZE` | `8` |
 
-`dataDir` is the one directory holding the database file, `tamarackdb.sqlite`, and the pause file,
-`tamarackdb.paused` (see Pause). Only the directory is configurable, the same convention MySQL's own `datadir` uses:
-the filenames within it are fixed.
+`dataDir` is the directory holding the database file, `tamarackdb.sqlite`. Only the directory is configurable, the
+same convention MySQL's own `datadir` uses: the filename within it is fixed.
 
 `maxProjectionSize` bounds one projection (its `type`, `id`, and `payload`) the same way `maxEventSize` bounds one event. `maxProjectionsPerRequest`
 caps how many projections one `POST /projections` call may carry. Unlike the fixed 100-events-per-call limit, it's
@@ -1144,15 +1112,12 @@ A lightweight `GET /health` endpoint confirms the process is responding and SQLi
 JSON body:
 
 ```json
-{"status": "ok", "version": "1.2.3", "paused": false}
+{"status": "ok", "version": "1.2.3"}
 ```
 
 On failure to reach SQLite, it responds `503 Unavailable` rather than `500`, the usual signal a supervisor or
 load balancer already expects for "not ready right now," different from the `500` an ordinary request failure returns
 elsewhere in the API.
-
-A paused server is healthy: `/health` still responds `200 OK`, with `"paused": true`. A supervisor that restarted the
-process on a `503` would only restart it paused again (see Pause), in a loop, for the whole length of a rebuild.
 
 ### Request logging
 
@@ -1173,14 +1138,13 @@ command that expired.
 Event and projection counts, per-type breakdowns, and database file size (anything you can work out from the store's
 own content) are a query away, straight against the SQLite file, so the store doesn't need to expose them itself. What
 the file can't answer is live, in-memory state that only exists for the life of the process: the active transaction,
-the FIFO, the pause state, and how busy the read and write SQLite connection pools are. Two endpoints cover that, kept
+the FIFO, and how busy the read and write SQLite connection pools are. Two endpoints cover that, kept
 separate since they serve different needs:
 
 **`GET /metrics`**: Prometheus exposition format, for scraping into existing monitoring:
-- `tamarackdb_paused` (gauge): whether the server is paused (`1`) or not (`0`)
 - `tamarackdb_transaction_active` (gauge): whether a transaction is currently active (`1`) or not (`0`)
-- `tamarackdb_requests_queued` (gauge): number of requests (`POST /begin`, `POST /pause`, or the hourly
-  `PRAGMA optimize`) currently waiting in the FIFO
+- `tamarackdb_requests_queued` (gauge): number of requests (`POST /begin`, a projection write without a ticket, or
+  the hourly `PRAGMA optimize`) currently waiting in the FIFO
 - `tamarackdb_queue_longest_wait_seconds` (gauge): longest current wait, in seconds, among queued requests; `0` when
   the FIFO is empty
 - `tamarackdb_transactions_started_total` (counter): total transactions given a ticket since startup
@@ -1198,7 +1162,6 @@ saturated, too detailed to fit a metric:
 ```json
 {
   "time": "2026-09-01T14:23:05.123456Z",
-  "paused": null,
   "write": {
     "active": {
       "since": "2026-09-01T14:23:04.900000Z",
@@ -1226,17 +1189,14 @@ saturated, too detailed to fit a metric:
 }
 ```
 
-`paused` is `null` when the server isn't paused, and `{"since": "..."}` when it is. After a restart, `since` comes
-from the pause file's modification time, so it still reports when the pause actually began.
-
 `write.active` describes the active transaction, if any (`null` otherwise): when its ticket was given out, its current
 deadline and fixed ceiling, and how many calls it has made so far. It never carries the ticket itself (see Security),
 nor the transaction's queries, conditions, or events: the queue manager never knows them. `write.queued` lists every
-request still waiting, oldest first, with its `kind` (`transaction`, `pause`, or `optimize`), and `waitSeconds` instead
+request still waiting, oldest first, with its `kind` (`transaction`, `projections`, or `optimize`), and `waitSeconds` instead
 of `ageSeconds`. `write.queued` is always present, never `null`, even when empty.
 
-`httpOpen` is how many requests are currently in flight on each side: on the write side, requests waiting in the FIFO
-plus calls with a ticket; on the read side, reads without a ticket. `sqliteInUse` and `sqliteMax` are the underlying
+`httpOpen` is how many requests are currently in flight on each side: on the write side, requests waiting in the FIFO,
+calls with a ticket, and projection writes without a ticket; on the read side, reads without a ticket. `sqliteInUse` and `sqliteMax` are the underlying
 SQLite connection pool's usage against its configured ceiling (`database/sql`'s own
 `DBStats.InUse`/`MaxOpenConnections`, read straight off the read and write `*sql.DB` pools). `write.sqliteMax` is
 always `1`: the write pool is deliberately capped at one connection, so SQLite's own driver enforces the same
@@ -1251,7 +1211,7 @@ always a quick, non-blocking read: never stuck behind a queued request or a runn
 
 ## Implementation
 
-The concrete Go code lives in `internal/queue` (the FIFO), `internal/txn` (tickets, deadlines, the pause, and reset),
+The concrete Go code lives in `internal/queue` (the FIFO), `internal/txn` (tickets, deadlines, turns for projection writes without a ticket, and reset),
 `internal/store` (the transaction on the write connection and the Query-to-SQL translation), and `cmd/tamarackdb-backup`
 (the backup tool). The projection wire shape and its validation rules live in `internal/projection`, independent of
 `internal/dcb`.

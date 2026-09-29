@@ -95,19 +95,12 @@ func main() {
 	// st.Close() is not deferred: shutdown is ordered explicitly below,
 	// not left to main's return.
 
-	tm, err := txn.New(st, txn.Config{
+	tm := txn.New(st, txn.Config{
 		Timeout:   time.Duration(cfg.TransactionTimeout) * time.Second,
 		Ceiling:   time.Duration(cfg.MaxTransactionDuration) * time.Second,
 		MaxQueued: cfg.MaxQueuedTransactions,
-		PauseFile: cfg.PauseFilePath(),
 		OnExpire:  api.ExpiryLogger(cfg.LogLevel),
 	})
-	if err != nil {
-		log.Fatalf("tamarackdb-server: %v", err)
-	}
-	if tm.Paused() {
-		log.Printf("tamarackdb-server: starting paused (%s exists)", cfg.PauseFilePath())
-	}
 
 	fatalCh := make(chan error, 1)
 	srv := api.New(tm, st, api.Options{

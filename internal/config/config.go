@@ -43,15 +43,11 @@ const (
 	DefaultLogLevel                 = "warning"
 )
 
-// databaseFilename and pauseFilename are the fixed filenames TamarackDB
-// uses within DataDir: only the directory is configurable, not the files'
-// names, the same convention MySQL's own datadir uses. Unexported:
-// DatabasePath and PauseFilePath are the only supported way to get at
-// these paths.
-const (
-	databaseFilename = "tamarackdb.sqlite"
-	pauseFilename    = "tamarackdb.paused"
-)
+// databaseFilename is the fixed filename TamarackDB uses within DataDir:
+// only the directory is configurable, not the file's name, the same
+// convention MySQL's own datadir uses. Unexported: DatabasePath is the
+// only supported way to get at this path.
+const databaseFilename = "tamarackdb.sqlite"
 
 // maxSocketPathLen is the longest unix socket path Linux accepts, in
 // bytes: sun_path holds 108, including the terminating NUL.
@@ -82,8 +78,8 @@ type Config struct {
 	AuthToken  string `toml:"authToken"`
 
 	// DataDir is the directory holding the SQLite database file
-	// (DatabasePath) and the pause file (PauseFilePath). Only the
-	// directory is configurable; the filenames within it are fixed.
+	// (DatabasePath). Only the directory is configurable; the filename
+	// within it is fixed.
 	DataDir string `toml:"dataDir"` // default: data
 
 	// DevMode, when true, registers POST /reset, which deletes every event
@@ -365,10 +361,4 @@ func (c Config) SocketFileMode() os.FileMode {
 // projections: DataDir joined with its fixed filename.
 func (c Config) DatabasePath() string {
 	return filepath.Join(c.DataDir, databaseFilename)
-}
-
-// PauseFilePath is the pause file's path: DataDir joined with its fixed
-// filename. The file exists exactly while the server is paused.
-func (c Config) PauseFilePath() string {
-	return filepath.Join(c.DataDir, pauseFilename)
 }

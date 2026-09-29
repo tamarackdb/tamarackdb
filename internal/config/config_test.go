@@ -902,13 +902,6 @@ func TestValidateTransactionSettings(t *testing.T) {
 	}
 }
 
-func TestPauseFilePath(t *testing.T) {
-	cfg := Config{DataDir: "/var/lib/tamarackdb"}
-	if got, want := cfg.PauseFilePath(), "/var/lib/tamarackdb/tamarackdb.paused"; got != want {
-		t.Errorf("PauseFilePath() = %q, want %q", got, want)
-	}
-}
-
 func TestLoadRejectsUnknownKey(t *testing.T) {
 	path := writeConfigFile(t, `[server]
 		dataDir = "data"

@@ -76,9 +76,9 @@ func (s *Server) handleGetProjection(w http.ResponseWriter, r *http.Request) {
 // handleWriteProjections implements POST /projections: it creates,
 // replaces, and deletes projections, and responds with the new versions.
 // With a ticket, the write runs inside the transaction, and any failure,
-// a version conflict included, rolls it back. Without a ticket, it's
-// accepted only while the server is paused, for a projection rebuild, and
-// commits on its own; outside a pause it gets 409 NotPaused.
+// a version conflict included, rolls it back. Without a ticket, it waits
+// for its turn in the FIFO and commits on its own, for a projection
+// rebuild.
 func (s *Server) handleWriteProjections(w http.ResponseWriter, r *http.Request) {
 	defer s.trackWrite()()
 
@@ -105,12 +105,12 @@ func (s *Server) handleWriteProjections(w http.ResponseWriter, r *http.Request) 
 			return err
 		})
 	} else {
-		// The body is read before RunPaused: the pause can't end while
-		// RunPaused runs, so a client sending its body slowly would
-		// otherwise hold off POST /resume for as long as it likes.
+		// The body is read before joining the FIFO: a client sending its
+		// body slowly would otherwise hold the turn, and every request
+		// behind it, for as long as it likes.
 		var req projection.Writes
 		if req, err = parse(); err == nil {
-			err = s.tm.RunPaused(func() error {
+			err = s.tm.RunInTurn(r.Context(), func() error {
 				var err error
 				versions, err = s.st.WriteProjections(r.Context(), req)
 				return err
@@ -191,11 +191,11 @@ func validateProjectionsRequest(req projection.Writes, maxProjectionSize, maxPro
 }
 
 // handleDeleteProjectionsByType implements DELETE /projections/{type}: a bulk
-// delete of every projection of that type, for a projection rebuild. It's
-// accepted only while the server is paused.
+// delete of every projection of that type, for a projection rebuild. It
+// waits for its turn in the FIFO.
 func (s *Server) handleDeleteProjectionsByType(w http.ResponseWriter, r *http.Request) {
 	defer s.trackWrite()()
-	if err := s.tm.RunPaused(func() error {
+	if err := s.tm.RunInTurn(r.Context(), func() error {
 		return s.st.DeleteProjectionsByType(r.Context(), r.PathValue("type"))
 	}); err != nil {
 		s.handleErr(w, r, err)
@@ -208,7 +208,7 @@ func (s *Server) handleDeleteProjectionsByType(w http.ResponseWriter, r *http.Re
 // delete as handleDeleteProjectionsByType, widened to every type at once.
 func (s *Server) handleDeleteAllProjections(w http.ResponseWriter, r *http.Request) {
 	defer s.trackWrite()()
-	if err := s.tm.RunPaused(func() error {
+	if err := s.tm.RunInTurn(r.Context(), func() error {
 		return s.st.DeleteAllProjections(r.Context())
 	}); err != nil {
 		s.handleErr(w, r, err)

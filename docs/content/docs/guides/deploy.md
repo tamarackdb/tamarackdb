@@ -348,7 +348,7 @@ Configure above); no `config.toml` is needed inside the container. It sets
 listens over TCP, on port `8085`, unlike a plain `tamarackdb-server` binary.
 The unix socket is for a server installed directly on the host (see
 [Production](#production)); in a container, use TCP. It also sets `TAMARACKDB_DATA_DIR=/data`, so mount a volume on `/data` to keep
-the database, and the pause state (see [Pause](#pause)), across restarts.
+the database across restarts.
 
 The server runs as user and group `tamarackdb`, UID and GID `10001`. A named
 volume, as above, works as is. To mount a directory of the host instead, give
@@ -412,7 +412,7 @@ curl http://127.0.0.1:8085/health
 ```
 
 ```json
-{ "status": "ok", "version": "1.2.3", "paused": false }
+{ "status": "ok", "version": "1.2.3" }
 ```
 
 This confirms the process is up and SQLite is reachable. Point a process
@@ -420,38 +420,11 @@ supervisor or load balancer at it. It responds `503 Unavailable` when SQLite
 can't be reached. `curl --unix-socket` works the same way against any
 endpoint below, not just `/health`.
 
-A paused server is healthy: `/health` still responds `200 OK`, with
-`"paused": true`. Don't have a supervisor restart the process on a pause: it
-would start paused again (see [Pause](#pause)).
+## Projection rebuilds
 
-## Pause
-
-The application pauses the server to rebuild its projections (see
-[Integration](/docs/guides/integration/#projection-rebuilds)). While paused, the
-server gives out no transactions: every `POST /begin` gets `503 Paused`, and
-the application can't change anything. Reads still work.
-
-The pause survives a restart. It's stored as a file, `tamarackdb.paused`, in
-`dataDir`. A server that starts with that file present starts paused. This is
-on purpose: a rebuild interrupted by a crash leaves the server paused, so the
-application can't write on half-rebuilt projections until the rebuild is run
-again.
-
-To see whether the server is paused, and since when:
-
-- `/health` reports `"paused": true`.
-- `/metrics` reports `tamarackdb_paused 1`.
-- `/debug` reports `"paused": {"since": "..."}`.
-
-If a rebuild failed and won't be run again, or a pause was left behind by
-mistake, end it yourself:
-
-```sh
-sudo -u tamarackdb curl --unix-socket /run/tamarackdb/tamarackdb.sock -X POST http://localhost/resume
-```
-
-Use `POST /resume`, not a manual delete of the pause file: the running server
-keeps the pause in memory, and only reads the file at startup.
+The application rebuilds its projections while it's fully down (see
+[Integration](/docs/guides/integration/#projection-rebuilds)). The server needs
+nothing special for it: it keeps running as usual.
 
 ### Reclaiming disk space
 
@@ -469,9 +442,7 @@ Do it at the end of a rebuild, while the application is already down:
    sudo -u tamarackdb sqlite3 /path/to/data/tamarackdb.sqlite 'VACUUM;'
    ```
 
-3. Start `tamarackdb-server` again. It starts paused, since the pause file is
-   still there.
-4. Resume the server with `POST /resume`.
+3. Start `tamarackdb-server` again.
 
 A `VACUUM` rewrites the whole file, events included, and needs free disk space
 about the size of the database while it runs.
@@ -479,18 +450,17 @@ about the size of the database while it runs.
 ## Observability
 
 Two more endpoints show the server's own in-memory state: the active
-transaction, the requests waiting for their turn, the pause, and the SQLite
+transaction, the requests waiting for their turn, and the SQLite
 connection pools. They matter when you are chasing a slow or stuck
 transaction, a queue that keeps growing, or a read pool that looks saturated.
 
-- `GET /metrics`: Prometheus text format. Shows whether the server is paused,
-  whether a transaction is active, how many requests are waiting and the
-  longest current wait, transactions started, committed, and rolled back (by
-  reason: client, error, expired, shutdown, reset), how long transactions
-  last, and how many appends failed their Append Condition.
-- `GET /debug`: a JSON snapshot with the pause state, a `write` object (the
-  active transaction, if any, with its deadline, ceiling, and call count;
-  every waiting request with its wait time; the write SQLite pool's usage)
+- `GET /metrics`: Prometheus text format. Shows whether a transaction is
+  active, how many requests are waiting and the longest current wait,
+  transactions started, committed, and rolled back (by reason: client, error,
+  expired, shutdown, reset), how long transactions last, and how many appends
+  failed their Append Condition.
+- `GET /debug`: a JSON snapshot with a `write` object (the active transaction,
+  if any, with its deadline, ceiling, and call count; every waiting request with its wait time; the write SQLite pool's usage)
   and a `read` object (reads without a ticket in flight, and the read SQLite
   pool's usage, sized by `readPoolSize`).
 
@@ -548,11 +518,9 @@ Each outcome carries a fixed level, not derived from the status code alone:
 | Invalid request | 400 | `info` |
 | Payload too large | 413 | `info` |
 | Missing or invalid bearer token | 401 | `info` |
-| Call only accepted while paused | 409 | `info` |
 | Transaction no longer active | 410 | `info` |
 | Server shutting down | 503 | `info` |
 | Transaction queue full | 503 | `warning` |
-| Server paused | 503 | `warning` |
 | Transaction expired | none | `warning` |
 | Internal error | 500 | `error` |
 | Storage unreachable | 503 | `error` |
@@ -560,11 +528,9 @@ Each outcome carries a fixed level, not derived from the status code alone:
 A successful request and an expected rejection, such as a concurrency
 conflict or a projection that doesn't exist, are both `debug`: the server did
 exactly what it was supposed to do. A malformed or oversized request, a bad
-token, a call made at the wrong time, or a call on a transaction that already
-ended is `info`: not the server's fault, but worth knowing about. So is a
-request turned away because the server is shutting down. A full or
-slow transaction queue is `warning`: a real signal of capacity or contention.
-So is a paused server turning a request away, so a forgotten pause shows up.
+token, or a call on a transaction that already ended is `info`: not the
+server's fault, but worth knowing about. So is a request turned away because
+the server is shutting down. A full or slow transaction queue is `warning`: a real signal of capacity or contention.
 
 A transaction that reaches its idle timeout or its ceiling is rolled back by
 the server itself, with no request to log. It gets its own `warning` line

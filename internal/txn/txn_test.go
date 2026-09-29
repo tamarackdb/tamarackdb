@@ -3,7 +3,6 @@ package txn
 import (
 	"context"
 	"errors"
-	"os"
 	"path/filepath"
 	"regexp"
 	"sync"
@@ -12,6 +11,7 @@ import (
 
 	"github.com/tamarackdb/tamarackdb/internal/dcb"
 	"github.com/tamarackdb/tamarackdb/internal/projection"
+	"github.com/tamarackdb/tamarackdb/internal/queue"
 	"github.com/tamarackdb/tamarackdb/internal/store"
 )
 
@@ -22,10 +22,9 @@ type expiry struct {
 }
 
 type testEnv struct {
-	m         *Manager
-	st        *store.Store
-	pauseFile string
-	expired   chan expiry
+	m       *Manager
+	st      *store.Store
+	expired chan expiry
 }
 
 func newTestEnv(t *testing.T, timeout, ceiling time.Duration) *testEnv {
@@ -35,16 +34,12 @@ func newTestEnv(t *testing.T, timeout, ceiling time.Duration) *testEnv {
 	if err != nil {
 		t.Fatalf("store.Open() error = %v", err)
 	}
-	env := &testEnv{st: st, pauseFile: filepath.Join(dir, "tamarackdb.paused"), expired: make(chan expiry, 10)}
-	m, err := New(st, Config{
-		Timeout:   timeout,
-		Ceiling:   ceiling,
-		PauseFile: env.pauseFile,
-		OnExpire:  func(ticket string, limit Limit, lasted time.Duration) { env.expired <- expiry{ticket, limit, lasted} },
+	env := &testEnv{st: st, expired: make(chan expiry, 10)}
+	m := New(st, Config{
+		Timeout:  timeout,
+		Ceiling:  ceiling,
+		OnExpire: func(ticket string, limit Limit, lasted time.Duration) { env.expired <- expiry{ticket, limit, lasted} },
 	})
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
 	env.m = m
 	t.Cleanup(func() {
 		m.Close()
@@ -336,117 +331,89 @@ func TestSnapshotDoesNotWaitForARunningCall(t *testing.T) {
 	<-done
 }
 
-func TestPauseStopsTicketsUntilResume(t *testing.T) {
-	env := newTestEnv(t, time.Second, 5*time.Second)
-	if err := env.m.Pause(context.Background()); err != nil {
-		t.Fatalf("Pause() error = %v", err)
-	}
-	if _, err := os.Stat(env.pauseFile); err != nil {
-		t.Errorf("pause file: %v, want it to exist", err)
-	}
-	if _, err := env.m.Begin(context.Background()); !errors.Is(err, ErrPaused) {
-		t.Fatalf("Begin() while paused error = %v, want ErrPaused", err)
-	}
-	if err := env.m.Pause(context.Background()); err != nil {
-		t.Fatalf("Pause() while paused error = %v, want nil", err)
-	}
-
-	if err := env.m.Resume(); err != nil {
-		t.Fatalf("Resume() error = %v", err)
-	}
-	if _, err := os.Stat(env.pauseFile); !errors.Is(err, os.ErrNotExist) {
-		t.Errorf("pause file after Resume(): %v, want it gone", err)
-	}
-	mustBegin(t, env.m)
-	if err := env.m.Resume(); err != nil {
-		t.Errorf("Resume() while not paused error = %v, want nil", err)
-	}
-}
-
-func TestPauseWaitsForTheActiveTransaction(t *testing.T) {
+func TestRunInTurnWaitsForTheActiveTransaction(t *testing.T) {
 	env := newTestEnv(t, time.Second, 5*time.Second)
 	ticket := mustBegin(t, env.m)
 
-	paused := make(chan error, 1)
-	go func() { paused <- env.m.Pause(context.Background()) }()
+	ran := make(chan error, 1)
+	go func() { ran <- env.m.RunInTurn(context.Background(), func() error { return nil }) }()
 	select {
-	case <-paused:
-		t.Fatal("Pause() returned while a transaction was active")
+	case <-ran:
+		t.Fatal("RunInTurn() returned while a transaction was active")
 	case <-time.After(50 * time.Millisecond):
+	}
+	if q := env.m.Snapshot().Queue.Queued; len(q) != 1 || q[0].Kind != queue.KindProjections {
+		t.Errorf("Queued = %+v, want one %q", q, queue.KindProjections)
 	}
 
 	if err := env.m.Commit(ticket); err != nil {
 		t.Fatalf("Commit() error = %v", err)
 	}
-	if err := <-paused; err != nil {
-		t.Fatalf("Pause() error = %v", err)
-	}
-	if !env.m.Paused() {
-		t.Error("Paused() = false after Pause() returned")
+	if err := <-ran; err != nil {
+		t.Fatalf("RunInTurn() error = %v", err)
 	}
 }
 
-func TestStartsPausedWhenThePauseFileExists(t *testing.T) {
-	dir := t.TempDir()
-	st, err := store.Open(context.Background(), filepath.Join(dir, "test.db"), 0)
-	if err != nil {
-		t.Fatalf("store.Open() error = %v", err)
-	}
-	defer st.Close()
-	pauseFile := filepath.Join(dir, "tamarackdb.paused")
-	if err := os.WriteFile(pauseFile, nil, 0o644); err != nil {
-		t.Fatalf("write pause file: %v", err)
-	}
-	since := time.Now().Add(-time.Hour).Truncate(time.Second)
-	if err := os.Chtimes(pauseFile, since, since); err != nil {
-		t.Fatalf("set pause file time: %v", err)
-	}
-
-	m, err := New(st, Config{Timeout: time.Second, Ceiling: 5 * time.Second, PauseFile: pauseFile})
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
-	defer m.Close()
-	snap := m.Snapshot()
-	if !snap.Paused || !snap.PausedSince.Equal(since) {
-		t.Errorf("Paused = %v since %v, want true since %v", snap.Paused, snap.PausedSince, since)
-	}
-}
-
-func TestRunPausedOnlyWhilePaused(t *testing.T) {
+func TestRunInTurnHoldsTheTurnWhileItRuns(t *testing.T) {
 	env := newTestEnv(t, time.Second, 5*time.Second)
-	ran := false
-	if err := env.m.RunPaused(func() error { ran = true; return nil }); !errors.Is(err, ErrNotPaused) || ran {
-		t.Fatalf("RunPaused() while not paused = %v (ran=%v), want ErrNotPaused", err, ran)
-	}
-	if err := env.m.Pause(context.Background()); err != nil {
-		t.Fatalf("Pause() error = %v", err)
-	}
-	if err := env.m.RunPaused(func() error { ran = true; return nil }); err != nil || !ran {
-		t.Fatalf("RunPaused() while paused = %v (ran=%v), want nil and ran", err, ran)
-	}
-}
-
-func TestResumeWaitsForRunPaused(t *testing.T) {
-	env := newTestEnv(t, time.Second, 5*time.Second)
-	if err := env.m.Pause(context.Background()); err != nil {
-		t.Fatalf("Pause() error = %v", err)
-	}
-
 	release := make(chan struct{})
 	started := make(chan struct{})
-	go env.m.RunPaused(func() error { close(started); <-release; return nil })
+	go env.m.RunInTurn(context.Background(), func() error { close(started); <-release; return nil })
 	<-started
 
-	resumed := make(chan struct{})
-	go func() { env.m.Resume(); close(resumed) }()
+	begun := make(chan string, 1)
+	go func() { ticket, _ := env.m.Begin(context.Background()); begun <- ticket }()
 	select {
-	case <-resumed:
-		t.Fatal("Resume() returned while a paused-only call was running")
+	case <-begun:
+		t.Fatal("Begin() returned while RunInTurn() was running")
 	case <-time.After(50 * time.Millisecond):
 	}
 	close(release)
-	<-resumed
+	if err := env.m.Commit(<-begun); err != nil {
+		t.Fatalf("Commit() error = %v", err)
+	}
+}
+
+func TestRunInTurnReturnsFnError(t *testing.T) {
+	env := newTestEnv(t, time.Second, 5*time.Second)
+	want := errors.New("boom")
+	if err := env.m.RunInTurn(context.Background(), func() error { return want }); !errors.Is(err, want) {
+		t.Fatalf("RunInTurn() error = %v, want %v", err, want)
+	}
+	mustBegin(t, env.m) // the turn was given back
+}
+
+func TestRunInTurnLeavesTheFIFOWhenTheClientLeaves(t *testing.T) {
+	env := newTestEnv(t, time.Second, 5*time.Second)
+	ticket := mustBegin(t, env.m)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	ran := false
+	done := make(chan error, 1)
+	go func() { done <- env.m.RunInTurn(ctx, func() error { ran = true; return nil }) }()
+	time.Sleep(30 * time.Millisecond) // ensure it's queued
+	cancel()
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("RunInTurn() error = %v, want context.Canceled", err)
+	}
+	if n := len(env.m.Snapshot().Queue.Queued); n != 0 {
+		t.Errorf("Queued = %d, want 0", n)
+	}
+	if err := env.m.Commit(ticket); err != nil {
+		t.Fatalf("Commit() error = %v", err)
+	}
+	if ran {
+		t.Error("fn ran after the client left")
+	}
+}
+
+func TestRunInTurnAfterClose(t *testing.T) {
+	env := newTestEnv(t, time.Second, 5*time.Second)
+	env.m.Close()
+	err := env.m.RunInTurn(context.Background(), func() error { return nil })
+	if !errors.Is(err, queue.ErrClosed) && !errors.Is(err, ErrClosed) {
+		t.Fatalf("RunInTurn() after Close() error = %v, want a closed error", err)
+	}
 }
 
 func TestResetCutsTheActiveTransaction(t *testing.T) {

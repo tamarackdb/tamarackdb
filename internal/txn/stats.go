@@ -57,12 +57,10 @@ func (s Stats) clone() Stats {
 // Snapshot is a point-in-time view of the Manager, for GET /metrics and
 // GET /debug. It never carries the ticket.
 type Snapshot struct {
-	Time        time.Time
-	Paused      bool
-	PausedSince time.Time // zero value when !Paused
-	Active      *Active   // nil when no transaction is active
-	Queue       queue.Snapshot
-	Stats       Stats
+	Time   time.Time
+	Active *Active // nil when no transaction is active
+	Queue  queue.Snapshot
+	Stats  Stats
 }
 
 // Active describes the active transaction.
@@ -81,11 +79,9 @@ func (m *Manager) Snapshot() Snapshot {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	snap := Snapshot{
-		Time:        queueSnap.Time,
-		Paused:      m.paused,
-		PausedSince: m.pausedSince,
-		Queue:       queueSnap,
-		Stats:       m.stats.clone(),
+		Time:  queueSnap.Time,
+		Queue: queueSnap,
+		Stats: m.stats.clone(),
 	}
 	if t := m.active; t != nil {
 		snap.Active = &Active{Since: t.since, Deadline: t.deadline, Ceiling: t.ceiling, Calls: t.calls}

@@ -3,15 +3,24 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/tamarackdb/tamarackdb/internal/queue"
+	"github.com/tamarackdb/tamarackdb/internal/txn"
 )
 
-// pause pauses srv over HTTP.
-func pause(t *testing.T, srv *Server) {
+// waitQueued waits until n requests are waiting in tm's FIFO.
+func waitQueued(t *testing.T, tm *txn.Manager, n int) {
 	t.Helper()
-	if rec := doRequest(t, srv, "POST", "/pause", ""); rec.Code != 204 {
-		t.Fatalf("POST /pause status = %d, body = %s", rec.Code, rec.Body.String())
+	deadline := time.Now().Add(2 * time.Second)
+	for len(tm.Snapshot().Queue.Queued) != n {
+		if time.Now().After(deadline) {
+			t.Fatalf("FIFO has %d requests waiting, want %d", len(tm.Snapshot().Queue.Queued), n)
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 }
 
@@ -214,7 +223,7 @@ func TestWriteProjectionFailuresRollBack(t *testing.T) {
 
 // TestWriteEmptyProjectionsIsANoOp checks that empty lists write nothing,
 // respond with empty version lists, and leave the transaction active, and
-// that the same call without a ticket succeeds during a pause.
+// that the same call without a ticket succeeds.
 func TestWriteEmptyProjectionsIsANoOp(t *testing.T) {
 	srv, _, _ := newTestServer(t)
 	ticket := begin(t, srv)
@@ -224,34 +233,86 @@ func TestWriteEmptyProjectionsIsANoOp(t *testing.T) {
 	}
 	commit(t, srv, ticket)
 
-	pause(t, srv)
 	if rec := doRequest(t, srv, "POST", "/projections", `{"create":[],"replace":[],"delete":[]}`); rec.Code != 200 {
-		t.Fatalf("paused status = %d, body = %s, want 200", rec.Code, rec.Body.String())
+		t.Fatalf("without ticket status = %d, body = %s, want 200", rec.Code, rec.Body.String())
 	}
 }
 
-func TestPausedOnlyCallsGet409OutsideAPause(t *testing.T) {
-	srv, _, _ := newTestServer(t)
+// TestTicketlessWritesWaitForTheActiveTransaction checks that each write
+// without a ticket joins the FIFO, waits for the active transaction to end,
+// then runs.
+func TestTicketlessWritesWaitForTheActiveTransaction(t *testing.T) {
 	for _, call := range []struct{ method, path, body string }{
 		{"POST", "/projections", `{"create":[{"type":"user-profile","id":"123","payload":"x"}]}`},
 		{"DELETE", "/projections/user-profile", ""},
 		{"DELETE", "/projections", ""},
 	} {
-		rec := doRequest(t, srv, call.method, call.path, call.body)
-		if rec.Code != 409 || errorCode(t, rec) != "NotPaused" {
-			t.Errorf("%s %s status = %d, body = %s, want 409 NotPaused", call.method, call.path, rec.Code, rec.Body.String())
-		}
+		t.Run(call.method+" "+call.path, func(t *testing.T) {
+			srv, tm, _ := newTestServer(t)
+			ticket := begin(t, srv)
+
+			done := make(chan *httptest.ResponseRecorder, 1)
+			go func() { done <- doRequest(t, srv, call.method, call.path, call.body) }()
+			waitQueued(t, tm, 1)
+			if kind := tm.Snapshot().Queue.Queued[0].Kind; kind != queue.KindProjections {
+				t.Errorf("queued kind = %q, want %q", kind, queue.KindProjections)
+			}
+			select {
+			case rec := <-done:
+				t.Fatalf("returned %d while a transaction was active", rec.Code)
+			case <-time.After(50 * time.Millisecond):
+			}
+
+			commit(t, srv, ticket)
+			if rec := <-done; rec.Code != 200 && rec.Code != 204 {
+				t.Errorf("status = %d, body = %s, want success", rec.Code, rec.Body.String())
+			}
+		})
 	}
 }
 
-func TestRebuildWhilePaused(t *testing.T) {
+func TestTicketlessWriteReturns503WhenQueueFull(t *testing.T) {
+	srv, tm, _ := newTestServerWith(t, testOptions{maxQueued: 1})
+	holder := begin(t, srv)
+
+	queued := make(chan int, 1)
+	go func() { queued <- doRequest(t, srv, "DELETE", "/projections", "").Code }()
+	waitQueued(t, tm, 1)
+
+	rec := doRequest(t, srv, "POST", "/projections", `{"create":[{"type":"user-profile","id":"123","payload":"x"}]}`)
+	if rec.Code != 503 || errorCode(t, rec) != "TransactionQueueFull" {
+		t.Fatalf("status = %d, body = %s, want 503 TransactionQueueFull", rec.Code, rec.Body.String())
+	}
+
+	commit(t, srv, holder)
+	if code := <-queued; code != 204 {
+		t.Errorf("queued DELETE /projections status = %d, want 204", code)
+	}
+}
+
+// TestInvalidTicketlessWriteGets400WithoutWaiting checks that the body is
+// checked before joining the FIFO.
+func TestInvalidTicketlessWriteGets400WithoutWaiting(t *testing.T) {
+	srv, tm, _ := newTestServer(t)
+	ticket := begin(t, srv)
+	defer commit(t, srv, ticket)
+
+	rec := doRequest(t, srv, "POST", "/projections", `{"create":[{"type":"","id":"123","payload":"x"}]}`)
+	if rec.Code != 400 || errorCode(t, rec) != "InvalidRequest" {
+		t.Fatalf("status = %d, body = %s, want 400 InvalidRequest", rec.Code, rec.Body.String())
+	}
+	if n := len(tm.Snapshot().Queue.Queued); n != 0 {
+		t.Errorf("FIFO has %d requests waiting, want 0", n)
+	}
+}
+
+func TestRebuild(t *testing.T) {
 	srv, _, _ := newTestServer(t)
 	writeProjectionsCommitted(t, srv, `{"create":[
 		{"type":"user-profile","id":"1","payload":"a"},
 		{"type":"user-profile","id":"2","payload":"b"},
 		{"type":"user-list","id":"all","payload":"c"}
 	]}`)
-	pause(t, srv)
 
 	if rec := doRequest(t, srv, "DELETE", "/projections/user-profile", ""); rec.Code != 204 {
 		t.Fatalf("DELETE /projections/user-profile status = %d, body = %s", rec.Code, rec.Body.String())

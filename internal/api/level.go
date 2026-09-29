@@ -60,10 +60,8 @@ var codeLevel = map[string]level{
 	"InvalidRequest":       levelInfo,    // 400, client-side noise
 	"PayloadTooLarge":      levelInfo,    // 413, client-side noise
 	"Unauthorized":         levelInfo,    // 401, client-side noise
-	"NotPaused":            levelInfo,    // 409, a call made at the wrong time
 	"TicketNotActive":      levelInfo,    // 410, a ticket that isn't the active one
 	"TransactionQueueFull": levelWarning, // 503, real capacity signal
-	"Paused":               levelWarning, // 503, so a forgotten pause shows up
 	"ShuttingDown":         levelInfo,    // 503, the operator stopped the server
 	"InternalError":        levelError,   // 500, real failure
 	"Unavailable":          levelError,   // 503, storage unreachable

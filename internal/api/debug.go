@@ -17,14 +17,9 @@ func (t debugTime) MarshalJSON() ([]byte, error) {
 }
 
 type debugResponse struct {
-	Time   debugTime    `json:"time"`
-	Paused *debugPaused `json:"paused"` // null when the server isn't paused
-	Write  debugWrite   `json:"write"`
-	Read   debugRead    `json:"read"`
-}
-
-type debugPaused struct {
-	Since debugTime `json:"since"`
+	Time  debugTime  `json:"time"`
+	Write debugWrite `json:"write"`
+	Read  debugRead  `json:"read"`
 }
 
 // debugWrite is the write side's full picture: the active transaction and
@@ -84,9 +79,6 @@ func (s *Server) handleDebug(w http.ResponseWriter, r *http.Request) {
 			SQLiteInUse: readStats.InUse,
 			SQLiteMax:   readStats.Max,
 		},
-	}
-	if snap.Paused {
-		resp.Paused = &debugPaused{Since: debugTime{snap.PausedSince}}
 	}
 	if a := snap.Active; a != nil {
 		resp.Write.Active = &debugActive{

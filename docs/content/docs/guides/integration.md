@@ -81,8 +81,6 @@ waiting request can fail with:
 
 - `503 TransactionQueueFull`: too many requests are already waiting. The
   request never joined the queue.
-- `503 Paused`: the server is paused for a projection rebuild (see
-  [Projection rebuilds](#projection-rebuilds)).
 
 The server puts no limit on how long a request waits. Your client sets its
 own: when it no longer wants to wait, it closes the connection, and the
@@ -461,7 +459,8 @@ same goes for `DELETE /projections/{type}`.
 ### Writing projections
 
 `POST /projections` creates, replaces, and deletes several projections at
-once. The ticket is required, except during a projection rebuild (see
+once. Send it with the ticket. Without a ticket, the call commits on its own:
+that's only meant for projection rebuilds (see
 [Projection rebuilds](#projection-rebuilds)).
 
 ```sh
@@ -548,52 +547,52 @@ those two values included. A rebuild reads the same events back from `QUERY
 
 ## Projection rebuilds
 
-A projection rebuild runs while the server is paused. A pause stops the server
-from giving out tickets, so no transaction is active while you rebuild.
+A projection rebuild runs outside any transaction. Your application must be
+fully down while it runs: no reads, no writes. The server doesn't check this;
+keeping other requests away is up to you.
 
-1. Pause the server:
+How you organize the rebuild is up to you: one thread replaying every event in
+order, several projectors in parallel, or anything else. These calls are what
+it's built from:
 
-   ```sh
-   curl -X POST http://127.0.0.1:8085/pause
-   ```
+- Delete the projections to rebuild, one type at a time, or all of them:
 
-   The request waits its turn behind every transaction already queued, then
-   responds `204 No Content`. From then on, every `POST /begin` gets
-   `503 Paused`.
+  ```sh
+  curl -X DELETE http://127.0.0.1:8085/projections/user-profile
+  curl -X DELETE http://127.0.0.1:8085/projections
+  ```
 
-2. Delete the projections to rebuild, one type at a time, or all of them:
+- Page through `QUERY /events` without a ticket to read the events to replay.
 
-   ```sh
-   curl -X DELETE http://127.0.0.1:8085/projections/user-profile
-   curl -X DELETE http://127.0.0.1:8085/projections
-   ```
+- Write the rebuilt projections with `POST /projections` without a ticket, in
+  as many calls as you need. Each call commits on its own. A projection is a
+  `create` the first time, then a `replace` with the version the previous call
+  returned.
 
-3. Page through `QUERY /events` without a ticket, and run each page through
-   your projectors.
+- Read a projection back with `GET /projections/{type}/{id}` without a ticket:
+  the response carries its payload and its version.
 
-4. Write the rebuilt projections with `POST /projections` without a ticket. Each
-   call commits on its own. Since step 2 deleted them, each projection is a
-   `create` the first time, then a `replace` with the version the previous
-   call returned.
+For example, a single thread can rebuild everything this way:
 
-5. Resume:
+1. `DELETE /projections`.
+2. Page through `QUERY /events`, and apply each event to projections kept in
+   memory.
+3. Send them all with `POST /projections`, as `create`, in chunks that fit
+   the request limits.
 
-   ```sh
-   curl -X POST http://127.0.0.1:8085/resume
-   ```
+`DELETE /projections/{type}`, `DELETE /projections`, and `POST /projections`
+without a ticket each wait for their turn in the same queue as `POST /begin`,
+run, then let the next request through. Like `POST /begin`, they can get `503
+TransactionQueueFull`, and closing the connection while waiting takes them out
+of the queue, with nothing written. A `POST /projections` body is checked
+before the call joins the queue, so an invalid one gets `400` right away.
 
-`DELETE /projections/{type}`, `DELETE /projections`, and `POST /projections` without
-a ticket are accepted only while the server is paused. Outside a pause, they
-get `409 NotPaused`. A `POST /projections` body is checked first, so an
-invalid one gets `400` either way. Reads without a ticket work at all times.
-
-`POST /pause` and `POST /resume` both respond `204 No Content`, whether the
-server was already in that state or not.
+Reads without a ticket run side by side. Writes from several threads take
+turns, one call at a time. With many writers at once, retry a `503
+TransactionQueueFull`.
 
 A rebuild is not atomic as a whole. If it fails partway, run it again from
-step 2. The pause survives a server restart: the server stays paused until
-`POST /resume`, so your application can't write on half-rebuilt projections.
-Your application is expected to be fully down during a rebuild.
+the start.
 
 ## Resetting between test runs
 
@@ -613,7 +612,6 @@ a production instance.
 `POST /reset` doesn't wait for its turn. If a transaction is active, it's
 rolled back, and the next call with its ticket gets `410 TicketNotActive`. Requests
 waiting for a ticket keep waiting, and get their ticket on the empty store.
-The pause state stays as it is.
 
 ## Generating test data
 
@@ -658,11 +656,9 @@ transaction back.
 | 401 | `Unauthorized` | Missing or invalid Bearer token (only when `enableAuth` is on) |
 | 404 | `ProjectionNotFound` | `GET /projections/{type}/{id}` only: no projection exists at that `type` + `id`. Doesn't end the transaction |
 | 409 | `ConcurrencyException` | The Append Condition of a `POST /events` call failed, or a `POST /projections` entry doesn't match the stored projection (see [Versions](#versions)) |
-| 409 | `NotPaused` | `DELETE /projections`, `DELETE /projections/{type}`, or `POST /projections` without a ticket, while the server isn't paused |
 | 410 | `TicketNotActive` | The ticket isn't the active one: it's unknown, or its transaction has already ended |
 | 413 | `PayloadTooLarge` | An event, or a projection (its `type`, `id`, and `payload` together), is bigger than the configured maximum size, or the request body is over the body limit (about 39 MiB with the default configuration, see [Architecture](/docs/architecture/#error-responses)) |
 | 500 | `InternalError` | Unexpected server-side failure |
-| 503 | `TransactionQueueFull` | `POST /begin` or `POST /pause`: too many requests are already waiting |
-| 503 | `Paused` | `POST /begin` while the server is paused |
-| 503 | `ShuttingDown` | `POST /begin` or `POST /pause` while the server shuts down |
+| 503 | `TransactionQueueFull` | `POST /begin`, or a projection write without a ticket: too many requests are already waiting |
+| 503 | `ShuttingDown` | `POST /begin`, or a projection write without a ticket, while the server shuts down |
 | 503 | `Unavailable` | `GET /health` only: storage is unreachable |

@@ -30,8 +30,8 @@ func getProjection(ctx context.Context, q querier, typ, id string) (version, pay
 
 // WriteProjections creates, replaces, and deletes projections in a
 // transaction of its own, outside any Tx, and returns the new versions (see
-// writeProjections). It's meant for a projection rebuild, while the server
-// is paused.
+// writeProjections). It's meant for a projection rebuild, in its own turn
+// in the FIFO.
 func (s *Store) WriteProjections(ctx context.Context, w projection.Writes) (Versions, error) {
 	tx, err := s.Begin(ctx)
 	if err != nil {

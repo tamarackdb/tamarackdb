@@ -91,14 +91,8 @@ func (s *Server) handleErr(w http.ResponseWriter, r *http.Request, err error) {
 		writeError(w, http.StatusConflict, "ConcurrencyException", pe.Error())
 	case errors.Is(err, store.ErrConcurrencyConflict):
 		writeError(w, http.StatusConflict, "ConcurrencyException", "")
-	case errors.Is(err, txn.ErrNotPaused):
-		// 409, not 503: the server isn't in the state the call requires.
-		// A 503 would suggest a temporary outage worth retrying.
-		writeError(w, http.StatusConflict, "NotPaused", "")
 	case errors.Is(err, txn.ErrTicketNotActive):
 		writeError(w, http.StatusGone, "TicketNotActive", "")
-	case errors.Is(err, txn.ErrPaused):
-		writeError(w, http.StatusServiceUnavailable, "Paused", "")
 	case errors.Is(err, queue.ErrFull):
 		writeError(w, http.StatusServiceUnavailable, "TransactionQueueFull", "")
 	case errors.Is(err, txn.ErrClosed), errors.Is(err, queue.ErrClosed):

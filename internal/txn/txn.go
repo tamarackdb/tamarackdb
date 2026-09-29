@@ -3,16 +3,13 @@
 // transaction exists at a time. It is identified by a ticket, holds the
 // FIFO's active turn from Begin until it ends, and is rolled back
 // automatically when a call fails, when its idle timeout or its ceiling
-// is reached, on Reset, and on Close. The package also owns the pause:
-// while paused, no ticket is given out.
+// is reached, on Reset, and on Close.
 package txn
 
 import (
 	"context"
 	"crypto/subtle"
 	"errors"
-	"fmt"
-	"os"
 	"sync"
 	"time"
 
@@ -26,10 +23,6 @@ var (
 	// transaction's: it's unknown, or its transaction has already ended.
 	// Only the active ticket is kept, so the two cases look the same.
 	ErrTicketNotActive = errors.New("txn: ticket not active")
-	// ErrPaused is returned by Begin when the server is paused.
-	ErrPaused = errors.New("txn: server is paused")
-	// ErrNotPaused is returned by RunPaused when the server isn't paused.
-	ErrNotPaused = errors.New("txn: server is not paused")
 	// ErrClosed is returned by Begin once the Manager has been Closed.
 	ErrClosed = errors.New("txn: closed")
 )
@@ -67,10 +60,6 @@ type Config struct {
 	// MaxQueued bounds the FIFO (see queue.New).
 	MaxQueued int
 
-	// PauseFile is the file whose presence means "paused". Empty means
-	// the pause isn't persisted, for tests.
-	PauseFile string
-
 	// OnExpire, if non-nil, is called after a transaction that reached
 	// its idle timeout or its ceiling was rolled back. No request is
 	// there to log it, so the caller logs it from here. ticket is already
@@ -79,26 +68,19 @@ type Config struct {
 	OnExpire func(ticket string, limit Limit, lasted time.Duration)
 }
 
-// Manager gives out tickets, runs calls inside the active transaction,
-// and owns the pause.
+// Manager gives out tickets, and runs calls inside the active
+// transaction.
 //
-// Lock order: pauseMu, then a transaction's callMu, then mu.
+// Lock order: a transaction's callMu, then mu.
 type Manager struct {
 	q   *queue.Manager
 	st  *store.Store
 	cfg Config
 
-	// pauseMu is held for reading by RunPaused, and for writing while
-	// the pause state changes, so Resume never lands in the middle of a
-	// call accepted only while paused.
-	pauseMu sync.RWMutex
-
-	mu          sync.Mutex // guards everything below
-	active      *transaction
-	paused      bool
-	pausedSince time.Time
-	closed      bool
-	stats       Stats
+	mu     sync.Mutex // guards everything below
+	active *transaction
+	closed bool
+	stats  Stats
 }
 
 // transaction is the one active transaction.
@@ -122,27 +104,14 @@ type transaction struct {
 	calls    int
 }
 
-// New creates a Manager. If cfg.PauseFile exists, the Manager starts
-// paused, with the file's modification time as the start of the pause.
-// Callers must Close it when done.
-func New(st *store.Store, cfg Config) (*Manager, error) {
-	m := &Manager{
+// New creates a Manager. Callers must Close it when done.
+func New(st *store.Store, cfg Config) *Manager {
+	return &Manager{
 		q:     queue.New(cfg.MaxQueued),
 		st:    st,
 		cfg:   cfg,
 		stats: newStats(),
 	}
-	if cfg.PauseFile != "" {
-		info, err := os.Stat(cfg.PauseFile)
-		switch {
-		case err == nil:
-			m.paused, m.pausedSince = true, info.ModTime()
-		case !errors.Is(err, os.ErrNotExist):
-			m.q.Close()
-			return nil, fmt.Errorf("txn: read pause file: %w", err)
-		}
-	}
-	return m, nil
 }
 
 // Begin waits for a turn in the FIFO, opens a transaction, and returns its
@@ -162,15 +131,11 @@ func (m *Manager) Begin(ctx context.Context) (string, error) {
 	}
 
 	m.mu.Lock()
-	closed, paused := m.closed, m.paused
+	closed := m.closed
 	m.mu.Unlock()
-	switch {
-	case closed:
+	if closed {
 		turn.Done()
 		return "", ErrClosed
-	case paused:
-		turn.Done()
-		return "", ErrPaused
 	}
 
 	txCtx, cancel := context.WithCancel(context.Background())
@@ -380,72 +345,26 @@ func (m *Manager) nextDeadline(t *transaction, now time.Time) time.Time {
 	return t.ceiling
 }
 
-// Pause waits for its turn in the FIFO, behind every transaction already
-// queued, then pauses the server: the pause file is written first, then
-// no ticket is given out until Resume. Pausing an already paused server
-// does nothing.
-func (m *Manager) Pause(ctx context.Context) error {
-	if m.Paused() {
-		return nil
-	}
-	turn, err := m.q.Join(ctx, queue.KindPause)
+// RunInTurn waits for a turn in the FIFO, behind every request already
+// queued, runs fn, then gives the turn to the next request. fn runs
+// outside any transaction, with the write connection to itself: it's for
+// the projection writes made without a ticket, each committing on its
+// own. ctx is the request's: if the client disconnects while waiting,
+// the request leaves the FIFO and fn never runs.
+func (m *Manager) RunInTurn(ctx context.Context, fn func() error) error {
+	turn, err := m.q.Join(ctx, queue.KindProjections)
 	if err != nil {
 		return err
 	}
 	defer turn.Done()
 	if err := ctx.Err(); err != nil {
-		return err // the client left just as its turn came: no pause
-	}
-
-	m.pauseMu.Lock()
-	defer m.pauseMu.Unlock()
-	if m.Paused() {
-		return nil
-	}
-	if m.cfg.PauseFile != "" {
-		if err := writePauseFile(m.cfg.PauseFile); err != nil {
-			return err
-		}
+		return err // the client left just as its turn came
 	}
 	m.mu.Lock()
-	m.paused, m.pausedSince = true, time.Now()
+	closed := m.closed
 	m.mu.Unlock()
-	return nil
-}
-
-// Resume deletes the pause file, then lets tickets be given out again. It
-// doesn't join the FIFO. Resuming a server that isn't paused does
-// nothing.
-func (m *Manager) Resume() error {
-	m.pauseMu.Lock()
-	defer m.pauseMu.Unlock()
-	if m.cfg.PauseFile != "" {
-		if err := os.Remove(m.cfg.PauseFile); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return fmt.Errorf("txn: delete pause file: %w", err)
-		}
-	}
-	m.mu.Lock()
-	m.paused, m.pausedSince = false, time.Time{}
-	m.mu.Unlock()
-	return nil
-}
-
-// Paused reports whether the server is paused.
-func (m *Manager) Paused() bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.paused
-}
-
-// RunPaused runs fn if the server is paused, or returns ErrNotPaused. The
-// pause can't end while fn runs. It's for the calls accepted only while
-// paused: writing projections without a ticket, and deleting projections in
-// bulk.
-func (m *Manager) RunPaused(fn func() error) error {
-	m.pauseMu.RLock()
-	defer m.pauseMu.RUnlock()
-	if !m.Paused() {
-		return ErrNotPaused
+	if closed {
+		return ErrClosed
 	}
 	return fn()
 }
@@ -508,22 +427,4 @@ func (m *Manager) Close() {
 		}
 		t.callMu.Unlock()
 	}
-}
-
-// writePauseFile creates path and syncs it to disk before the pause takes
-// effect, so a crash right after never leaves the server running unpaused
-// when it should be paused.
-func writePauseFile(path string) error {
-	f, err := os.Create(path)
-	if err != nil {
-		return fmt.Errorf("txn: write pause file: %w", err)
-	}
-	if err := f.Sync(); err != nil {
-		f.Close()
-		return fmt.Errorf("txn: write pause file: %w", err)
-	}
-	if err := f.Close(); err != nil {
-		return fmt.Errorf("txn: write pause file: %w", err)
-	}
-	return nil
 }

@@ -93,10 +93,6 @@ func TestAccessLogLevelPerOutcome(t *testing.T) {
 			srv.ServeHTTP(rec, req)
 			return rec
 		}},
-		{"NotPaused", "INFO", func(t *testing.T) *httptest.ResponseRecorder {
-			srv, _, _ := newTestServer(t)
-			return doRequest(t, srv, "DELETE", "/projections", "")
-		}},
 		{"TicketNotActive", "INFO", func(t *testing.T) *httptest.ResponseRecorder {
 			srv, _, _ := newTestServer(t)
 			return doTicketRequest(t, srv, "POST", "/commit", "not-a-ticket", "")
@@ -116,11 +112,6 @@ func TestAccessLogLevelPerOutcome(t *testing.T) {
 				tm.Rollback(ticket)
 			}
 			return rec
-		}},
-		{"Paused", "WARNING", func(t *testing.T) *httptest.ResponseRecorder {
-			srv, _, _ := newTestServer(t)
-			pause(t, srv)
-			return doRequest(t, srv, "POST", "/begin", "")
 		}},
 		{"ShuttingDown", "INFO", func(t *testing.T) *httptest.ResponseRecorder {
 			srv, tm, _ := newTestServer(t)
@@ -176,20 +167,24 @@ func TestAccessLogBelowThresholdIsSuppressed(t *testing.T) {
 }
 
 func TestAccessLogAtOrAboveThresholdIsLogged(t *testing.T) {
-	srv, _, _ := newTestServerWith(t, testOptions{logLevel: "warning"})
+	srv, tm, _ := newTestServerWith(t, testOptions{logLevel: "warning", maxQueued: 1})
+	holder := begin(t, srv)
+	queued := make(chan int, 1)
+	go func() { queued <- doRequest(t, srv, "DELETE", "/projections", "").Code }()
+	waitQueued(t, tm, 1)
 	buf := captureLog(t)
 
-	pause(t, srv)
-	doRequest(t, srv, "POST", "/begin", "") // 503 Paused, WARNING
-	doRequest(t, srv, "POST", "/resume", "")
-	provokeConflict(t, srv) // 409, DEBUG, below "warning"
+	doRequest(t, srv, "POST", "/begin", "") // 503 TransactionQueueFull, WARNING
+	commit(t, srv, holder)                  // DEBUG, below "warning"
+	<-queued                                // 204, DEBUG
+	provokeConflict(t, srv)                 // 409, DEBUG
 
 	out := buf.String()
 	if !strings.Contains(out, "[WARNING]") {
 		t.Errorf("log output = %q, want it to contain [WARNING]", out)
 	}
 	if got := strings.Count(out, "\n"); got != 1 {
-		t.Errorf("log output has %d lines, want exactly 1 (only the Paused one): %q", got, out)
+		t.Errorf("log output has %d lines, want exactly 1 (only the TransactionQueueFull one): %q", got, out)
 	}
 }
 

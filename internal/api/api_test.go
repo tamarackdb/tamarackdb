@@ -49,16 +49,12 @@ func newTestServerWith(t *testing.T, o testOptions) (*Server, *txn.Manager, *sto
 		t.Fatalf("store.Open() error = %v", err)
 	}
 	t.Cleanup(func() { st.Close() })
-	tm, err := txn.New(st, txn.Config{
+	tm := txn.New(st, txn.Config{
 		Timeout:   o.timeout,
 		Ceiling:   o.ceiling,
 		MaxQueued: o.maxQueued,
-		PauseFile: filepath.Join(dir, "tamarackdb.paused"),
 		OnExpire:  ExpiryLogger(o.logLevel),
 	})
-	if err != nil {
-		t.Fatalf("txn.New() error = %v", err)
-	}
 	t.Cleanup(tm.Close) // runs before st.Close
 	srv := New(tm, st, Options{
 		EnableAuth:               true,
