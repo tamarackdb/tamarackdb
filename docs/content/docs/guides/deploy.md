@@ -179,11 +179,18 @@ file works whether you run one binary or both.
 : Env: `TAMARACKDB_MAX_PROJECTIONS_PER_REQUEST`
 : Default: `100`
 
-The server also caps every request body, at a size derived from `maxEventSize`,
-`maxProjectionSize`, and `maxProjectionsPerRequest`, so raising those limits
-raises the cap with them. It prints the cap at startup as `maxRequestBody`
-(40,779,776 bytes, about 39 MiB, by default). See
-[Architecture](/docs/architecture/#error-responses) for how it's computed.
+`maxEventsPerWrite` / `maxProjectionsPerWrite`
+: Maximum events, and projections, in a single `POST /write`. `maxEventsPerWrite` also caps its Append Conditions.
+: Env: `TAMARACKDB_MAX_EVENTS_PER_WRITE` / `TAMARACKDB_MAX_PROJECTIONS_PER_WRITE`
+: Default: `100` / `500`
+
+`maxRequestBodySize`
+: Maximum size in bytes of any request body. It isn't checked against the other limits: it's the real bound on a write, and the others are rules for each item.
+: Env: `TAMARACKDB_MAX_REQUEST_BODY_SIZE`
+: Default: `8388608` (8 MiB)
+
+The size and count defaults are a cautious starting point. Find your real limits in development, with your
+application's data, then set the same values in production. Every error from a limit names the setting to raise.
 
 `transactionTimeout`
 : Seconds a transaction may go without a call before it's rolled back. Each call renews it.

@@ -40,6 +40,9 @@ const (
 	DefaultReadPoolSize             = 8
 	DefaultProjectionSize           = 65536 // 64 KiB
 	DefaultMaxProjectionsPerRequest = 100
+	DefaultMaxEventsPerWrite        = 100
+	DefaultMaxProjectionsPerWrite   = 500
+	DefaultMaxRequestBodySize       = 8 << 20 // 8 MiB
 	DefaultLogLevel                 = "warning"
 )
 
@@ -109,6 +112,20 @@ type Config struct {
 	// POST /projections request may carry. Optional; defaulted by Load when
 	// omitted.
 	MaxProjectionsPerRequest int `toml:"maxProjectionsPerRequest"` // default: 100
+
+	// MaxEventsPerWrite and MaxProjectionsPerWrite cap how many events and
+	// projections a single POST /write may carry. The defaults are a
+	// cautious starting point: an application finds its real limits in
+	// development, with its own data, and sets them for production.
+	// Optional; defaulted by Load when omitted.
+	MaxEventsPerWrite      int `toml:"maxEventsPerWrite"`      // default: 100
+	MaxProjectionsPerWrite int `toml:"maxProjectionsPerWrite"` // default: 500
+
+	// MaxRequestBodySize is the largest request body the server reads, in
+	// bytes, for every endpoint. It isn't checked against the other
+	// limits: it's the real bound on a write, the others are per-item
+	// rules. Optional; defaulted by Load when omitted.
+	MaxRequestBodySize int `toml:"maxRequestBodySize"` // default: 8388608 (8 MiB)
 
 	// TransactionTimeout is a transaction's idle timeout, in seconds: how
 	// long it may go without a call before it's rolled back, counted from
@@ -198,6 +215,15 @@ func Load(path string) (*Config, error) {
 	if cfg.MaxProjectionsPerRequest == 0 {
 		cfg.MaxProjectionsPerRequest = DefaultMaxProjectionsPerRequest
 	}
+	if cfg.MaxEventsPerWrite == 0 {
+		cfg.MaxEventsPerWrite = DefaultMaxEventsPerWrite
+	}
+	if cfg.MaxProjectionsPerWrite == 0 {
+		cfg.MaxProjectionsPerWrite = DefaultMaxProjectionsPerWrite
+	}
+	if cfg.MaxRequestBodySize == 0 {
+		cfg.MaxRequestBodySize = DefaultMaxRequestBodySize
+	}
 	if cfg.TransactionTimeout == 0 {
 		cfg.TransactionTimeout = DefaultTransactionTimeout
 	}
@@ -245,6 +271,9 @@ func applyEnv(cfg *Config, inFile fileBools) error {
 		envInt(&cfg.MaxEventSize, "TAMARACKDB_MAX_EVENT_SIZE"),
 		envInt(&cfg.MaxProjectionSize, "TAMARACKDB_MAX_PROJECTION_SIZE"),
 		envInt(&cfg.MaxProjectionsPerRequest, "TAMARACKDB_MAX_PROJECTIONS_PER_REQUEST"),
+		envInt(&cfg.MaxEventsPerWrite, "TAMARACKDB_MAX_EVENTS_PER_WRITE"),
+		envInt(&cfg.MaxProjectionsPerWrite, "TAMARACKDB_MAX_PROJECTIONS_PER_WRITE"),
+		envInt(&cfg.MaxRequestBodySize, "TAMARACKDB_MAX_REQUEST_BODY_SIZE"),
 		envInt(&cfg.TransactionTimeout, "TAMARACKDB_TRANSACTION_TIMEOUT"),
 		envInt(&cfg.MaxTransactionDuration, "TAMARACKDB_MAX_TRANSACTION_DURATION"),
 		envInt(&cfg.MaxQueuedTransactions, "TAMARACKDB_MAX_QUEUED_TRANSACTIONS"),
@@ -330,6 +359,12 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("maxProjectionSize must be positive, got %d", c.MaxProjectionSize)
 	case c.MaxProjectionsPerRequest <= 0:
 		return fmt.Errorf("maxProjectionsPerRequest must be positive, got %d", c.MaxProjectionsPerRequest)
+	case c.MaxEventsPerWrite <= 0:
+		return fmt.Errorf("maxEventsPerWrite must be positive, got %d", c.MaxEventsPerWrite)
+	case c.MaxProjectionsPerWrite <= 0:
+		return fmt.Errorf("maxProjectionsPerWrite must be positive, got %d", c.MaxProjectionsPerWrite)
+	case c.MaxRequestBodySize <= 0:
+		return fmt.Errorf("maxRequestBodySize must be positive, got %d", c.MaxRequestBodySize)
 	case c.TransactionTimeout <= 0:
 		return fmt.Errorf("transactionTimeout must be positive, got %d", c.TransactionTimeout)
 	case c.MaxTransactionDuration <= 0:

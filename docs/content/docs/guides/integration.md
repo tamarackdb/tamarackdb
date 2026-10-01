@@ -667,7 +667,7 @@ transaction back.
 | 404 | `ProjectionNotFound` | `GET /projections/{type}/{id}` only: no projection exists at that `type` + `id`. Doesn't end the transaction |
 | 409 | `ConcurrencyException` | The Append Condition of a `POST /events` call failed, or a `POST /projections` entry doesn't match the stored projection (see [Versions](#versions)) |
 | 410 | `TicketNotActive` | The ticket isn't the active one: it's unknown, or its transaction has already ended |
-| 413 | `PayloadTooLarge` | An event, or a projection (its `type`, `id`, and `payload` together), is bigger than the configured maximum size, or the request body is over the body limit (about 39 MiB with the default configuration, see [Architecture](/docs/architecture/#error-responses)) |
+| 413 | `PayloadTooLarge` | An event, or a projection (its `type`, `id`, and `payload` together), is bigger than the configured maximum size, or the request body is over `maxRequestBodySize` (8 MiB by default) |
 | 500 | `InternalError` | Unexpected server-side failure |
 | 503 | `TransactionQueueFull` | `POST /begin`, or a projection write without a ticket: too many requests are already waiting |
 | 503 | `ShuttingDown` | `POST /begin`, or a projection write without a ticket, while the server shuts down |

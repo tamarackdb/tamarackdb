@@ -25,6 +25,7 @@ type Kind string
 
 const (
 	KindTransaction Kind = "transaction"
+	KindWrite       Kind = "write"
 	KindProjections Kind = "projections"
 	KindOptimize    Kind = "optimize"
 )

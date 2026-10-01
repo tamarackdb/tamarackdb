@@ -626,16 +626,11 @@ entries (see Metadata), a `POST /events` call missing its `events` field or carr
 and so on. A call that needs a ticket (`POST /events`, `POST /commit`, `POST /rollback`) and carries none gets
 `400 Bad Request` too: it names no transaction, so there's none to report as inactive.
 
-Every request body is capped, so a client can't make the server read an unbounded body into memory before the
-per-event and per-projection limits are checked. Past the cap, the server stops reading and responds `413 Payload Too
-Large`. The cap is derived from the configuration, so it never turns away a `POST /events` or `POST /projections` body
-the size limits allow: the largest valid `POST /events` body (100 events of `maxEventSize`) or `POST /projections` body
-(`maxProjectionsPerRequest` projections of `maxProjectionSize`), whichever is larger, times 6, plus 4 KiB per event or
-projection and 1 MiB. The factor covers JSON escaping: the size limits count decoded bytes, and one byte can take up to
-6 once escaped (a control character, written `\u0000`). The 4 KiB cover JSON keys, punctuation, and a projection's
-version. No size limit bounds the strings of a query, so the last 1 MiB is what guarantees room for a `QUERY /events`
-query or an Append Condition: one of up to 1 MiB always fits. With the default configuration, the cap is 40,779,776 bytes (about 39 MiB). The
-server prints it at startup, next to its resolved configuration.
+Every request body is capped at `maxRequestBodySize` (8 MiB by default), so a client can't make the server read an
+unbounded body into memory before the per-event and per-projection limits are checked. Past the cap, the server stops
+reading and responds `413 Payload Too Large`. The cap isn't checked against the other limits: a body can reach it
+before every one of its items reaches its own. It's the real bound on a write, and the others are rules for each
+item.
 
 ## Append Condition and concurrency
 
@@ -1007,8 +1002,9 @@ transaction timeouts, pagination/size limits, and the FIFO depth) comes from thr
    [Backup](/docs/guides/backup/)); each binary reads only its own section.
 2. `TAMARACKDB_*` environment variables, one per configuration key.
 3. Built-in defaults, for the keys that have one (`socketPath`, `socketMode`, `dataDir`, `logLevel`, `defaultEventsPerPage`,
-   `maxEventsPerPage`, `maxEventSize`, `maxProjectionSize`, `maxProjectionsPerRequest`, `transactionTimeout`,
-   `maxTransactionDuration`, `maxQueuedTransactions`, `readPoolSize`).
+   `maxEventsPerPage`, `maxEventSize`, `maxProjectionSize`, `maxProjectionsPerRequest`, `maxEventsPerWrite`,
+   `maxProjectionsPerWrite`, `maxRequestBodySize`, `transactionTimeout`, `maxTransactionDuration`,
+   `maxQueuedTransactions`, `readPoolSize`).
 
 A value set in the configuration file always wins over the matching environment variable. The file is checked as a
 whole, `[server]` and `[backup]` sections included: an unknown key, or a key outside any section, is fatal at startup
@@ -1033,6 +1029,9 @@ instead.
 | `maxEventSize` | `TAMARACKDB_MAX_EVENT_SIZE` | `65536` (64 KiB) |
 | `maxProjectionSize` | `TAMARACKDB_MAX_PROJECTION_SIZE` | `65536` (64 KiB) |
 | `maxProjectionsPerRequest` | `TAMARACKDB_MAX_PROJECTIONS_PER_REQUEST` | `100` |
+| `maxEventsPerWrite` | `TAMARACKDB_MAX_EVENTS_PER_WRITE` | `100` |
+| `maxProjectionsPerWrite` | `TAMARACKDB_MAX_PROJECTIONS_PER_WRITE` | `500` |
+| `maxRequestBodySize` | `TAMARACKDB_MAX_REQUEST_BODY_SIZE` | `8388608` (8 MiB) |
 | `transactionTimeout` | `TAMARACKDB_TRANSACTION_TIMEOUT` | `5` (seconds) |
 | `maxTransactionDuration` | `TAMARACKDB_MAX_TRANSACTION_DURATION` | `15` (seconds) |
 | `maxQueuedTransactions` | `TAMARACKDB_MAX_QUEUED_TRANSACTIONS` | `100` |

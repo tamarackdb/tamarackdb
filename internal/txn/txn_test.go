@@ -336,14 +336,16 @@ func TestRunInTurnWaitsForTheActiveTransaction(t *testing.T) {
 	ticket := mustBegin(t, env.m)
 
 	ran := make(chan error, 1)
-	go func() { ran <- env.m.RunInTurn(context.Background(), func() error { return nil }) }()
+	go func() {
+		ran <- env.m.RunInTurn(context.Background(), queue.KindWrite, func(context.Context) error { return nil })
+	}()
 	select {
 	case <-ran:
 		t.Fatal("RunInTurn() returned while a transaction was active")
 	case <-time.After(50 * time.Millisecond):
 	}
-	if q := env.m.Snapshot().Queue.Queued; len(q) != 1 || q[0].Kind != queue.KindProjections {
-		t.Errorf("Queued = %+v, want one %q", q, queue.KindProjections)
+	if q := env.m.Snapshot().Queue.Queued; len(q) != 1 || q[0].Kind != queue.KindWrite {
+		t.Errorf("Queued = %+v, want one %q", q, queue.KindWrite)
 	}
 
 	if err := env.m.Commit(ticket); err != nil {
@@ -358,7 +360,11 @@ func TestRunInTurnHoldsTheTurnWhileItRuns(t *testing.T) {
 	env := newTestEnv(t, time.Second, 5*time.Second)
 	release := make(chan struct{})
 	started := make(chan struct{})
-	go env.m.RunInTurn(context.Background(), func() error { close(started); <-release; return nil })
+	go env.m.RunInTurn(context.Background(), queue.KindWrite, func(context.Context) error {
+		close(started)
+		<-release
+		return nil
+	})
 	<-started
 
 	begun := make(chan string, 1)
@@ -377,7 +383,7 @@ func TestRunInTurnHoldsTheTurnWhileItRuns(t *testing.T) {
 func TestRunInTurnReturnsFnError(t *testing.T) {
 	env := newTestEnv(t, time.Second, 5*time.Second)
 	want := errors.New("boom")
-	if err := env.m.RunInTurn(context.Background(), func() error { return want }); !errors.Is(err, want) {
+	if err := env.m.RunInTurn(context.Background(), queue.KindWrite, func(context.Context) error { return want }); !errors.Is(err, want) {
 		t.Fatalf("RunInTurn() error = %v, want %v", err, want)
 	}
 	mustBegin(t, env.m) // the turn was given back
@@ -390,7 +396,9 @@ func TestRunInTurnLeavesTheFIFOWhenTheClientLeaves(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	ran := false
 	done := make(chan error, 1)
-	go func() { done <- env.m.RunInTurn(ctx, func() error { ran = true; return nil }) }()
+	go func() {
+		done <- env.m.RunInTurn(ctx, queue.KindWrite, func(context.Context) error { ran = true; return nil })
+	}()
 	time.Sleep(30 * time.Millisecond) // ensure it's queued
 	cancel()
 	if err := <-done; !errors.Is(err, context.Canceled) {
@@ -410,9 +418,24 @@ func TestRunInTurnLeavesTheFIFOWhenTheClientLeaves(t *testing.T) {
 func TestRunInTurnAfterClose(t *testing.T) {
 	env := newTestEnv(t, time.Second, 5*time.Second)
 	env.m.Close()
-	err := env.m.RunInTurn(context.Background(), func() error { return nil })
+	err := env.m.RunInTurn(context.Background(), queue.KindWrite, func(context.Context) error { return nil })
 	if !errors.Is(err, queue.ErrClosed) && !errors.Is(err, ErrClosed) {
 		t.Fatalf("RunInTurn() after Close() error = %v, want a closed error", err)
+	}
+}
+
+// TestRunInTurnFinishesWhenTheClientLeavesDuringFn checks that a write
+// already running isn't cut short when its client leaves: fn's context
+// isn't cancelled with the request's.
+func TestRunInTurnFinishesWhenTheClientLeavesDuringFn(t *testing.T) {
+	env := newTestEnv(t, time.Second, 5*time.Second)
+	ctx, cancel := context.WithCancel(context.Background())
+	err := env.m.RunInTurn(ctx, queue.KindWrite, func(fnCtx context.Context) error {
+		cancel()
+		return fnCtx.Err()
+	})
+	if err != nil {
+		t.Fatalf("RunInTurn() error = %v, want nil: fn's context must outlive the client", err)
 	}
 }
 

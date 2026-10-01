@@ -64,6 +64,9 @@ func newTestServerWith(t *testing.T, o testOptions) (*Server, *txn.Manager, *sto
 		MaxEventSize:             65536,
 		MaxProjectionSize:        65536,
 		MaxProjectionsPerRequest: 100,
+		MaxEventsPerWrite:        100,
+		MaxProjectionsPerWrite:   500,
+		MaxRequestBodySize:       8 << 20,
 		LogLevel:                 o.logLevel,
 		DevMode:                  o.devMode,
 	})

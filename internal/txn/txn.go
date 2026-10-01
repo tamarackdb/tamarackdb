@@ -348,11 +348,16 @@ func (m *Manager) nextDeadline(t *transaction, now time.Time) time.Time {
 // RunInTurn waits for a turn in the FIFO, behind every request already
 // queued, runs fn, then gives the turn to the next request. fn runs
 // outside any transaction, with the write connection to itself: it's for
-// the projection writes made without a ticket, each committing on its
-// own. ctx is the request's: if the client disconnects while waiting,
-// the request leaves the FIFO and fn never runs.
-func (m *Manager) RunInTurn(ctx context.Context, fn func() error) error {
-	turn, err := m.q.Join(ctx, queue.KindProjections)
+// the writes made without a ticket, each committing on its own. kind says
+// what the request waits for, for GET /metrics and GET /debug.
+//
+// ctx is the request's: if the client disconnects while waiting, or just
+// as its turn comes, the request leaves the FIFO and fn never runs. Once
+// fn runs, the write goes through even if the client leaves: fn gets ctx
+// without its cancellation, since database/sql would otherwise roll the
+// SQLite transaction back halfway.
+func (m *Manager) RunInTurn(ctx context.Context, kind queue.Kind, fn func(ctx context.Context) error) error {
+	turn, err := m.q.Join(ctx, kind)
 	if err != nil {
 		return err
 	}
@@ -366,7 +371,7 @@ func (m *Manager) RunInTurn(ctx context.Context, fn func() error) error {
 	if closed {
 		return ErrClosed
 	}
-	return fn()
+	return fn(context.WithoutCancel(ctx))
 }
 
 // Reset deletes every event and projection, for dev mode. It doesn't join

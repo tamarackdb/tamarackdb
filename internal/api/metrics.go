@@ -55,7 +55,7 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(&b, "%s_bucket{le=\"+Inf\"} %d\n%s_sum %s\n%s_count %d\n", duration, h.Count, duration, formatValue(h.Sum), duration, h.Count)
 
 	writeMetric(&b, "tamarackdb_appends_failed_total", "counter",
-		"Total POST /events calls that failed on their Append Condition (409 ConcurrencyException) since startup.", float64(s.failedTotal.Load()))
+		"Total POST /events and POST /write calls that failed on an Append Condition (409 ConcurrencyException) since startup.", float64(s.failedTotal.Load()))
 
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4")
 	w.WriteHeader(http.StatusOK)

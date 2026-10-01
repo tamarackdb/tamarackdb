@@ -51,6 +51,20 @@ type Options struct {
 	// POST /projections request may carry; over it, 400.
 	MaxProjectionsPerRequest int
 
+	// MaxEventsPerWrite caps how many events, and how many Append
+	// Conditions, a single POST /write may carry; over it, 400.
+	MaxEventsPerWrite int
+
+	// MaxProjectionsPerWrite caps how many projections a single
+	// POST /write may carry, across create, replace, and delete; over it,
+	// 400.
+	MaxProjectionsPerWrite int
+
+	// MaxRequestBodySize caps every request body, in bytes; over it, 413.
+	// It isn't checked against the other limits: it's the real bound on a
+	// write, the others are per-item rules.
+	MaxRequestBodySize int
+
 	// DevMode, when true, registers POST /reset, which deletes every event
 	// and projection, and the /debug/pprof/ profiling endpoints. Never
 	// enable this in production.
@@ -79,15 +93,16 @@ type Server struct {
 	st   *store.Store
 	opts Options
 
-	// failedTotal counts POST /events calls that failed on their Append
-	// Condition, exposed by GET /metrics. It lives here, not in
+	// failedTotal counts POST /events and POST /write calls that failed on
+	// an Append Condition, exposed by GET /metrics. It lives here, not in
 	// internal/txn, because only this layer knows why a call failed.
 	failedTotal atomic.Uint64
 
 	// writeHTTPOpen and readHTTPOpen count requests in flight on each
 	// side, exposed by GET /debug. The write side is every request that
 	// waits in the FIFO or uses the write connection: POST /begin, calls
-	// with a ticket, and projection writes without a ticket. The read side
+	// with a ticket, POST /write, and projection writes without a ticket.
+	// The read side
 	// is every read without a ticket.
 	writeHTTPOpen atomic.Int64
 	readHTTPOpen  atomic.Int64
@@ -95,10 +110,6 @@ type Server struct {
 	// logThreshold is Options.LogLevel parsed once at construction; see
 	// withLogging.
 	logThreshold level
-
-	// maxRequestBody is MaxRequestBody(opts), computed once at
-	// construction; see withBodyLimit.
-	maxRequestBody int64
 
 	handler http.Handler
 }
@@ -131,16 +142,23 @@ func New(tm *txn.Manager, st *store.Store, opts Options) *Server {
 		panic("api: New: Options.MaxProjectionSize must be positive")
 	case opts.MaxProjectionsPerRequest <= 0:
 		panic("api: New: Options.MaxProjectionsPerRequest must be positive")
+	case opts.MaxEventsPerWrite <= 0:
+		panic("api: New: Options.MaxEventsPerWrite must be positive")
+	case opts.MaxProjectionsPerWrite <= 0:
+		panic("api: New: Options.MaxProjectionsPerWrite must be positive")
+	case opts.MaxRequestBodySize <= 0:
+		panic("api: New: Options.MaxRequestBodySize must be positive")
 	case !validLogLevel:
 		panic(`api: New: Options.LogLevel must be one of "debug", "info", "warning", "error"`)
 	}
 
-	s := &Server{tm: tm, st: st, opts: opts, logThreshold: logThreshold, maxRequestBody: MaxRequestBody(opts)}
+	s := &Server{tm: tm, st: st, opts: opts, logThreshold: logThreshold}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /begin", s.handleBegin)
 	mux.HandleFunc("POST /commit", s.handleCommit)
 	mux.HandleFunc("POST /rollback", s.handleRollback)
+	mux.HandleFunc("POST /write", s.handleWrite)
 	mux.HandleFunc("QUERY /events", s.handleReadEvents)
 	mux.HandleFunc("POST /events", s.handleAppendEvents)
 	mux.HandleFunc("GET /projections/{type}/{id}", s.handleGetProjection)

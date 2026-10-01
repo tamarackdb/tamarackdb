@@ -1,13 +1,14 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 
 	"github.com/tamarackdb/tamarackdb/internal/dcb"
 	"github.com/tamarackdb/tamarackdb/internal/projection"
+	"github.com/tamarackdb/tamarackdb/internal/queue"
 	"github.com/tamarackdb/tamarackdb/internal/store"
 )
 
@@ -117,9 +118,9 @@ func (s *Server) handleWriteProjections(w http.ResponseWriter, r *http.Request) 
 		// behind it, for as long as it likes.
 		var req projection.Writes
 		if req, err = parse(); err == nil {
-			err = s.tm.RunInTurn(r.Context(), func() error {
+			err = s.tm.RunInTurn(r.Context(), queue.KindProjections, func(ctx context.Context) error {
 				var err error
-				versions, err = s.st.WriteProjections(r.Context(), req)
+				versions, err = s.st.WriteProjections(ctx, req)
 				return err
 			})
 		}
@@ -136,11 +137,10 @@ func (s *Server) handleWriteProjections(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
-// validateProjectionsRequest checks request-shape rules (at least one of
-// create, replace, delete, and at most maxProjectionsPerRequest
-// projections across them), then, per projection, its own Validate() and
-// its size limit, rejecting a type+id pair that appears more than once
-// across the three lists. Every message names the list and index.
+// validateProjectionsRequest checks POST /projections's request-shape rules
+// (at least one of create, replace, delete, and at most
+// maxProjectionsPerRequest projections across them), then the projections
+// themselves (see validateProjections).
 func validateProjectionsRequest(req projection.Writes, maxProjectionSize, maxProjectionsPerRequest int) error {
 	// Every key is optional, but a body with none of them most likely
 	// misspells them all. Empty lists are fine: a command whose event
@@ -150,19 +150,23 @@ func validateProjectionsRequest(req projection.Writes, maxProjectionSize, maxPro
 	}
 	if n := req.Len(); n > maxProjectionsPerRequest {
 		return &dcb.ValidationError{Err: errTooManyProjections, Message: fmt.Sprintf(
-			"request carries %d projections, more than the maximum of %d", n, maxProjectionsPerRequest)}
+			"request carries %d projections, more than maxProjectionsPerRequest (%d)", n, maxProjectionsPerRequest)}
 	}
-	seen := make(map[[2]string]string, req.Len())
+	return validateProjections(req, maxProjectionSize, "")
+}
+
+// validateProjections checks each projection: its own Validate(), then
+// maxProjectionSize, rejecting a type+id pair that appears more than once
+// across the three lists. A message names the projection as
+// path + op[i], where path is where the lists sit in the request body.
+func validateProjections(w projection.Writes, maxProjectionSize int, path string) error {
+	seen := make(map[[2]string]string, w.Len())
 	check := func(op string, i int, typ, id string, payload *string, validate func() error) error {
+		at := fmt.Sprintf("%s%s[%d]", path, op, i)
 		if err := validate(); err != nil {
-			var ve *projection.ValidationError
-			if errors.As(err, &ve) {
-				return &projection.ValidationError{Err: ve.Err, Message: fmt.Sprintf("%s[%d]: %s", op, i, ve.Message)}
-			}
-			return err
+			return prefixed(at, err)
 		}
 		key := [2]string{typ, id}
-		at := fmt.Sprintf("%s[%d]", op, i)
 		if first, dup := seen[key]; dup {
 			return &dcb.ValidationError{Err: errDuplicateProjectionKey, Message: fmt.Sprintf(
 				"%s has the same type and id as %s", at, first)}
@@ -175,21 +179,21 @@ func validateProjectionsRequest(req projection.Writes, maxProjectionSize, maxPro
 			size += len(*payload)
 		}
 		if size > maxProjectionSize {
-			return &oversizeError{kind: "projection in " + op, index: i, size: size, max: maxProjectionSize}
+			return &oversizeError{at: at, setting: "maxProjectionSize", size: size, max: maxProjectionSize}
 		}
 		return nil
 	}
-	for i, c := range req.Create {
+	for i, c := range w.Create {
 		if err := check("create", i, c.Type, c.ID, c.Payload, c.Validate); err != nil {
 			return err
 		}
 	}
-	for i, rp := range req.Replace {
+	for i, rp := range w.Replace {
 		if err := check("replace", i, rp.Type, rp.ID, rp.Payload, rp.Validate); err != nil {
 			return err
 		}
 	}
-	for i, d := range req.Delete {
+	for i, d := range w.Delete {
 		if err := check("delete", i, d.Type, d.ID, nil, d.Validate); err != nil {
 			return err
 		}
@@ -202,8 +206,8 @@ func validateProjectionsRequest(req projection.Writes, maxProjectionSize, maxPro
 // waits for its turn in the FIFO.
 func (s *Server) handleDeleteProjectionsByType(w http.ResponseWriter, r *http.Request) {
 	defer s.trackWrite()()
-	if err := s.tm.RunInTurn(r.Context(), func() error {
-		return s.st.DeleteProjectionsByType(r.Context(), r.PathValue("type"))
+	if err := s.tm.RunInTurn(r.Context(), queue.KindProjections, func(ctx context.Context) error {
+		return s.st.DeleteProjectionsByType(ctx, r.PathValue("type"))
 	}); err != nil {
 		s.handleErr(w, r, err)
 		return
@@ -215,8 +219,8 @@ func (s *Server) handleDeleteProjectionsByType(w http.ResponseWriter, r *http.Re
 // delete as handleDeleteProjectionsByType, widened to every type at once.
 func (s *Server) handleDeleteAllProjections(w http.ResponseWriter, r *http.Request) {
 	defer s.trackWrite()()
-	if err := s.tm.RunInTurn(r.Context(), func() error {
-		return s.st.DeleteAllProjections(r.Context())
+	if err := s.tm.RunInTurn(r.Context(), queue.KindProjections, func(ctx context.Context) error {
+		return s.st.DeleteAllProjections(ctx)
 	}); err != nil {
 		s.handleErr(w, r, err)
 		return

@@ -48,6 +48,7 @@ func (s *Server) handleErr(w http.ResponseWriter, r *http.Request, err error) {
 		s.opts.OnFatalStorageError(err)
 	}
 	var pe *store.ProjectionConflictError
+	var ce *store.ConditionConflictError
 	if errors.Is(err, store.ErrConcurrencyConflict) && !errors.As(err, &pe) {
 		s.failedTotal.Add(1) // Append Conditions only, not projection versions
 	}
@@ -88,7 +89,11 @@ func (s *Server) handleErr(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.As(err, &be):
 		writeError(w, http.StatusRequestEntityTooLarge, "PayloadTooLarge", be.Error())
 	case errors.As(err, &pe):
-		writeError(w, http.StatusConflict, "ConcurrencyException", pe.Error())
+		// err, not pe: in POST /write, a *nestedError names the projection
+		// by its whole path in the body.
+		writeError(w, http.StatusConflict, "ConcurrencyException", err.Error())
+	case errors.As(err, &ce):
+		writeError(w, http.StatusConflict, "ConcurrencyException", ce.Error())
 	case errors.Is(err, store.ErrConcurrencyConflict):
 		writeError(w, http.StatusConflict, "ConcurrencyException", "")
 	case errors.Is(err, txn.ErrTicketNotActive):
@@ -150,42 +155,12 @@ func decode(dec *json.Decoder, v any) error {
 	}
 }
 
-// Inputs to MaxRequestBody.
-const (
-	// jsonEscapeFactor is the most a JSON string can grow once escaped:
-	// a control character, written \u0000, takes 6 bytes for 1. The size
-	// limits count decoded bytes, but the body limit counts raw ones.
-	jsonEscapeFactor = 6
-
-	// itemFraming covers what the size limits don't count in each event
-	// or projection: JSON keys and punctuation, and a projection's
-	// version (a 36-byte UUID).
-	itemFraming = 4 << 10 // 4 KiB
-
-	// bodyMargin covers the rest of a body: an Append Condition, or a
-	// QUERY /events query. No size limit bounds the strings of a query, so
-	// the body limit guarantees room for one of up to bodyMargin bytes.
-	bodyMargin = 1 << 20 // 1 MiB
-)
-
-// MaxRequestBody returns the largest request body a Server built with opts
-// reads, in bytes. It's derived from the configured limits, so it never
-// turns away a body they allow, however its strings are escaped: the
-// largest valid POST /events or POST /projections content, times
-// jsonEscapeFactor, plus framing and a margin. It keeps a client from
-// making the server read an unbounded body into memory before those
-// limits are checked.
-func MaxRequestBody(opts Options) int64 {
-	events := int64(dcb.MaxEventsPerWrite) * int64(opts.MaxEventSize)
-	projections := int64(opts.MaxProjectionsPerRequest) * int64(opts.MaxProjectionSize)
-	items := int64(max(dcb.MaxEventsPerWrite, opts.MaxProjectionsPerRequest))
-	return jsonEscapeFactor*max(events, projections) + items*itemFraming + bodyMargin
-}
-
-// withBodyLimit caps every request body at s.maxRequestBody.
+// withBodyLimit caps every request body at Options.MaxRequestBodySize, so
+// a client can't make the server read an unbounded body into memory
+// before the other limits are checked.
 func (s *Server) withBodyLimit(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		r.Body = http.MaxBytesReader(w, r.Body, s.maxRequestBody)
+		r.Body = http.MaxBytesReader(w, r.Body, int64(s.opts.MaxRequestBodySize))
 		next.ServeHTTP(w, r)
 	})
 }
@@ -195,7 +170,7 @@ func (s *Server) withBodyLimit(next http.Handler) http.Handler {
 type bodyTooLargeError struct{ limit int64 }
 
 func (e *bodyTooLargeError) Error() string {
-	return fmt.Sprintf("request body exceeds the maximum of %d bytes", e.limit)
+	return fmt.Sprintf("request body exceeds maxRequestBodySize (%d bytes)", e.limit)
 }
 
 // bodyTooLarge returns a *bodyTooLargeError if err comes from reading past
@@ -217,6 +192,7 @@ var (
 	errMissingEvents          = errors.New("api: request is missing its events field")
 	errNoProjectionWrites     = errors.New("api: request carries none of create, replace, delete")
 	errTooManyEvents          = errors.New("api: request exceeds the maximum events per call")
+	errTooManyConditions      = errors.New("api: request exceeds the maximum conditions per write")
 	errTooManyProjections     = errors.New("api: request exceeds the maximum projections per call")
 	errDuplicateProjectionKey = errors.New("api: request carries the same projection type+id more than once")
 	errNegativeLimit          = errors.New("api: limit must be non-negative")
@@ -224,6 +200,33 @@ var (
 	errLimitExceedsMax        = errors.New("api: limit exceeds the configured maximum")
 	errTrailingData           = errors.New("api: request body holds more than one JSON value")
 )
+
+// nestedError puts path in front of err's message: a store error names an
+// item by its place in its own list ("create[2]"), and path is where that
+// list sits in the request body ("projections."), so the message names the
+// item as the request spells it.
+type nestedError struct {
+	path string
+	err  error
+}
+
+func (e *nestedError) Error() string { return e.path + e.err.Error() }
+func (e *nestedError) Unwrap() error { return e.err }
+
+// prefixed puts path in front of a validation error's message, so it names
+// the item it's about ("events[3]: ..."). Any other error is returned
+// as-is.
+func prefixed(path string, err error) error {
+	var ve *dcb.ValidationError
+	if errors.As(err, &ve) {
+		return &dcb.ValidationError{Err: ve.Err, Message: path + ": " + ve.Message}
+	}
+	var pe *projection.ValidationError
+	if errors.As(err, &pe) {
+		return &projection.ValidationError{Err: pe.Err, Message: path + ": " + pe.Message}
+	}
+	return err
+}
 
 // errMissingTicketValidation is the 400 for a call that requires a ticket
 // and carries none.

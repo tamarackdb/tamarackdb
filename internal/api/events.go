@@ -147,7 +147,7 @@ func (s *Server) parseReadRequest(r *http.Request) (store.ReadFilter, error) {
 			return store.ReadFilter{}, &dcb.ValidationError{Err: errZeroLimit, Message: "limit must be greater than zero"}
 		case *req.Limit > s.opts.MaxEventsPerPage:
 			return store.ReadFilter{}, &dcb.ValidationError{Err: errLimitExceedsMax, Message: fmt.Sprintf(
-				"limit %d exceeds the configured maximum of %d", *req.Limit, s.opts.MaxEventsPerPage)}
+				"limit %d exceeds maxEventsPerPage (%d)", *req.Limit, s.opts.MaxEventsPerPage)}
 		}
 		filter.Limit = *req.Limit
 	}
@@ -211,16 +211,17 @@ type appendedEvent struct {
 }
 
 // oversizeError is returned by the per-event and per-projection size checks
-// (dcb.EventData.Size() against Options.MaxEventSize, or a projection
-// payload's byte length against Options.MaxProjectionSize). kind names
-// which one, for the message.
+// (dcb.EventData.Size() against Options.MaxEventSize, or a projection's
+// size against Options.MaxProjectionSize). at names the item by its place
+// in the request body, and setting the limit it went over, so the message
+// says which setting to raise.
 type oversizeError struct {
-	kind             string // "event" or "projection"
-	index, size, max int
+	at, setting string
+	size, max   int
 }
 
 func (e *oversizeError) Error() string {
-	return fmt.Sprintf("%s at index %d is %d bytes, exceeding the configured maximum of %d bytes", e.kind, e.index, e.size, e.max)
+	return fmt.Sprintf("%s is %d bytes, more than %s (%d)", e.at, e.size, e.setting, e.max)
 }
 
 // handleAppendEvents implements POST /events: it checks the optional
@@ -263,10 +264,8 @@ func (s *Server) handleAppendEvents(w http.ResponseWriter, r *http.Request) {
 }
 
 // validateAppendRequest checks request-shape rules (an events field, with
-// at most dcb.MaxEventsPerWrite events), then, per event and in order,
-// dcb.EventData.Validate() (fail-fast on the first domain violation) and
-// the configured size limit, then condition.Validate() if a condition was
-// given.
+// at most dcb.MaxEventsPerWrite events), then the events (see
+// validateEvents), then condition.Validate() if a condition was given.
 func validateAppendRequest(req appendRequest, maxEventSize int) error {
 	// A missing field (nil) is most likely a misspelled key, so it's
 	// rejected. An empty array is a command that decided to append
@@ -278,17 +277,28 @@ func validateAppendRequest(req appendRequest, maxEventSize int) error {
 		return &dcb.ValidationError{Err: errTooManyEvents, Message: fmt.Sprintf(
 			"request carries %d events, more than the maximum of %d", len(req.Events), dcb.MaxEventsPerWrite)}
 	}
-	for i, ev := range req.Events {
-		if err := ev.Validate(); err != nil {
-			return err
-		}
-		if size := ev.Size(); size > maxEventSize {
-			return &oversizeError{kind: "event", index: i, size: size, max: maxEventSize}
-		}
+	if err := validateEvents(req.Events, maxEventSize); err != nil {
+		return err
 	}
 	if req.Condition != nil {
 		if err := req.Condition.Validate(); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+// validateEvents checks each event, in order: dcb.EventData.Validate()
+// (fail-fast on the first domain violation), then maxEventSize. A message
+// names the event as events[i].
+func validateEvents(events []dcb.EventData, maxEventSize int) error {
+	for i, ev := range events {
+		at := fmt.Sprintf("events[%d]", i)
+		if err := ev.Validate(); err != nil {
+			return prefixed(at, err)
+		}
+		if size := ev.Size(); size > maxEventSize {
+			return &oversizeError{at: at, setting: "maxEventSize", size: size, max: maxEventSize}
 		}
 	}
 	return nil

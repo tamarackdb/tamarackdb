@@ -19,7 +19,8 @@ var ErrConcurrencyConflict = errors.New("store: an event matching the append con
 // create whose type+id already exists, or a replace or delete whose
 // version isn't the stored one (or whose projection no longer exists).
 // Op is "create", "replace" or "delete", and Index the position in that
-// list. It unwraps to ErrConcurrencyConflict.
+// list; the message names it as op[index]. It unwraps to
+// ErrConcurrencyConflict.
 type ProjectionConflictError struct {
 	Op    string
 	Index int
@@ -27,9 +28,9 @@ type ProjectionConflictError struct {
 
 func (e *ProjectionConflictError) Error() string {
 	if e.Op == "create" {
-		return fmt.Sprintf("projection at %s[%d] already exists", e.Op, e.Index)
+		return fmt.Sprintf("%s[%d] already exists", e.Op, e.Index)
 	}
-	return fmt.Sprintf("projection at %s[%d] no longer has the given version", e.Op, e.Index)
+	return fmt.Sprintf("%s[%d] no longer has the given version", e.Op, e.Index)
 }
 
 func (e *ProjectionConflictError) Unwrap() error { return ErrConcurrencyConflict }
@@ -38,7 +39,8 @@ func (e *ProjectionConflictError) Unwrap() error { return ErrConcurrencyConflict
 // Conditions doesn't hold: an event matching it was appended after its
 // afterSequence, or, with StoreChanged, it was read on a store ID that
 // isn't the current one (see Reset). Index is its position in the list of
-// conditions. It unwraps to ErrConcurrencyConflict.
+// conditions; the message names it as conditions[index]. It unwraps to
+// ErrConcurrencyConflict.
 type ConditionConflictError struct {
 	Index        int
 	StoreChanged bool
@@ -46,9 +48,9 @@ type ConditionConflictError struct {
 
 func (e *ConditionConflictError) Error() string {
 	if e.StoreChanged {
-		return fmt.Sprintf("condition[%d] was read on another store", e.Index)
+		return fmt.Sprintf("conditions[%d] was read on another store", e.Index)
 	}
-	return fmt.Sprintf("condition[%d] no longer holds", e.Index)
+	return fmt.Sprintf("conditions[%d] no longer holds", e.Index)
 }
 
 func (e *ConditionConflictError) Unwrap() error { return ErrConcurrencyConflict }

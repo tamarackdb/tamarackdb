@@ -75,15 +75,13 @@ func main() {
 	fmt.Printf("maxEventSize: %d\n", cfg.MaxEventSize)
 	fmt.Printf("maxProjectionSize: %d\n", cfg.MaxProjectionSize)
 	fmt.Printf("maxProjectionsPerRequest: %d\n", cfg.MaxProjectionsPerRequest)
+	fmt.Printf("maxEventsPerWrite: %d\n", cfg.MaxEventsPerWrite)
+	fmt.Printf("maxProjectionsPerWrite: %d\n", cfg.MaxProjectionsPerWrite)
+	fmt.Printf("maxRequestBodySize: %d\n", cfg.MaxRequestBodySize)
 	fmt.Printf("transactionTimeout: %d\n", cfg.TransactionTimeout)
 	fmt.Printf("maxTransactionDuration: %d\n", cfg.MaxTransactionDuration)
 	fmt.Printf("maxQueuedTransactions: %d\n", cfg.MaxQueuedTransactions)
-	fmt.Printf("readPoolSize: %d\n", cfg.ReadPoolSize)
-	fmt.Printf("maxRequestBody: %d (derived from the size limits above)\n\n", api.MaxRequestBody(api.Options{
-		MaxEventSize:             cfg.MaxEventSize,
-		MaxProjectionSize:        cfg.MaxProjectionSize,
-		MaxProjectionsPerRequest: cfg.MaxProjectionsPerRequest,
-	}))
+	fmt.Printf("readPoolSize: %d\n\n", cfg.ReadPoolSize)
 
 	if err := os.MkdirAll(cfg.DataDir, 0o700); err != nil {
 		log.Fatalf("tamarackdb-server: create data directory: %v", err)
@@ -112,6 +110,9 @@ func main() {
 		MaxEventSize:             cfg.MaxEventSize,
 		MaxProjectionSize:        cfg.MaxProjectionSize,
 		MaxProjectionsPerRequest: cfg.MaxProjectionsPerRequest,
+		MaxEventsPerWrite:        cfg.MaxEventsPerWrite,
+		MaxProjectionsPerWrite:   cfg.MaxProjectionsPerWrite,
+		MaxRequestBodySize:       cfg.MaxRequestBodySize,
 		DevMode:                  cfg.DevMode,
 		LogLevel:                 cfg.LogLevel,
 		OnFatalStorageError: func(err error) {
@@ -281,6 +282,9 @@ const defaultConfigTemplate = `[server]
 # maxEventSize = %d # bytes
 # maxProjectionSize = %d # bytes
 # maxProjectionsPerRequest = %d
+# maxEventsPerWrite = %d
+# maxProjectionsPerWrite = %d
+# maxRequestBodySize = %d # bytes
 # transactionTimeout = %d # seconds
 # maxTransactionDuration = %d # seconds
 # maxQueuedTransactions = %d
@@ -295,6 +299,7 @@ func printDefaultConfig() {
 		config.DefaultLogLevel,
 		config.DefaultEventsPerPage, config.DefaultMaxEventsPerPage, config.DefaultEventSize,
 		config.DefaultProjectionSize, config.DefaultMaxProjectionsPerRequest,
+		config.DefaultMaxEventsPerWrite, config.DefaultMaxProjectionsPerWrite, config.DefaultMaxRequestBodySize,
 		config.DefaultTransactionTimeout, config.DefaultMaxTransactionDuration,
 		config.DefaultMaxQueuedTransactions, config.DefaultReadPoolSize)
 }
