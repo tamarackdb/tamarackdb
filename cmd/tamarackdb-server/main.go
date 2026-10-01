@@ -1,6 +1,6 @@
 // Command tamarackdb-server runs the TamarackDB HTTP server: it loads the TOML
-// configuration file, opens the SQLite store, starts the transaction
-// manager, and serves the HTTP API until an OS shutdown signal or a fatal
+// configuration file, opens the SQLite store, starts the write manager,
+// and serves the HTTP API until an OS shutdown signal or a fatal
 // storage error is observed.
 package main
 
@@ -74,13 +74,10 @@ func main() {
 	fmt.Printf("maxEventsPerPage: %d\n", cfg.MaxEventsPerPage)
 	fmt.Printf("maxEventSize: %d\n", cfg.MaxEventSize)
 	fmt.Printf("maxProjectionSize: %d\n", cfg.MaxProjectionSize)
-	fmt.Printf("maxProjectionsPerRequest: %d\n", cfg.MaxProjectionsPerRequest)
 	fmt.Printf("maxEventsPerWrite: %d\n", cfg.MaxEventsPerWrite)
 	fmt.Printf("maxProjectionsPerWrite: %d\n", cfg.MaxProjectionsPerWrite)
 	fmt.Printf("maxRequestBodySize: %d\n", cfg.MaxRequestBodySize)
-	fmt.Printf("transactionTimeout: %d\n", cfg.TransactionTimeout)
-	fmt.Printf("maxTransactionDuration: %d\n", cfg.MaxTransactionDuration)
-	fmt.Printf("maxQueuedTransactions: %d\n", cfg.MaxQueuedTransactions)
+	fmt.Printf("maxQueuedWrites: %d\n", cfg.MaxQueuedWrites)
 	fmt.Printf("readPoolSize: %d\n\n", cfg.ReadPoolSize)
 
 	if err := os.MkdirAll(cfg.DataDir, 0o700); err != nil {
@@ -93,28 +90,22 @@ func main() {
 	// st.Close() is not deferred: shutdown is ordered explicitly below,
 	// not left to main's return.
 
-	tm := txn.New(st, txn.Config{
-		Timeout:   time.Duration(cfg.TransactionTimeout) * time.Second,
-		Ceiling:   time.Duration(cfg.MaxTransactionDuration) * time.Second,
-		MaxQueued: cfg.MaxQueuedTransactions,
-		OnExpire:  api.ExpiryLogger(cfg.LogLevel),
-	})
+	tm := txn.New(st, txn.Config{MaxQueued: cfg.MaxQueuedWrites})
 
 	fatalCh := make(chan error, 1)
 	srv := api.New(tm, st, api.Options{
-		Version:                  buildinfo.Version,
-		EnableAuth:               cfg.EnableAuth,
-		AuthToken:                cfg.AuthToken,
-		DefaultEventsPerPage:     cfg.DefaultEventsPerPage,
-		MaxEventsPerPage:         cfg.MaxEventsPerPage,
-		MaxEventSize:             cfg.MaxEventSize,
-		MaxProjectionSize:        cfg.MaxProjectionSize,
-		MaxProjectionsPerRequest: cfg.MaxProjectionsPerRequest,
-		MaxEventsPerWrite:        cfg.MaxEventsPerWrite,
-		MaxProjectionsPerWrite:   cfg.MaxProjectionsPerWrite,
-		MaxRequestBodySize:       cfg.MaxRequestBodySize,
-		DevMode:                  cfg.DevMode,
-		LogLevel:                 cfg.LogLevel,
+		Version:                buildinfo.Version,
+		EnableAuth:             cfg.EnableAuth,
+		AuthToken:              cfg.AuthToken,
+		DefaultEventsPerPage:   cfg.DefaultEventsPerPage,
+		MaxEventsPerPage:       cfg.MaxEventsPerPage,
+		MaxEventSize:           cfg.MaxEventSize,
+		MaxProjectionSize:      cfg.MaxProjectionSize,
+		MaxEventsPerWrite:      cfg.MaxEventsPerWrite,
+		MaxProjectionsPerWrite: cfg.MaxProjectionsPerWrite,
+		MaxRequestBodySize:     cfg.MaxRequestBodySize,
+		DevMode:                cfg.DevMode,
+		LogLevel:               cfg.LogLevel,
 		OnFatalStorageError: func(err error) {
 			select {
 			case fatalCh <- err:
@@ -131,10 +122,9 @@ func main() {
 		IdleTimeout: 2 * time.Minute,
 	}
 	// Shutdown waits for every request in flight, and a request waiting in
-	// the FIFO only ends once it gets its turn. Closing the transaction
-	// manager as soon as Shutdown starts turns those requests away right
-	// away, and gives out no new ticket to a client that can no longer
-	// reach the server.
+	// the FIFO only ends once it gets its turn. Closing the write manager
+	// as soon as Shutdown starts turns those requests away right away; a
+	// write already running finishes.
 	httpServer.RegisterOnShutdown(tm.Close)
 
 	var listener net.Listener
@@ -203,7 +193,7 @@ func main() {
 	if err := httpServer.Shutdown(shutdownCtx); err != nil {
 		log.Printf("tamarackdb-server: graceful shutdown error: %v", err)
 	}
-	tm.Close() // already started by Shutdown; waits for the active transaction's rollback
+	tm.Close() // already started by Shutdown; a no-op by now
 	if err := st.Close(); err != nil {
 		log.Printf("tamarackdb-server: store close error: %v", err)
 	}
@@ -281,13 +271,10 @@ const defaultConfigTemplate = `[server]
 # maxEventsPerPage = %d
 # maxEventSize = %d # bytes
 # maxProjectionSize = %d # bytes
-# maxProjectionsPerRequest = %d
 # maxEventsPerWrite = %d
 # maxProjectionsPerWrite = %d
 # maxRequestBodySize = %d # bytes
-# transactionTimeout = %d # seconds
-# maxTransactionDuration = %d # seconds
-# maxQueuedTransactions = %d
+# maxQueuedWrites = %d
 # readPoolSize = %d
 `
 
@@ -298,8 +285,7 @@ func printDefaultConfig() {
 		config.DefaultSocketPath, config.DefaultSocketMode, config.DefaultBindAddress, config.DefaultPort, config.DefaultDataDir,
 		config.DefaultLogLevel,
 		config.DefaultEventsPerPage, config.DefaultMaxEventsPerPage, config.DefaultEventSize,
-		config.DefaultProjectionSize, config.DefaultMaxProjectionsPerRequest,
+		config.DefaultProjectionSize,
 		config.DefaultMaxEventsPerWrite, config.DefaultMaxProjectionsPerWrite, config.DefaultMaxRequestBodySize,
-		config.DefaultTransactionTimeout, config.DefaultMaxTransactionDuration,
-		config.DefaultMaxQueuedTransactions, config.DefaultReadPoolSize)
+		config.DefaultMaxQueuedWrites, config.DefaultReadPoolSize)
 }

@@ -30,11 +30,11 @@ type Store struct {
 	readDB  *sql.DB
 	lock    *os.File
 
-	// seqMu guards nextSeq, the in-memory Sequence Position counter. A Tx
-	// advances it as it appends, and puts it back on rollback (see Tx).
-	// The write pool's single connection already serializes transactions;
-	// the mutex keeps readers of the counter (LastSequence, the Append
-	// Condition shortcut) safe alongside them.
+	// seqMu guards nextSeq, the in-memory Sequence Position counter.
+	// Append advances it as it inserts events, and puts it back if the
+	// write fails. The write pool's single connection already serializes
+	// writes; the mutex keeps readers of the counter (LastSequence, the
+	// Append Condition shortcut) safe alongside them.
 	seqMu   sync.Mutex
 	nextSeq int64 // next sequence value to assign; nextSeq-1 is the highest assigned so far
 
@@ -56,8 +56,8 @@ func dsn(path string, extra string) string {
 // startup: main.go should log it and exit rather than retry.
 //
 // readPoolSize sets the size of the read connection pool, and so how many
-// reads without a ticket can run concurrently before further ones wait for a
-// connection to free up. A value <= 0 falls back to a small built-in
+// reads can run concurrently before further ones wait for a connection to
+// free up. A value <= 0 falls back to a small built-in
 // default, for callers with no opinion on it.
 //
 // Open first takes an exclusive lock on path+".lock" (see lock.go) and
@@ -230,9 +230,9 @@ func (s *Store) Reset(ctx context.Context) error {
 		return wrapf("reset", err)
 	}
 	// The counter's mutex is held across the commit: the commit frees the
-	// write connection, and a Begin waiting for it reads the counter right
-	// after. Holding the mutex makes that Begin read 1, not the value from
-	// before the reset, which it would also put back on rollback.
+	// write connection, and an Append waiting for it reads the counter and
+	// the store ID right after. Holding the mutex makes that Append read 1
+	// and the new store ID, not the values from before the reset.
 	s.seqMu.Lock()
 	defer s.seqMu.Unlock()
 	if err := tx.Commit(); err != nil {

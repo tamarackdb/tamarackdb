@@ -24,10 +24,10 @@ import (
 // newSourceAPI builds a real API server over st, to back up from.
 func newSourceAPI(t *testing.T, st *store.Store) http.Handler {
 	t.Helper()
-	tm := txn.New(st, txn.Config{Timeout: 5 * time.Second, Ceiling: 15 * time.Second})
+	tm := txn.New(st, txn.Config{})
 	t.Cleanup(tm.Close)
 	return api.New(tm, st, api.Options{
-		DefaultEventsPerPage: 1000, MaxEventsPerPage: 10000, MaxEventSize: 65536, MaxProjectionSize: 65536, MaxProjectionsPerRequest: 100,
+		DefaultEventsPerPage: 1000, MaxEventsPerPage: 10000, MaxEventSize: 65536, MaxProjectionSize: 65536,
 		MaxEventsPerWrite: 100, MaxProjectionsPerWrite: 500, MaxRequestBodySize: 8 << 20,
 		LogLevel: "debug",
 	})

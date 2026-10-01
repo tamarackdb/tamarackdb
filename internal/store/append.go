@@ -18,27 +18,34 @@ type AppendResult struct {
 	Versions Versions    // the new version of each created and replaced projection
 }
 
-// Append writes events and projections in one transaction of its own, if
-// every one of conditions holds: Begin, the condition checks, the event
-// inserts, Tx.WriteProjections, then Commit. Events and projections
-// commit together, or not at all. The conditions are checked first,
-// against the events committed before this write, and are checked even
-// when there is nothing else to write. The first one that doesn't hold
-// returns a *ConditionConflictError.
+// Append writes events and projections in one SQLite transaction of its
+// own, if every one of conditions holds: the condition checks, the
+// projection writes, the event inserts, then the commit. Events and
+// projections commit together, or not at all. The conditions are checked
+// first, against the events committed before this write, and are checked
+// even when there is nothing else to write. The first one that doesn't
+// hold returns a *ConditionConflictError, and the first projection write
+// that doesn't hold a *ProjectionConflictError.
 //
 // events and projections are assumed already validated by the caller
 // (dcb.EventData.Validate, projection.Data.Validate, the per-call caps),
 // and conditions too (dcb.AppendCondition.Validate and ValidateStore):
 // this package doesn't re-validate request shape, only concurrency and
 // persistence.
+//
+// ctx governs the whole transaction: database/sql rolls it back if ctx is
+// cancelled before the commit.
 func (s *Store) Append(ctx context.Context, events []dcb.EventData, conditions []dcb.AppendCondition, projections projection.Writes) (AppendResult, error) {
 	if len(events) == 0 && len(conditions) == 0 && projections.Len() == 0 {
 		return AppendResult{StoreID: s.currentStoreID()}, nil
 	}
 
-	tx, err := s.Begin(ctx)
+	// BEGIN IMMEDIATE (the write pool's _txlock=immediate DSN): SQLite's
+	// write lock is held from here, so no other writer can commit between
+	// the condition checks and the inserts.
+	tx, err := s.writeDB.BeginTx(ctx, nil)
 	if err != nil {
-		return AppendResult{}, err
+		return AppendResult{}, wrapf("begin", err)
 	}
 	defer tx.Rollback() // no-op after Commit
 
@@ -50,7 +57,7 @@ func (s *Store) Append(ctx context.Context, events []dcb.EventData, conditions [
 		if c.AfterSequence != nil && c.Store != storeID {
 			return AppendResult{}, &ConditionConflictError{Index: i, StoreChanged: true}
 		}
-		holds, err := s.checkCondition(ctx, tx.tx, c)
+		holds, err := s.checkCondition(ctx, tx, c)
 		if err != nil {
 			return AppendResult{}, err
 		}
@@ -59,40 +66,27 @@ func (s *Store) Append(ctx context.Context, events []dcb.EventData, conditions [
 		}
 	}
 
-	appended, err := s.insertEvents(ctx, tx.tx, events)
+	// Projections before events: a projection conflict then ends the
+	// write before any Sequence Position is reserved.
+	versions, err := writeProjections(ctx, tx, projections)
 	if err != nil {
 		return AppendResult{}, err
 	}
-	versions, err := tx.WriteProjections(ctx, projections)
-	if err != nil {
-		return AppendResult{}, err
+
+	// From here on, the Sequence Positions are reserved: if the write
+	// fails, the counter goes back, so it leaves no gap in the sequence.
+	// Nothing else can reserve any meanwhile: this transaction holds the
+	// only write connection.
+	start := s.reserveSequences(len(events))
+	appended, err := insertEvents(ctx, tx, events, start)
+	if err == nil {
+		err = wrapf("commit", tx.Commit())
 	}
-	if err := tx.Commit(); err != nil {
+	if err != nil {
+		s.releaseSequences(start)
 		return AppendResult{}, err
 	}
 	return AppendResult{StoreID: storeID, Events: appended, Versions: versions}, nil
-}
-
-// appendEvents checks condition, then inserts events, inside tx. The
-// check runs against every event visible to tx: committed ones, and the
-// ones appended earlier in the same transaction. The write lock is already
-// held (BEGIN IMMEDIATE), so no other writer can commit conflicting rows
-// between the check and the inserts. With no events, the condition isn't
-// checked at all.
-func (s *Store) appendEvents(ctx context.Context, tx *sql.Tx, events []dcb.EventData, condition *dcb.AppendCondition) ([]dcb.Event, error) {
-	if len(events) == 0 {
-		return nil, nil
-	}
-	if condition != nil {
-		holds, err := s.checkCondition(ctx, tx, *condition)
-		if err != nil {
-			return nil, err
-		}
-		if !holds {
-			return nil, ErrConcurrencyConflict
-		}
-	}
-	return s.insertEvents(ctx, tx, events)
 }
 
 // checkCondition reports whether c holds against every event visible to
@@ -116,18 +110,15 @@ func (s *Store) checkCondition(ctx context.Context, tx *sql.Tx, c dcb.AppendCond
 	return holds, nil
 }
 
-// insertEvents gives events their Sequence Positions and time, and
-// inserts them inside tx. The caller must only call it once the write is
-// confirmed to happen: every condition has already been checked.
-func (s *Store) insertEvents(ctx context.Context, tx *sql.Tx, events []dcb.EventData) ([]dcb.Event, error) {
+// insertEvents gives events the Sequence Positions from start on, and
+// their time, and inserts them inside tx. The caller must only call it
+// once the write is confirmed to happen: every condition has already been
+// checked.
+func insertEvents(ctx context.Context, tx *sql.Tx, events []dcb.EventData, start int64) ([]dcb.Event, error) {
 	if len(events) == 0 {
 		return nil, nil
 	}
 
-	// The counter is only consulted, and only advanced, now that the
-	// conditions have been confirmed to hold: a failed condition must
-	// leave no gap in the sequence.
-	start := s.reserveSequences(len(events))
 	// One time for the whole append: every event in it is appended at the
 	// same moment. Order within the append comes from Sequence. Truncated
 	// to the stored microsecond precision, so the value returned here is
@@ -171,14 +162,23 @@ func (s *Store) peekLastAssigned() int64 {
 }
 
 // reserveSequences advances the counter by n and returns the first of the
-// n sequence numbers reserved. Callers must only call this once the write
-// is confirmed to actually happen, never speculatively.
+// n sequence numbers reserved. Callers must only call this once the
+// conditions hold, never speculatively, and call releaseSequences if the
+// write then fails.
 func (s *Store) reserveSequences(n int) int64 {
 	s.seqMu.Lock()
 	defer s.seqMu.Unlock()
 	start := s.nextSeq
 	s.nextSeq += int64(n)
 	return start
+}
+
+// releaseSequences puts the counter back to start, for a write that
+// reserved sequences from start on and then failed.
+func (s *Store) releaseSequences(start int64) {
+	s.seqMu.Lock()
+	defer s.seqMu.Unlock()
+	s.nextSeq = start
 }
 
 // resolveWithoutQuery reports whether an Append Condition holds using only

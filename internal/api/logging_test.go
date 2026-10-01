@@ -8,11 +8,10 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 )
 
 // logBuffer is a bytes.Buffer safe to read while another goroutine logs
-// into it (the deadline timer, for an expired transaction).
+// into it (a request served in the background).
 type logBuffer struct {
 	mu  sync.Mutex
 	buf bytes.Buffer
@@ -90,11 +89,7 @@ func TestAccessLogLevelPerOutcome(t *testing.T) {
 			srv.ServeHTTP(rec, req)
 			return rec
 		}},
-		{"TicketNotActive", "INFO", func(t *testing.T) *httptest.ResponseRecorder {
-			srv, _, _ := newTestServer(t)
-			return doTicketRequest(t, srv, "POST", "/commit", "not-a-ticket", "")
-		}},
-		{"TransactionQueueFull", "WARNING", func(t *testing.T) *httptest.ResponseRecorder {
+		{"WriteQueueFull", "WARNING", func(t *testing.T) *httptest.ResponseRecorder {
 			srv, tm, _ := newTestServerWith(t, testOptions{maxQueued: 1})
 			release := holdTurn(t, tm)
 			queued := make(chan struct{})
@@ -166,7 +161,7 @@ func TestAccessLogAtOrAboveThresholdIsLogged(t *testing.T) {
 	waitQueued(t, tm, 1)
 	buf := captureLog(t)
 
-	doRequest(t, srv, "POST", "/write", `{"events":[{"type":"t","payload":""}]}`) // 503 TransactionQueueFull, WARNING
+	doRequest(t, srv, "POST", "/write", `{"events":[{"type":"t","payload":""}]}`) // 503 WriteQueueFull, WARNING
 	release()
 	<-queued                // 204, DEBUG
 	provokeConflict(t, srv) // 200 then 409, DEBUG
@@ -176,21 +171,6 @@ func TestAccessLogAtOrAboveThresholdIsLogged(t *testing.T) {
 		t.Errorf("log output = %q, want it to contain [WARNING]", out)
 	}
 	if got := strings.Count(out, "\n"); got != 1 {
-		t.Errorf("log output has %d lines, want exactly 1 (only the TransactionQueueFull one): %q", got, out)
-	}
-}
-
-func TestExpiredTransactionIsLogged(t *testing.T) {
-	srv, _, _ := newTestServerWith(t, testOptions{logLevel: "warning", timeout: 30 * time.Millisecond, ceiling: time.Second})
-	buf := captureLog(t)
-
-	ticket := begin(t, srv)
-	want := "[WARNING] transaction " + ticket + " expired: idle timeout reached after"
-	deadline := time.Now().Add(2 * time.Second)
-	for !strings.Contains(buf.String(), want) && time.Now().Before(deadline) {
-		time.Sleep(10 * time.Millisecond)
-	}
-	if out := buf.String(); !strings.Contains(out, want) {
-		t.Errorf("log output = %q, want a WARNING line for the expired transaction, with its ticket", out)
+		t.Errorf("log output has %d lines, want exactly 1 (only the WriteQueueFull one): %q", got, out)
 	}
 }

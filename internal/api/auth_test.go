@@ -13,18 +13,13 @@ func TestAuthRejectsEveryRoute(t *testing.T) {
 		method, path, body string
 	}{
 		{"QUERY", "/events", `{"query":"*"}`},
-		{"POST", "/events", `{"events":[{"type":"t","identifiers":{},"metadata":{},"payload":""}]}`},
-		{"POST", "/commit", ""},
-		{"POST", "/rollback", ""},
+		{"POST", "/write", `{"events":[{"type":"t","identifiers":{},"metadata":{},"payload":""}]}`},
 		{"GET", "/projections/user-profile/123", ""},
-		{"POST", "/projections", `{"create":[{"type":"t","id":"1","payload":"x"}]}`},
+		{"DELETE", "/projections/user-profile", ""},
 		{"DELETE", "/projections", ""},
 		{"GET", "/health", ""},
 		{"GET", "/metrics", ""},
 		{"GET", "/debug", ""},
-		// /begin comes last: the transaction the valid-token call opens
-		// would hold up every later write without a ticket.
-		{"POST", "/begin", ""},
 	}
 
 	for _, route := range routes {

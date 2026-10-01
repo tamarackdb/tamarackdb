@@ -62,7 +62,7 @@ func (i QueryItem) Validate() error {
 // identifiers, same metadata, regardless of order) are silently
 // collapsed to one: they add nothing to the OR beyond a redundant SQL
 // clause. This applies wherever a Query is built, including a
-// condition.failIfEventsMatch on POST /events.
+// failIfEventsMatch in one of the conditions of a POST /write.
 type Query struct {
 	all   bool
 	items []QueryItem
@@ -174,7 +174,7 @@ func (q Query) Validate() error {
 	return nil
 }
 
-// AppendCondition mirrors condition in POST /events: FailIfEventsMatch
+// AppendCondition mirrors one of the conditions in POST /write: FailIfEventsMatch
 // follows the same grammar as a read Query, and is itself optional
 // within a condition (an afterSequence-only condition is valid, used
 // for safe retries after a startup or crash). Defined in dcb rather than

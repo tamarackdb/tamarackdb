@@ -17,18 +17,6 @@ func TestRequestBodyOverLimitGets413(t *testing.T) {
 	}
 }
 
-func TestRequestBodyOverLimitInsideTransactionRollsBack(t *testing.T) {
-	srv, _, _ := newTestServer(t)
-	ticket := begin(t, srv)
-	body := `{"events":[{"type":"t","payload":"` + strings.Repeat("a", srv.opts.MaxRequestBodySize) + `"}]}`
-	if rec := doTicketRequest(t, srv, "POST", "/events", ticket, body); rec.Code != 413 {
-		t.Fatalf("status = %d, want 413", rec.Code)
-	}
-	if rec := doTicketRequest(t, srv, "POST", "/commit", ticket, ""); rec.Code != 410 {
-		t.Errorf("commit status = %d, want 410: the failed call must end the transaction", rec.Code)
-	}
-}
-
 func TestRequestBodyWithTrailingDataGets400(t *testing.T) {
 	srv, _, _ := newTestServer(t)
 	for _, body := range []string{`{"query":"*"} xyz`, `{"query":"*"}{"query":"*"}`} {

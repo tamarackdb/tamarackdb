@@ -15,9 +15,8 @@ import (
 )
 
 // errorEnvelope is the exact wire shape for error responses:
-// {"error": "...", "message": "..."}. message is omitted
-// when it wouldn't add anything, matching the ConcurrencyException
-// example, which carries no "message" key at all.
+// {"error": "...", "message": "..."}. message is omitted when it wouldn't
+// add anything, as for WriteQueueFull or ShuttingDown.
 type errorEnvelope struct {
 	Error   string `json:"error"`
 	Message string `json:"message,omitempty"`
@@ -49,9 +48,6 @@ func (s *Server) handleErr(w http.ResponseWriter, r *http.Request, err error) {
 	}
 	var pe *store.ProjectionConflictError
 	var ce *store.ConditionConflictError
-	if errors.Is(err, store.ErrConcurrencyConflict) && !errors.As(err, &pe) {
-		s.failedTotal.Add(1) // Append Conditions only, not projection versions
-	}
 
 	// If the request's own context is already Done, the connection may
 	// already be gone, and any response now is best-effort at best.
@@ -75,9 +71,10 @@ func (s *Server) handleErr(w http.ResponseWriter, r *http.Request, err error) {
 		// Covers dcb.EventData.Validate(), dcb.Query.Validate(),
 		// dcb.AppendCondition.Validate(), request-shape decode errors
 		// (see decodeJSON, which wraps those as *dcb.ValidationError
-		// too), and every API-layer-invented rule (limit, event/projection
-		// count caps, duplicate projection key, missing ticket) that isn't
-		// really a dcb domain rule but reuses this same 400 vehicle.
+		// too), and every API-layer-invented rule (limit, event,
+		// condition, and projection count caps, duplicate projection key)
+		// that isn't really a dcb domain rule but reuses this same 400
+		// vehicle.
 		writeError(w, http.StatusBadRequest, "InvalidRequest", ve.Message)
 	case errors.As(err, &de):
 		// The projection types' own Validate() rules (missing type, id,
@@ -94,12 +91,8 @@ func (s *Server) handleErr(w http.ResponseWriter, r *http.Request, err error) {
 		writeError(w, http.StatusConflict, "ConcurrencyException", err.Error())
 	case errors.As(err, &ce):
 		writeError(w, http.StatusConflict, "ConcurrencyException", ce.Error())
-	case errors.Is(err, store.ErrConcurrencyConflict):
-		writeError(w, http.StatusConflict, "ConcurrencyException", "")
-	case errors.Is(err, txn.ErrTicketNotActive):
-		writeError(w, http.StatusGone, "TicketNotActive", "")
 	case errors.Is(err, queue.ErrFull):
-		writeError(w, http.StatusServiceUnavailable, "TransactionQueueFull", "")
+		writeError(w, http.StatusServiceUnavailable, "WriteQueueFull", "")
 	case errors.Is(err, txn.ErrClosed), errors.Is(err, queue.ErrClosed):
 		// The server is shutting down: a request waiting in the FIFO, or
 		// arriving after it closed, gets no turn.
@@ -185,15 +178,12 @@ func bodyTooLarge(err error) error {
 
 // api-layer validation sentinels: rules with no dcb.Validate() equivalent
 // to reuse, because they concern purely HTTP-layer/configured concepts
-// (limit, event size, the ticket header) or request-shape concerns dcb has
-// no opinion about (a request missing its events field).
+// (limit, the per-write counts) or request-shape concerns dcb has no
+// opinion about (a projection written twice in one request).
 var (
-	errMissingTicket          = errors.New("api: missing ticket header")
-	errMissingEvents          = errors.New("api: request is missing its events field")
-	errNoProjectionWrites     = errors.New("api: request carries none of create, replace, delete")
-	errTooManyEvents          = errors.New("api: request exceeds the maximum events per call")
+	errTooManyEvents          = errors.New("api: request exceeds the maximum events per write")
 	errTooManyConditions      = errors.New("api: request exceeds the maximum conditions per write")
-	errTooManyProjections     = errors.New("api: request exceeds the maximum projections per call")
+	errTooManyProjections     = errors.New("api: request exceeds the maximum projections per write")
 	errDuplicateProjectionKey = errors.New("api: request carries the same projection type+id more than once")
 	errNegativeLimit          = errors.New("api: limit must be non-negative")
 	errZeroLimit              = errors.New("api: limit must be greater than zero")
@@ -227,7 +217,3 @@ func prefixed(path string, err error) error {
 	}
 	return err
 }
-
-// errMissingTicketValidation is the 400 for a call that requires a ticket
-// and carries none.
-var errMissingTicketValidation = &dcb.ValidationError{Err: errMissingTicket, Message: "missing " + TicketHeader + " header"}

@@ -18,9 +18,9 @@ func storeHeader(t *testing.T, rec *httptest.ResponseRecorder, what string) stri
 	return id
 }
 
-// TestReadsCarryTheStoreHeader checks that every read without a ticket
-// carries the same store ID, on an empty page, a full page, a found
-// projection, and a missing one, and that POST /reset changes it.
+// TestReadsCarryTheStoreHeader checks that every read carries the same
+// store ID, on an empty page, a full page, a found projection, and a
+// missing one, and that POST /reset changes it.
 func TestReadsCarryTheStoreHeader(t *testing.T) {
 	srv, _, _ := newTestServerWith(t, testOptions{devMode: true})
 

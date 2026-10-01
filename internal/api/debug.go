@@ -22,21 +22,20 @@ type debugResponse struct {
 	Read  debugRead  `json:"read"`
 }
 
-// debugWrite is the write side's full picture: the active transaction and
-// the requests waiting in the FIFO (from internal/txn and internal/queue),
-// the write-side requests in flight, and the underlying SQLite write pool,
-// which is always InUse<=1, Max=1 (see store.WritePoolStats). It never
-// carries the ticket.
+// debugWrite is the write side's full picture: the request holding the
+// turn and the requests waiting in the FIFO (from internal/queue), the
+// write-side requests in flight, and the underlying SQLite write pool,
+// which is always InUse<=1, Max=1 (see store.WritePoolStats).
 type debugWrite struct {
-	Active      *debugActive  `json:"active"` // null when no transaction is active
+	Active      *debugActive  `json:"active"` // null when no request holds the turn
 	Queued      []debugQueued `json:"queued"` // never null in the response, even when empty
 	HTTPOpen    int           `json:"httpOpen"`
 	SQLiteInUse int           `json:"sqliteInUse"`
 	SQLiteMax   int           `json:"sqliteMax"`
 }
 
-// debugRead is the read side's picture: HTTPOpen (reads without a ticket
-// currently in flight) alongside the underlying SQLite read pool's usage.
+// debugRead is the read side's picture: HTTPOpen (reads currently in
+// flight) alongside the underlying SQLite read pool's usage.
 // HTTPOpen can exceed SQLiteMax when the pool is saturated and extra
 // requests are waiting for a free connection inside database/sql itself;
 // a sustained gap between the two is a sign that readPoolSize is too
@@ -47,12 +46,12 @@ type debugRead struct {
 	SQLiteMax   int `json:"sqliteMax"`
 }
 
+// debugActive is the request holding the turn: what it is (a queue.Kind)
+// and since when.
 type debugActive struct {
+	Kind       string    `json:"kind"`
 	Since      debugTime `json:"since"`
 	AgeSeconds float64   `json:"ageSeconds"`
-	Deadline   debugTime `json:"deadline"`
-	Ceiling    debugTime `json:"ceiling"`
-	Calls      int       `json:"calls"`
 }
 
 type debugQueued struct {
@@ -80,13 +79,11 @@ func (s *Server) handleDebug(w http.ResponseWriter, r *http.Request) {
 			SQLiteMax:   readStats.Max,
 		},
 	}
-	if a := snap.Active; a != nil {
+	if q := snap.Queue; q.Active {
 		resp.Write.Active = &debugActive{
-			Since:      debugTime{a.Since},
-			AgeSeconds: snap.Time.Sub(a.Since).Seconds(),
-			Deadline:   debugTime{a.Deadline},
-			Ceiling:    debugTime{a.Ceiling},
-			Calls:      a.Calls,
+			Kind:       string(q.ActiveKind),
+			Since:      debugTime{q.ActiveSince},
+			AgeSeconds: snap.Time.Sub(q.ActiveSince).Seconds(),
 		}
 	}
 	for _, q := range snap.Queue.Queued {

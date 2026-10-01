@@ -50,26 +50,6 @@ func getProjection(ctx context.Context, q querier, typ, id string) (version, pay
 	return version, payload, true, nil
 }
 
-// WriteProjections creates, replaces, and deletes projections in a
-// transaction of its own, outside any Tx, and returns the new versions (see
-// writeProjections). It's meant for a projection rebuild, in its own turn
-// in the FIFO.
-func (s *Store) WriteProjections(ctx context.Context, w projection.Writes) (Versions, error) {
-	tx, err := s.Begin(ctx)
-	if err != nil {
-		return Versions{}, err
-	}
-	defer tx.Rollback() // no-op after Commit
-	versions, err := tx.WriteProjections(ctx, w)
-	if err != nil {
-		return Versions{}, err
-	}
-	if err := tx.Commit(); err != nil {
-		return Versions{}, err
-	}
-	return versions, nil
-}
-
 // DeleteProjectionsByType removes every projection of typ. It's meant for a
 // projection rebuild, so it has no per-projection condition: it never
 // reports a conflict, only a database error.

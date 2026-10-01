@@ -121,8 +121,9 @@ func TestWriteIsAtomic(t *testing.T) {
 		t.Errorf("store holds %d events, want 0: the write must be all or nothing", n)
 	}
 	values := parseMetrics(t, doRequest(t, srv, "GET", "/metrics", "").Body.String())
-	if got := values["tamarackdb_appends_failed_total"]; got != 0 {
-		t.Errorf("tamarackdb_appends_failed_total = %v, want 0: a projection conflict isn't a failed Append Condition", got)
+	cond, proj := `tamarackdb_writes_rejected_total{reason="condition"}`, `tamarackdb_writes_rejected_total{reason="projection"}`
+	if values[cond] != 0 || values[proj] != 1 {
+		t.Errorf("%s = %v, %s = %v, want 0 and 1: a projection conflict isn't a failed Append Condition", cond, values[cond], proj, values[proj])
 	}
 }
 
@@ -162,8 +163,8 @@ func TestWriteConditions(t *testing.T) {
 		t.Errorf("store holds %d events, want 2: failed writes must write nothing", n)
 	}
 	values := parseMetrics(t, doRequest(t, srv, "GET", "/metrics", "").Body.String())
-	if got := values["tamarackdb_appends_failed_total"]; got != 2 {
-		t.Errorf("tamarackdb_appends_failed_total = %v, want 2", got)
+	if got := values[`tamarackdb_writes_rejected_total{reason="condition"}`]; got != 2 {
+		t.Errorf(`tamarackdb_writes_rejected_total{reason="condition"} = %v, want 2`, got)
 	}
 }
 
@@ -282,8 +283,8 @@ func TestWriteReturns503WhenQueueFull(t *testing.T) {
 	waitQueued(t, tm, 1)
 
 	rec := doRequest(t, srv, "POST", "/write", `{"events":[{"type":"t","payload":""}]}`)
-	if rec.Code != 503 || errorCode(t, rec) != "TransactionQueueFull" {
-		t.Fatalf("status = %d, body = %s, want 503 TransactionQueueFull", rec.Code, rec.Body.String())
+	if rec.Code != 503 || errorCode(t, rec) != "WriteQueueFull" {
+		t.Fatalf("status = %d, body = %s, want 503 WriteQueueFull", rec.Code, rec.Body.String())
 	}
 
 	release()

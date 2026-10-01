@@ -15,13 +15,20 @@ func create(typ, id, payload string) projection.Create {
 	return projection.Create{Type: typ, ID: id, Payload: &payload}
 }
 
+// appendProjections writes w with Append, with no events or conditions,
+// and returns the new versions.
+func appendProjections(s *Store, w projection.Writes) (Versions, error) {
+	result, err := s.Append(context.Background(), nil, nil, w)
+	return result.Versions, err
+}
+
 // mustWriteProjections writes w in a transaction of its own and returns the
 // new versions.
 func mustWriteProjections(t *testing.T, s *Store, w projection.Writes) Versions {
 	t.Helper()
-	versions, err := s.WriteProjections(context.Background(), w)
+	versions, err := appendProjections(s, w)
 	if err != nil {
-		t.Fatalf("WriteProjections() error = %v", err)
+		t.Fatalf("Append() error = %v", err)
 	}
 	return versions
 }
@@ -84,7 +91,7 @@ func TestCreateReturnsTheStoredVersion(t *testing.T) {
 func TestCreateOfExistingProjectionConflicts(t *testing.T) {
 	s := openTestStore(t)
 	mustCreate(t, s, "user-profile", "123", "v1")
-	_, err := s.WriteProjections(context.Background(), projection.Writes{
+	_, err := appendProjections(s, projection.Writes{
 		Create: []projection.Create{create("user-profile", "456", "other"), create("user-profile", "123", "v2")},
 	})
 	assertConflict(t, err, "create", 1)
@@ -113,7 +120,7 @@ func TestReplaceWithStaleVersionConflicts(t *testing.T) {
 	mustWriteProjections(t, s, projection.Writes{
 		Replace: []projection.Replace{{Type: "user-profile", ID: "123", Version: v1, Payload: strPtr("v2")}},
 	})
-	_, err := s.WriteProjections(context.Background(), projection.Writes{
+	_, err := appendProjections(s, projection.Writes{
 		Replace: []projection.Replace{{Type: "user-profile", ID: "123", Version: v1, Payload: strPtr("stale")}},
 	})
 	assertConflict(t, err, "replace", 0)
@@ -122,7 +129,7 @@ func TestReplaceWithStaleVersionConflicts(t *testing.T) {
 
 func TestReplaceOfAbsentProjectionConflicts(t *testing.T) {
 	s := openTestStore(t)
-	_, err := s.WriteProjections(context.Background(), projection.Writes{
+	_, err := appendProjections(s, projection.Writes{
 		Replace: []projection.Replace{{Type: "user-profile", ID: "123", Version: "any", Payload: strPtr("v1")}},
 	})
 	assertConflict(t, err, "replace", 0)
@@ -144,7 +151,7 @@ func TestDeleteWithStaleVersionConflicts(t *testing.T) {
 	mustWriteProjections(t, s, projection.Writes{
 		Replace: []projection.Replace{{Type: "user-profile", ID: "123", Version: v1, Payload: strPtr("v2")}},
 	})
-	_, err := s.WriteProjections(context.Background(), projection.Writes{
+	_, err := appendProjections(s, projection.Writes{
 		Delete: []projection.Delete{{Type: "user-profile", ID: "123", Version: v1}},
 	})
 	assertConflict(t, err, "delete", 0)
@@ -157,7 +164,7 @@ func TestDeleteOfAbsentProjectionConflicts(t *testing.T) {
 	mustWriteProjections(t, s, projection.Writes{
 		Delete: []projection.Delete{{Type: "user-profile", ID: "123", Version: v1}},
 	})
-	_, err := s.WriteProjections(context.Background(), projection.Writes{
+	_, err := appendProjections(s, projection.Writes{
 		Delete: []projection.Delete{{Type: "user-profile", ID: "123", Version: v1}},
 	})
 	assertConflict(t, err, "delete", 0)
@@ -173,7 +180,7 @@ func TestRecreatedProjectionGetsANewVersion(t *testing.T) {
 		Delete: []projection.Delete{{Type: "user-profile", ID: "123", Version: v1}},
 	})
 	mustCreate(t, s, "user-profile", "123", "again")
-	_, err := s.WriteProjections(context.Background(), projection.Writes{
+	_, err := appendProjections(s, projection.Writes{
 		Replace: []projection.Replace{{Type: "user-profile", ID: "123", Version: v1, Payload: strPtr("stale")}},
 	})
 	assertConflict(t, err, "replace", 0)

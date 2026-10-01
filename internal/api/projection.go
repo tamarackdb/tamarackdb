@@ -2,22 +2,21 @@ package api
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 
 	"github.com/tamarackdb/tamarackdb/internal/dcb"
 	"github.com/tamarackdb/tamarackdb/internal/projection"
 	"github.com/tamarackdb/tamarackdb/internal/queue"
-	"github.com/tamarackdb/tamarackdb/internal/store"
 )
 
 // VersionHeader carries a projection's version in a
 // GET /projections/{type}/{id} response.
 const VersionHeader = "X-Tamarackdb-Version"
 
-// projectionsResponse is POST /projections's response: the new version of
-// every created and replaced projection, in request order.
+// projectionsResponse is the projections part of a POST /write response:
+// the new version of every created and replaced projection, in request
+// order.
 type projectionsResponse struct {
 	Create  []projectionVersion `json:"create"`
 	Replace []projectionVersion `json:"replace"`
@@ -37,122 +36,30 @@ func toProjectionVersions(versions []string) []projectionVersion {
 
 // handleGetProjection implements GET /projections/{type}/{id}: 404 when no
 // projection exists, or 200 with the payload as the response body and the
-// version in the X-Tamarackdb-Version header. With a
-// ticket, the read runs inside the transaction and sees projections written
-// earlier in it; a 404 is an ordinary answer there, not a failure, and the
-// transaction goes on. Without a ticket, it sees committed projections only,
-// and both the 200 and the 404 carry the store ID in the X-Tamarackdb-Store
-// header.
+// version in the X-Tamarackdb-Version header. It sees committed projections
+// only, and both the 200 and the 404 carry the store ID in the
+// X-Tamarackdb-Store header.
 // The payload is returned as-is: its own format (JSON, XML, plain text) is
 // up to the writing application, the store never parses it.
 func (s *Server) handleGetProjection(w http.ResponseWriter, r *http.Request) {
 	typ, id := r.PathValue("type"), r.PathValue("id")
 
-	var version, payload string
-	var found bool
-	var err error
-	if ticket, ok := ticketFrom(r); ok {
-		defer s.trackWrite()()
-		err = s.doInTx(w, ticket, func(tx *store.Tx) error {
-			version, payload, found, err = tx.GetProjection(r.Context(), typ, id)
-			return err
-		})
-	} else {
-		s.readHTTPOpen.Add(1)
-		defer s.readHTTPOpen.Add(-1)
-		var p store.ProjectionRead
-		p, err = s.st.GetProjection(r.Context(), typ, id)
-		version, payload, found = p.Version, p.Payload, p.Found
-		if err == nil {
-			w.Header().Set(StoreHeader, p.StoreID)
-		}
-	}
+	s.readHTTPOpen.Add(1)
+	defer s.readHTTPOpen.Add(-1)
+	p, err := s.st.GetProjection(r.Context(), typ, id)
 	if err != nil {
 		s.handleErr(w, r, err)
 		return
 	}
-	if !found {
+	w.Header().Set(StoreHeader, p.StoreID)
+	if !p.Found {
 		writeError(w, http.StatusNotFound, "ProjectionNotFound", "")
 		return
 	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	w.Header().Set(VersionHeader, version)
+	w.Header().Set(VersionHeader, p.Version)
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte(payload))
-}
-
-// handleWriteProjections implements POST /projections: it creates,
-// replaces, and deletes projections, and responds with the new versions.
-// With a ticket, the write runs inside the transaction, and any failure,
-// a version conflict included, rolls it back. Without a ticket, it waits
-// for its turn in the FIFO and commits on its own, for a projection
-// rebuild.
-func (s *Server) handleWriteProjections(w http.ResponseWriter, r *http.Request) {
-	defer s.trackWrite()()
-
-	parse := func() (projection.Writes, error) {
-		var req projection.Writes
-		if err := decodeJSONStrict(r, &req); err != nil {
-			return projection.Writes{}, err
-		}
-		err := validateProjectionsRequest(req, s.opts.MaxProjectionSize, s.opts.MaxProjectionsPerRequest)
-		return req, err
-	}
-
-	var versions store.Versions
-	var err error
-	if ticket, ok := ticketFrom(r); ok {
-		// Inside the transaction, so a malformed body rolls it back like
-		// any other failed call.
-		err = s.doInTx(w, ticket, func(tx *store.Tx) error {
-			req, err := parse()
-			if err != nil {
-				return err
-			}
-			versions, err = tx.WriteProjections(r.Context(), req)
-			return err
-		})
-	} else {
-		// The body is read before joining the FIFO: a client sending its
-		// body slowly would otherwise hold the turn, and every request
-		// behind it, for as long as it likes.
-		var req projection.Writes
-		if req, err = parse(); err == nil {
-			err = s.tm.RunInTurn(r.Context(), queue.KindProjections, func(ctx context.Context) error {
-				var err error
-				versions, err = s.st.WriteProjections(ctx, req)
-				return err
-			})
-		}
-	}
-	if err != nil {
-		s.handleErr(w, r, err)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(projectionsResponse{
-		Create:  toProjectionVersions(versions.Create),
-		Replace: toProjectionVersions(versions.Replace),
-	})
-}
-
-// validateProjectionsRequest checks POST /projections's request-shape rules
-// (at least one of create, replace, delete, and at most
-// maxProjectionsPerRequest projections across them), then the projections
-// themselves (see validateProjections).
-func validateProjectionsRequest(req projection.Writes, maxProjectionSize, maxProjectionsPerRequest int) error {
-	// Every key is optional, but a body with none of them most likely
-	// misspells them all. Empty lists are fine: a command whose event
-	// handlers changed no projection can still send its usual call.
-	if req.Create == nil && req.Replace == nil && req.Delete == nil {
-		return &dcb.ValidationError{Err: errNoProjectionWrites, Message: "request carries none of create, replace, delete"}
-	}
-	if n := req.Len(); n > maxProjectionsPerRequest {
-		return &dcb.ValidationError{Err: errTooManyProjections, Message: fmt.Sprintf(
-			"request carries %d projections, more than maxProjectionsPerRequest (%d)", n, maxProjectionsPerRequest)}
-	}
-	return validateProjections(req, maxProjectionSize, "")
+	_, _ = w.Write([]byte(p.Payload))
 }
 
 // validateProjections checks each projection: its own Validate(), then

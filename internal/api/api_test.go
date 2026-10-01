@@ -23,10 +23,8 @@ const testToken = "test-token"
 // defaults below.
 type testOptions struct {
 	devMode   bool
-	logLevel  string        // default: debug
-	maxQueued int           // default: uncapped
-	timeout   time.Duration // default: 5s
-	ceiling   time.Duration // default: 15s
+	logLevel  string // default: debug
+	maxQueued int    // default: uncapped
 }
 
 func newTestServer(t *testing.T) (*Server, *txn.Manager, *store.Store) {
@@ -39,85 +37,42 @@ func newTestServerWith(t *testing.T, o testOptions) (*Server, *txn.Manager, *sto
 	if o.logLevel == "" {
 		o.logLevel = "debug"
 	}
-	if o.timeout == 0 {
-		o.timeout = 5 * time.Second
-	}
-	if o.ceiling == 0 {
-		o.ceiling = 15 * time.Second
-	}
 	dir := t.TempDir()
 	st, err := store.Open(context.Background(), filepath.Join(dir, "test.db"), 0)
 	if err != nil {
 		t.Fatalf("store.Open() error = %v", err)
 	}
 	t.Cleanup(func() { st.Close() })
-	tm := txn.New(st, txn.Config{
-		Timeout:   o.timeout,
-		Ceiling:   o.ceiling,
-		MaxQueued: o.maxQueued,
-		OnExpire:  ExpiryLogger(o.logLevel),
-	})
+	tm := txn.New(st, txn.Config{MaxQueued: o.maxQueued})
 	t.Cleanup(tm.Close) // runs before st.Close
 	srv := New(tm, st, Options{
-		EnableAuth:               true,
-		AuthToken:                testToken,
-		DefaultEventsPerPage:     1000,
-		MaxEventsPerPage:         10000,
-		MaxEventSize:             65536,
-		MaxProjectionSize:        65536,
-		MaxProjectionsPerRequest: 100,
-		MaxEventsPerWrite:        100,
-		MaxProjectionsPerWrite:   500,
-		MaxRequestBodySize:       8 << 20,
-		LogLevel:                 o.logLevel,
-		DevMode:                  o.devMode,
+		EnableAuth:             true,
+		AuthToken:              testToken,
+		DefaultEventsPerPage:   1000,
+		MaxEventsPerPage:       10000,
+		MaxEventSize:           65536,
+		MaxProjectionSize:      65536,
+		MaxEventsPerWrite:      100,
+		MaxProjectionsPerWrite: 500,
+		MaxRequestBodySize:     8 << 20,
+		LogLevel:               o.logLevel,
+		DevMode:                o.devMode,
 	})
 	return srv, tm, st
 }
 
-// doRequest issues an authenticated request against srv, with no ticket,
-// and returns the recorded response.
+// doRequest issues an authenticated request against srv and returns the
+// recorded response.
 func doRequest(t *testing.T, srv *Server, method, path, body string) *httptest.ResponseRecorder {
-	t.Helper()
-	return doTicketRequest(t, srv, method, path, "", body)
-}
-
-// doTicketRequest is doRequest with a ticket, when ticket isn't empty.
-func doTicketRequest(t *testing.T, srv *Server, method, path, ticket, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest(method, path, strings.NewReader(body))
 	req.Header.Set("Authorization", "Bearer "+testToken)
 	if body != "" {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	if ticket != "" {
-		req.Header.Set(TicketHeader, ticket)
-	}
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
 	return rec
-}
-
-// begin opens a transaction over HTTP and returns its ticket.
-func begin(t *testing.T, srv *Server) string {
-	t.Helper()
-	rec := doRequest(t, srv, "POST", "/begin", "")
-	if rec.Code != 200 {
-		t.Fatalf("POST /begin status = %d, body = %s", rec.Code, rec.Body.String())
-	}
-	var resp beginResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("decode POST /begin response: %v", err)
-	}
-	return resp.Ticket
-}
-
-// commit commits ticket's transaction over HTTP.
-func commit(t *testing.T, srv *Server, ticket string) {
-	t.Helper()
-	if rec := doTicketRequest(t, srv, "POST", "/commit", ticket, ""); rec.Code != 204 {
-		t.Fatalf("POST /commit status = %d, body = %s", rec.Code, rec.Body.String())
-	}
 }
 
 // appendCommitted writes body, a POST /write body, and returns the

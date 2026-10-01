@@ -174,11 +174,6 @@ file works whether you run one binary or both.
 : Env: `TAMARACKDB_MAX_PROJECTION_SIZE`
 : Default: `65536` (64 KiB)
 
-`maxProjectionsPerRequest`
-: Maximum projections in a single `POST /projections` call.
-: Env: `TAMARACKDB_MAX_PROJECTIONS_PER_REQUEST`
-: Default: `100`
-
 `maxEventsPerWrite` / `maxProjectionsPerWrite`
 : Maximum events, and projections, in a single `POST /write`. `maxEventsPerWrite` also caps its Append Conditions.
 : Env: `TAMARACKDB_MAX_EVENTS_PER_WRITE` / `TAMARACKDB_MAX_PROJECTIONS_PER_WRITE`
@@ -192,23 +187,13 @@ file works whether you run one binary or both.
 The size and count defaults are a cautious starting point. Find your real limits in development, with your
 application's data, then set the same values in production. Every error from a limit names the setting to raise.
 
-`transactionTimeout`
-: Seconds a transaction may go without a call before it's rolled back. Each call renews it.
-: Env: `TAMARACKDB_TRANSACTION_TIMEOUT`
-: Default: `5`
-
-`maxTransactionDuration`
-: Seconds a transaction may last in total, however many calls it makes. Must be at least `transactionTimeout`.
-: Env: `TAMARACKDB_MAX_TRANSACTION_DURATION`
-: Default: `15`
-
-`maxQueuedTransactions`
-: Maximum requests waiting for their turn at once. One more gets `503 TransactionQueueFull`.
-: Env: `TAMARACKDB_MAX_QUEUED_TRANSACTIONS`
+`maxQueuedWrites`
+: Maximum requests waiting for their turn at once: `POST /write`, the bulk deletes of projections, and `POST /reset`. One more gets `503 WriteQueueFull`.
+: Env: `TAMARACKDB_MAX_QUEUED_WRITES`
 : Default: `100`
 
 `readPoolSize`
-: SQLite connections available for reads without a ticket (`QUERY /events`, `GET /projections/{type}/{id}`), and so how many can run at once.
+: SQLite connections available for reads (`QUERY /events`, `GET /projections/{type}/{id}`), and so how many can run at once.
 : Env: `TAMARACKDB_READ_POOL_SIZE`
 : Default: `8`
 

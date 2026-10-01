@@ -1,29 +1,26 @@
 package api
 
 import (
-	"context"
 	"strconv"
 	"strings"
 	"testing"
-	"time"
 )
 
 func TestMetricsOutput(t *testing.T) {
 	srv, tm, _ := newTestServer(t)
 
-	provokeConflict(t, srv) // two POST /write: one written, one failed on its Append Condition
-	rolledBack := begin(t, srv)
-	doTicketRequest(t, srv, "POST", "/rollback", rolledBack, "")
+	provokeConflict(t, srv) // one write committed, one refused on its Append Condition
+	rec := doRequest(t, srv, "POST", "/write", `{"projections":{"replace":[{"type":"p","id":"1","version":"v","payload":"x"}]}}`)
+	if rec.Code != 409 {
+		t.Fatalf("stale replace status = %d, want 409", rec.Code)
+	}
 
-	holder := begin(t, srv)
-	queued := make(chan string, 1)
-	go func() {
-		ticket, _ := tm.Begin(context.Background())
-		queued <- ticket
-	}()
-	time.Sleep(50 * time.Millisecond) // let the goroutine reach the FIFO
+	release := holdTurn(t, tm)
+	queued := make(chan int, 1)
+	go func() { queued <- doRequest(t, srv, "DELETE", "/projections", "").Code }()
+	waitQueued(t, tm, 1)
 
-	rec := doRequest(t, srv, "GET", "/metrics", "")
+	rec = doRequest(t, srv, "GET", "/metrics", "")
 	if rec.Code != 200 {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
 	}
@@ -33,16 +30,13 @@ func TestMetricsOutput(t *testing.T) {
 
 	values := parseMetrics(t, rec.Body.String())
 	for name, want := range map[string]float64{
-		"tamarackdb_transaction_active":                               1,
-		"tamarackdb_requests_queued":                                  1,
-		"tamarackdb_transactions_started_total":                       2,
-		"tamarackdb_transactions_committed_total":                     0,
-		`tamarackdb_transactions_rolled_back_total{reason="client"}`:  1,
-		`tamarackdb_transactions_rolled_back_total{reason="error"}`:   0,
-		`tamarackdb_transactions_rolled_back_total{reason="expired"}`: 0,
-		`tamarackdb_transaction_duration_seconds_bucket{le="+Inf"}`:   1,
-		"tamarackdb_transaction_duration_seconds_count":               1,
-		"tamarackdb_appends_failed_total":                             1,
+		"tamarackdb_write_active":                               1,
+		"tamarackdb_requests_queued":                            1,
+		"tamarackdb_writes_committed_total":                     1,
+		`tamarackdb_writes_rejected_total{reason="condition"}`:  1,
+		`tamarackdb_writes_rejected_total{reason="projection"}`: 1,
+		`tamarackdb_write_duration_seconds_bucket{le="+Inf"}`:   3,
+		"tamarackdb_write_duration_seconds_count":               3,
 	} {
 		if got, ok := values[name]; !ok || got != want {
 			t.Errorf("%s = %v (present=%v), want %v", name, got, ok, want)
@@ -52,9 +46,9 @@ func TestMetricsOutput(t *testing.T) {
 		t.Errorf("tamarackdb_queue_longest_wait_seconds = %v, want > 0", values["tamarackdb_queue_longest_wait_seconds"])
 	}
 
-	commit(t, srv, holder)
-	if ticket := <-queued; ticket != "" {
-		tm.Rollback(ticket)
+	release()
+	if code := <-queued; code != 204 {
+		t.Errorf("queued DELETE /projections status = %d, want 204", code)
 	}
 }
 

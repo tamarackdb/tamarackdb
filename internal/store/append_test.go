@@ -248,14 +248,15 @@ func TestAppendFailedConditionLeavesNoGapInSequence(t *testing.T) {
 	}
 }
 
-// TestAppendLargeBatchWithinSQLiteVariableLimit locks in the documented
-// worst case (100 events, 20 identifiers and 20 metadata entries each) as
-// a regression test against SQLite's SQLITE_MAX_VARIABLE_NUMBER (32766 in
-// the vendored modernc.org/sqlite): the multi-row INSERT batching in
-// Append must never emit more bound parameters than that limit allows.
+// TestAppendLargeBatchWithinSQLiteVariableLimit appends 1000 events, ten
+// times the default maxEventsPerWrite, with 20 identifiers and 20
+// metadata entries each, as a regression test against SQLite's
+// SQLITE_MAX_VARIABLE_NUMBER (32766 in the vendored modernc.org/sqlite):
+// the multi-row INSERT batching in Append must never emit more bound
+// parameters than that limit allows, whatever maxEventsPerWrite is set to.
 func TestAppendLargeBatchWithinSQLiteVariableLimit(t *testing.T) {
 	s := openTestStore(t)
-	events := make([]dcb.EventData, dcb.MaxEventsPerWrite)
+	events := make([]dcb.EventData, 1000)
 	for i := range events {
 		ids := make(dcb.IdentifierSet, dcb.MaxIdentifiers)
 		mds := make(dcb.MetadataSet, dcb.MaxMetadata)
@@ -414,5 +415,49 @@ func TestAppendReturnsTheStoreID(t *testing.T) {
 		if got.StoreID != s.storeID {
 			t.Errorf("StoreID with %d events = %q, want %q", len(events), got.StoreID, s.storeID)
 		}
+	}
+}
+
+// TestAppendProjectionConflictWritesNothing checks that a projection
+// conflict rolls back the events written with it, and leaves no gap in the
+// sequence.
+func TestAppendProjectionConflictWritesNothing(t *testing.T) {
+	s := openTestStore(t)
+	first := mustAppend(t, s, []dcb.EventData{{Type: "a"}}, nil)
+
+	_, err := s.Append(context.Background(), []dcb.EventData{{Type: "b"}}, nil, projection.Writes{
+		Replace: []projection.Replace{{Type: "user-profile", ID: "123", Version: "missing", Payload: strPtr("x")}},
+	})
+	var pe *ProjectionConflictError
+	if !errors.As(err, &pe) {
+		t.Fatalf("Append() error = %v, want a *ProjectionConflictError", err)
+	}
+
+	events, _ := mustReadAll(t, s, ReadFilter{Query: dcb.QueryAll(), Limit: 10})
+	if len(events) != 1 {
+		t.Errorf("got %d events after the conflict, want 1", len(events))
+	}
+	if next := mustAppend(t, s, []dcb.EventData{{Type: "c"}}, nil); next[0].Sequence != first[0].Sequence+1 {
+		t.Errorf("Sequence after the conflict = %d, want %d", next[0].Sequence, first[0].Sequence+1)
+	}
+}
+
+// TestAppendFailedInsertPutsTheCounterBack checks that a write failing
+// after its Sequence Positions were reserved gives them back: here, a row
+// already sits at the next sequence, outside Append, so the insert fails.
+func TestAppendFailedInsertPutsTheCounterBack(t *testing.T) {
+	s := openTestStore(t)
+	mustAppend(t, s, []dcb.EventData{{Type: "a"}}, nil)
+	before := s.peekLastAssigned()
+	if _, err := s.writeDB.Exec(`INSERT INTO events (sequence, time, type, payload, identifiers, metadata)
+		VALUES (?, '2026-01-01T00:00:00.000000Z', 'squatter', '', '{}', '{}')`, before+1); err != nil {
+		t.Fatalf("insert squatter row: %v", err)
+	}
+
+	if _, err := s.Append(context.Background(), []dcb.EventData{{Type: "b"}}, nil, projection.Writes{}); err == nil {
+		t.Fatal("Append() error = nil, want the insert to fail")
+	}
+	if got := s.peekLastAssigned(); got != before {
+		t.Errorf("last assigned sequence = %d after the failed write, want %d", got, before)
 	}
 }

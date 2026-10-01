@@ -20,38 +20,33 @@ func getDebug(t *testing.T, srv *Server) (debugResponse, string) {
 	return resp, rec.Body.String()
 }
 
-func TestDebugReflectsActiveTransactionAndQueue(t *testing.T) {
-	srv, _, _ := newTestServer(t)
-	ticket := begin(t, srv)
-	doTicketRequest(t, srv, "QUERY", "/events", ticket, `{"query":"*"}`)
+func TestDebugReflectsTheTurnAndQueue(t *testing.T) {
+	srv, tm, _ := newTestServer(t)
+	release := holdTurn(t, tm)
 
-	queued := make(chan string, 1)
-	go func() { queued <- begin(t, srv) }()
-	time.Sleep(50 * time.Millisecond)
+	queued := make(chan int, 1)
+	go func() { queued <- doRequest(t, srv, "POST", "/write", `{"events":[{"type":"t","payload":""}]}`).Code }()
+	waitQueued(t, tm, 1)
 
-	resp, body := getDebug(t, srv)
-	if strings.Contains(body, ticket) {
-		t.Errorf("body = %s, must never carry the ticket", body)
-	}
+	resp, _ := getDebug(t, srv)
 	a := resp.Write.Active
-	if a == nil {
-		t.Fatal("Write.Active = nil, want the active transaction")
+	if a == nil || a.Kind != "write" || a.AgeSeconds < 0 || a.Since.IsZero() {
+		t.Errorf("Write.Active = %+v, want the write holding the turn", a)
 	}
-	if a.Calls != 1 || a.AgeSeconds < 0 || !a.Ceiling.Equal(a.Since.Add(15*time.Second)) || a.Deadline.After(a.Ceiling.Time) {
-		t.Errorf("Write.Active = %+v, want 1 call, ceiling = since + 15s, deadline before the ceiling", a)
-	}
-	if len(resp.Write.Queued) != 1 || resp.Write.Queued[0].Kind != "transaction" {
-		t.Errorf("Write.Queued = %+v, want one transaction", resp.Write.Queued)
+	if len(resp.Write.Queued) != 1 || resp.Write.Queued[0].Kind != "write" {
+		t.Errorf("Write.Queued = %+v, want one write", resp.Write.Queued)
 	}
 	if resp.Write.HTTPOpen != 1 {
-		t.Errorf("Write.HTTPOpen = %d, want 1 (the queued POST /begin)", resp.Write.HTTPOpen)
+		t.Errorf("Write.HTTPOpen = %d, want 1 (the queued POST /write)", resp.Write.HTTPOpen)
 	}
 	if resp.Write.SQLiteMax != 1 {
 		t.Errorf("Write.SQLiteMax = %d, want 1", resp.Write.SQLiteMax)
 	}
 
-	commit(t, srv, ticket)
-	commit(t, srv, <-queued)
+	release()
+	if code := <-queued; code != 200 {
+		t.Errorf("queued POST /write status = %d, want 200", code)
+	}
 }
 
 func TestDebugEmptyState(t *testing.T) {

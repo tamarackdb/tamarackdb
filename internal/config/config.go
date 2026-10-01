@@ -1,6 +1,6 @@
 // Package config loads TamarackDB's startup configuration: socket path or
-// bind address/port, auth token, data directory, transaction timeouts, and
-// pagination/size/queue limits.
+// bind address/port, auth token, data directory, and pagination, size,
+// and queue limits.
 //
 // Values come from a TOML file when present, with any field it omits (or
 // the whole file, if missing) filled in from TAMARACKDB_* environment
@@ -26,24 +26,21 @@ import (
 // Default values for Config's optional fields, exported so callers (such as
 // a -default-config flag) can print them without duplicating the numbers.
 const (
-	DefaultSocketPath               = "/run/tamarackdb/tamarackdb.sock"
-	DefaultSocketMode               = "0600"
-	DefaultBindAddress              = "127.0.0.1"
-	DefaultPort                     = 8085
-	DefaultDataDir                  = "data"
-	DefaultEventsPerPage            = 1000
-	DefaultMaxEventsPerPage         = 10000
-	DefaultEventSize                = 65536 // 64 KiB
-	DefaultMaxQueuedTransactions    = 100
-	DefaultTransactionTimeout       = 5  // seconds
-	DefaultMaxTransactionDuration   = 15 // seconds
-	DefaultReadPoolSize             = 8
-	DefaultProjectionSize           = 65536 // 64 KiB
-	DefaultMaxProjectionsPerRequest = 100
-	DefaultMaxEventsPerWrite        = 100
-	DefaultMaxProjectionsPerWrite   = 500
-	DefaultMaxRequestBodySize       = 8 << 20 // 8 MiB
-	DefaultLogLevel                 = "warning"
+	DefaultSocketPath             = "/run/tamarackdb/tamarackdb.sock"
+	DefaultSocketMode             = "0600"
+	DefaultBindAddress            = "127.0.0.1"
+	DefaultPort                   = 8085
+	DefaultDataDir                = "data"
+	DefaultEventsPerPage          = 1000
+	DefaultMaxEventsPerPage       = 10000
+	DefaultEventSize              = 65536 // 64 KiB
+	DefaultMaxQueuedWrites        = 100
+	DefaultReadPoolSize           = 8
+	DefaultProjectionSize         = 65536 // 64 KiB
+	DefaultMaxEventsPerWrite      = 100
+	DefaultMaxProjectionsPerWrite = 500
+	DefaultMaxRequestBodySize     = 8 << 20 // 8 MiB
+	DefaultLogLevel               = "warning"
 )
 
 // databaseFilename is the fixed filename TamarackDB uses within DataDir:
@@ -105,13 +102,8 @@ type Config struct {
 
 	// MaxProjectionSize is the maximum combined UTF-8 byte size of one
 	// projection's type, id, and payload (a deletion has no payload) in a
-	// POST /projections request. Optional; defaulted by Load when omitted.
+	// POST /write request. Optional; defaulted by Load when omitted.
 	MaxProjectionSize int `toml:"maxProjectionSize"` // default: 65536 (64 KiB)
-
-	// MaxProjectionsPerRequest caps how many projections a single
-	// POST /projections request may carry. Optional; defaulted by Load when
-	// omitted.
-	MaxProjectionsPerRequest int `toml:"maxProjectionsPerRequest"` // default: 100
 
 	// MaxEventsPerWrite and MaxProjectionsPerWrite cap how many events and
 	// projections a single POST /write may carry. The defaults are a
@@ -127,26 +119,18 @@ type Config struct {
 	// rules. Optional; defaulted by Load when omitted.
 	MaxRequestBodySize int `toml:"maxRequestBodySize"` // default: 8388608 (8 MiB)
 
-	// TransactionTimeout is a transaction's idle timeout, in seconds: how
-	// long it may go without a call before it's rolled back, counted from
-	// the moment its ticket is given out, then from the end of each call.
-	// MaxTransactionDuration is the total time, in seconds, no transaction can
-	// exceed, however many calls it makes. The timeout can't be greater
-	// than the ceiling. Optional; defaulted by Load when omitted.
-	TransactionTimeout     int `toml:"transactionTimeout"`     // default: 5
-	MaxTransactionDuration int `toml:"maxTransactionDuration"` // default: 15
-
-	// MaxQueuedTransactions caps how many requests may wait in the FIFO
-	// at once; one more gets 503 TransactionQueueFull instead of joining.
+	// MaxQueuedWrites caps how many requests may wait in the FIFO at once:
+	// POST /write, the bulk deletes of projections, and POST /reset. One
+	// more gets 503 WriteQueueFull instead of joining.
 	// Optional; defaulted by Load when omitted. It isn't "0 means no
 	// limit": a FIFO with no bound would let a burst, or a broken client,
 	// pile up an unlimited number of blocked HTTP connections, so every
 	// deployment gets a bound. There is no cap on how long a request
 	// waits: its client ends the wait by closing the connection.
-	MaxQueuedTransactions int `toml:"maxQueuedTransactions"` // default: 100
+	MaxQueuedWrites int `toml:"maxQueuedWrites"` // default: 100
 
 	// ReadPoolSize is the number of SQLite connections available for
-	// reads without a ticket, and so the number that can execute
+	// reads, and so the number that can execute
 	// concurrently: further requests wait for one to free up. Optional;
 	// defaulted by Load when omitted, like the fields above.
 	ReadPoolSize int `toml:"readPoolSize"` // default: 8
@@ -212,9 +196,6 @@ func Load(path string) (*Config, error) {
 	if cfg.MaxProjectionSize == 0 {
 		cfg.MaxProjectionSize = DefaultProjectionSize
 	}
-	if cfg.MaxProjectionsPerRequest == 0 {
-		cfg.MaxProjectionsPerRequest = DefaultMaxProjectionsPerRequest
-	}
 	if cfg.MaxEventsPerWrite == 0 {
 		cfg.MaxEventsPerWrite = DefaultMaxEventsPerWrite
 	}
@@ -224,14 +205,8 @@ func Load(path string) (*Config, error) {
 	if cfg.MaxRequestBodySize == 0 {
 		cfg.MaxRequestBodySize = DefaultMaxRequestBodySize
 	}
-	if cfg.TransactionTimeout == 0 {
-		cfg.TransactionTimeout = DefaultTransactionTimeout
-	}
-	if cfg.MaxTransactionDuration == 0 {
-		cfg.MaxTransactionDuration = DefaultMaxTransactionDuration
-	}
-	if cfg.MaxQueuedTransactions == 0 {
-		cfg.MaxQueuedTransactions = DefaultMaxQueuedTransactions
+	if cfg.MaxQueuedWrites == 0 {
+		cfg.MaxQueuedWrites = DefaultMaxQueuedWrites
 	}
 	if cfg.ReadPoolSize == 0 {
 		cfg.ReadPoolSize = DefaultReadPoolSize
@@ -270,13 +245,10 @@ func applyEnv(cfg *Config, inFile fileBools) error {
 		envInt(&cfg.MaxEventsPerPage, "TAMARACKDB_MAX_EVENTS_PER_PAGE"),
 		envInt(&cfg.MaxEventSize, "TAMARACKDB_MAX_EVENT_SIZE"),
 		envInt(&cfg.MaxProjectionSize, "TAMARACKDB_MAX_PROJECTION_SIZE"),
-		envInt(&cfg.MaxProjectionsPerRequest, "TAMARACKDB_MAX_PROJECTIONS_PER_REQUEST"),
 		envInt(&cfg.MaxEventsPerWrite, "TAMARACKDB_MAX_EVENTS_PER_WRITE"),
 		envInt(&cfg.MaxProjectionsPerWrite, "TAMARACKDB_MAX_PROJECTIONS_PER_WRITE"),
 		envInt(&cfg.MaxRequestBodySize, "TAMARACKDB_MAX_REQUEST_BODY_SIZE"),
-		envInt(&cfg.TransactionTimeout, "TAMARACKDB_TRANSACTION_TIMEOUT"),
-		envInt(&cfg.MaxTransactionDuration, "TAMARACKDB_MAX_TRANSACTION_DURATION"),
-		envInt(&cfg.MaxQueuedTransactions, "TAMARACKDB_MAX_QUEUED_TRANSACTIONS"),
+		envInt(&cfg.MaxQueuedWrites, "TAMARACKDB_MAX_QUEUED_WRITES"),
 		envInt(&cfg.ReadPoolSize, "TAMARACKDB_READ_POOL_SIZE"),
 	)
 }
@@ -357,22 +329,14 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("maxEventSize must be positive, got %d", c.MaxEventSize)
 	case c.MaxProjectionSize <= 0:
 		return fmt.Errorf("maxProjectionSize must be positive, got %d", c.MaxProjectionSize)
-	case c.MaxProjectionsPerRequest <= 0:
-		return fmt.Errorf("maxProjectionsPerRequest must be positive, got %d", c.MaxProjectionsPerRequest)
 	case c.MaxEventsPerWrite <= 0:
 		return fmt.Errorf("maxEventsPerWrite must be positive, got %d", c.MaxEventsPerWrite)
 	case c.MaxProjectionsPerWrite <= 0:
 		return fmt.Errorf("maxProjectionsPerWrite must be positive, got %d", c.MaxProjectionsPerWrite)
 	case c.MaxRequestBodySize <= 0:
 		return fmt.Errorf("maxRequestBodySize must be positive, got %d", c.MaxRequestBodySize)
-	case c.TransactionTimeout <= 0:
-		return fmt.Errorf("transactionTimeout must be positive, got %d", c.TransactionTimeout)
-	case c.MaxTransactionDuration <= 0:
-		return fmt.Errorf("maxTransactionDuration must be positive, got %d", c.MaxTransactionDuration)
-	case c.TransactionTimeout > c.MaxTransactionDuration:
-		return fmt.Errorf("transactionTimeout (%d) must not exceed maxTransactionDuration (%d)", c.TransactionTimeout, c.MaxTransactionDuration)
-	case c.MaxQueuedTransactions <= 0:
-		return fmt.Errorf("maxQueuedTransactions must be positive, got %d", c.MaxQueuedTransactions)
+	case c.MaxQueuedWrites <= 0:
+		return fmt.Errorf("maxQueuedWrites must be positive, got %d", c.MaxQueuedWrites)
 	case c.ReadPoolSize <= 0:
 		return fmt.Errorf("readPoolSize must be positive, got %d", c.ReadPoolSize)
 	}

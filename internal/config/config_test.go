@@ -27,11 +27,10 @@ func TestLoadFullConfig(t *testing.T) {
 		maxEventsPerPage = 5000
 		maxEventSize = 32768
 		maxProjectionSize = 16384
-		maxProjectionsPerRequest = 50
 		maxEventsPerWrite = 20
 		maxProjectionsPerWrite = 200
 		maxRequestBodySize = 1048576
-		maxQueuedTransactions = 250
+		maxQueuedWrites = 250
 		readPoolSize = 16
 	`)
 
@@ -44,9 +43,9 @@ func TestLoadFullConfig(t *testing.T) {
 		EnableAuth: true, AuthToken: "secret", DataDir: "/var/lib/tamarackdb",
 		LogLevel:             DefaultLogLevel,
 		DefaultEventsPerPage: 500, MaxEventsPerPage: 5000, MaxEventSize: 32768,
-		MaxProjectionSize: 16384, MaxProjectionsPerRequest: 50,
+		MaxProjectionSize: 16384,
 		MaxEventsPerWrite: 20, MaxProjectionsPerWrite: 200, MaxRequestBodySize: 1 << 20,
-		TransactionTimeout: 5, MaxTransactionDuration: 15, MaxQueuedTransactions: 250, ReadPoolSize: 16,
+		MaxQueuedWrites: 250, ReadPoolSize: 16,
 	}
 	if *cfg != want {
 		t.Errorf("Load() = %+v, want %+v", *cfg, want)
@@ -105,9 +104,6 @@ func TestLoadAppliesDefaults(t *testing.T) {
 	if cfg.MaxProjectionSize != DefaultProjectionSize {
 		t.Errorf("MaxProjectionSize = %d, want %d", cfg.MaxProjectionSize, DefaultProjectionSize)
 	}
-	if cfg.MaxProjectionsPerRequest != DefaultMaxProjectionsPerRequest {
-		t.Errorf("MaxProjectionsPerRequest = %d, want %d", cfg.MaxProjectionsPerRequest, DefaultMaxProjectionsPerRequest)
-	}
 	if cfg.MaxEventsPerWrite != DefaultMaxEventsPerWrite {
 		t.Errorf("MaxEventsPerWrite = %d, want %d", cfg.MaxEventsPerWrite, DefaultMaxEventsPerWrite)
 	}
@@ -117,14 +113,8 @@ func TestLoadAppliesDefaults(t *testing.T) {
 	if cfg.MaxRequestBodySize != DefaultMaxRequestBodySize {
 		t.Errorf("MaxRequestBodySize = %d, want %d", cfg.MaxRequestBodySize, DefaultMaxRequestBodySize)
 	}
-	if cfg.MaxQueuedTransactions != DefaultMaxQueuedTransactions {
-		t.Errorf("MaxQueuedTransactions = %d, want %d", cfg.MaxQueuedTransactions, DefaultMaxQueuedTransactions)
-	}
-	if cfg.TransactionTimeout != DefaultTransactionTimeout {
-		t.Errorf("TransactionTimeout = %d, want %d", cfg.TransactionTimeout, DefaultTransactionTimeout)
-	}
-	if cfg.MaxTransactionDuration != DefaultMaxTransactionDuration {
-		t.Errorf("MaxTransactionDuration = %d, want %d", cfg.MaxTransactionDuration, DefaultMaxTransactionDuration)
+	if cfg.MaxQueuedWrites != DefaultMaxQueuedWrites {
+		t.Errorf("MaxQueuedWrites = %d, want %d", cfg.MaxQueuedWrites, DefaultMaxQueuedWrites)
 	}
 	if cfg.ReadPoolSize != DefaultReadPoolSize {
 		t.Errorf("ReadPoolSize = %d, want %d", cfg.ReadPoolSize, DefaultReadPoolSize)
@@ -281,9 +271,9 @@ func TestLoadFileNotFoundUsesBuiltInDefaults(t *testing.T) {
 	want := Config{
 		SocketPath: DefaultSocketPath, SocketMode: DefaultSocketMode, DataDir: DefaultDataDir, LogLevel: DefaultLogLevel,
 		DefaultEventsPerPage: DefaultEventsPerPage, MaxEventsPerPage: DefaultMaxEventsPerPage, MaxEventSize: DefaultEventSize,
-		MaxProjectionSize: DefaultProjectionSize, MaxProjectionsPerRequest: DefaultMaxProjectionsPerRequest,
+		MaxProjectionSize: DefaultProjectionSize,
 		MaxEventsPerWrite: DefaultMaxEventsPerWrite, MaxProjectionsPerWrite: DefaultMaxProjectionsPerWrite, MaxRequestBodySize: DefaultMaxRequestBodySize,
-		TransactionTimeout: 5, MaxTransactionDuration: 15, MaxQueuedTransactions: DefaultMaxQueuedTransactions, ReadPoolSize: DefaultReadPoolSize,
+		MaxQueuedWrites: DefaultMaxQueuedWrites, ReadPoolSize: DefaultReadPoolSize,
 	}
 	if *cfg != want {
 		t.Errorf("Load() = %+v, want %+v", *cfg, want)
@@ -389,9 +379,9 @@ func TestLoadFromEnvWithoutFile(t *testing.T) {
 		BindAddress: "0.0.0.0", Port: 8443,
 		AuthToken: "secret", DataDir: "data", LogLevel: DefaultLogLevel,
 		DefaultEventsPerPage: DefaultEventsPerPage, MaxEventsPerPage: DefaultMaxEventsPerPage, MaxEventSize: DefaultEventSize,
-		MaxProjectionSize: DefaultProjectionSize, MaxProjectionsPerRequest: DefaultMaxProjectionsPerRequest,
+		MaxProjectionSize: DefaultProjectionSize,
 		MaxEventsPerWrite: DefaultMaxEventsPerWrite, MaxProjectionsPerWrite: DefaultMaxProjectionsPerWrite, MaxRequestBodySize: DefaultMaxRequestBodySize,
-		TransactionTimeout: 5, MaxTransactionDuration: 15, MaxQueuedTransactions: DefaultMaxQueuedTransactions, ReadPoolSize: DefaultReadPoolSize,
+		MaxQueuedWrites: DefaultMaxQueuedWrites, ReadPoolSize: DefaultReadPoolSize,
 	}
 	if *cfg != want {
 		t.Errorf("Load() = %+v, want %+v", *cfg, want)
@@ -468,25 +458,25 @@ func TestLoadMalformedTOML(t *testing.T) {
 	}
 }
 
-func TestLoadMaxQueuedTransactionsFromFile(t *testing.T) {
+func TestLoadMaxQueuedWritesFromFile(t *testing.T) {
 	path := writeConfigFile(t, `[server]
 		bindAddress = "0.0.0.0"
 		port = 8443
 		authToken = "secret"
 		dataDir = "data"
-		maxQueuedTransactions = 50
+		maxQueuedWrites = 50
 	`)
 	cfg, err := Load(path)
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	if cfg.MaxQueuedTransactions != 50 {
-		t.Errorf("MaxQueuedTransactions = %d, want 50", cfg.MaxQueuedTransactions)
+	if cfg.MaxQueuedWrites != 50 {
+		t.Errorf("MaxQueuedWrites = %d, want 50", cfg.MaxQueuedWrites)
 	}
 }
 
-func TestLoadMaxQueuedTransactionsFromEnv(t *testing.T) {
-	setEnv(t, map[string]string{"TAMARACKDB_MAX_QUEUED_TRANSACTIONS": "25"})
+func TestLoadMaxQueuedWritesFromEnv(t *testing.T) {
+	setEnv(t, map[string]string{"TAMARACKDB_MAX_QUEUED_WRITES": "25"})
 	path := writeConfigFile(t, `[server]
 		bindAddress = "0.0.0.0"
 		port = 8443
@@ -497,26 +487,26 @@ func TestLoadMaxQueuedTransactionsFromEnv(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	if cfg.MaxQueuedTransactions != 25 {
-		t.Errorf("MaxQueuedTransactions = %d, want 25 (from env)", cfg.MaxQueuedTransactions)
+	if cfg.MaxQueuedWrites != 25 {
+		t.Errorf("MaxQueuedWrites = %d, want 25 (from env)", cfg.MaxQueuedWrites)
 	}
 }
 
-func TestLoadMaxQueuedTransactionsFileTakesPrecedenceOverEnv(t *testing.T) {
-	setEnv(t, map[string]string{"TAMARACKDB_MAX_QUEUED_TRANSACTIONS": "25"})
+func TestLoadMaxQueuedWritesFileTakesPrecedenceOverEnv(t *testing.T) {
+	setEnv(t, map[string]string{"TAMARACKDB_MAX_QUEUED_WRITES": "25"})
 	path := writeConfigFile(t, `[server]
 		bindAddress = "0.0.0.0"
 		port = 8443
 		authToken = "secret"
 		dataDir = "data"
-		maxQueuedTransactions = 50
+		maxQueuedWrites = 50
 	`)
 	cfg, err := Load(path)
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	if cfg.MaxQueuedTransactions != 50 {
-		t.Errorf("MaxQueuedTransactions = %d, want 50 (file must win over env)", cfg.MaxQueuedTransactions)
+	if cfg.MaxQueuedWrites != 50 {
+		t.Errorf("MaxQueuedWrites = %d, want 50 (file must win over env)", cfg.MaxQueuedWrites)
 	}
 }
 
@@ -655,40 +645,6 @@ func TestLoadMaxProjectionSizeFromEnv(t *testing.T) {
 	}
 }
 
-func TestLoadMaxProjectionsPerRequestFromFile(t *testing.T) {
-	path := writeConfigFile(t, `[server]
-		bindAddress = "0.0.0.0"
-		port = 8443
-		authToken = "secret"
-		dataDir = "data"
-		maxProjectionsPerRequest = 25
-	`)
-	cfg, err := Load(path)
-	if err != nil {
-		t.Fatalf("Load() error = %v", err)
-	}
-	if cfg.MaxProjectionsPerRequest != 25 {
-		t.Errorf("MaxProjectionsPerRequest = %d, want 25", cfg.MaxProjectionsPerRequest)
-	}
-}
-
-func TestLoadMaxProjectionsPerRequestFromEnv(t *testing.T) {
-	setEnv(t, map[string]string{"TAMARACKDB_MAX_PROJECTIONS_PER_REQUEST": "10"})
-	path := writeConfigFile(t, `[server]
-		bindAddress = "0.0.0.0"
-		port = 8443
-		authToken = "secret"
-		dataDir = "data"
-	`)
-	cfg, err := Load(path)
-	if err != nil {
-		t.Fatalf("Load() error = %v", err)
-	}
-	if cfg.MaxProjectionsPerRequest != 10 {
-		t.Errorf("MaxProjectionsPerRequest = %d, want 10 (from env)", cfg.MaxProjectionsPerRequest)
-	}
-}
-
 func TestLoadWriteLimitsFromEnv(t *testing.T) {
 	setEnv(t, map[string]string{
 		"TAMARACKDB_MAX_EVENTS_PER_WRITE":      "7",
@@ -768,9 +724,9 @@ func TestValidateLogLevelValues(t *testing.T) {
 				BindAddress: "0.0.0.0", Port: 8443,
 				AuthToken: "secret", DataDir: "data", LogLevel: lvl,
 				DefaultEventsPerPage: 1000, MaxEventsPerPage: 10000, MaxEventSize: 65536,
-				MaxProjectionSize: 65536, MaxProjectionsPerRequest: 100,
+				MaxProjectionSize: 65536,
 				MaxEventsPerWrite: 100, MaxProjectionsPerWrite: 500, MaxRequestBodySize: 8 << 20,
-				TransactionTimeout: 5, MaxTransactionDuration: 15, MaxQueuedTransactions: 100, ReadPoolSize: 8,
+				MaxQueuedWrites: 100, ReadPoolSize: 8,
 			}
 			if err := cfg.Validate(); err != nil {
 				t.Errorf("Validate() error = %v, want nil for logLevel = %q", err, lvl)
@@ -784,9 +740,9 @@ func TestValidateInvalidLogLevel(t *testing.T) {
 		BindAddress: "0.0.0.0", Port: 8443,
 		AuthToken: "secret", DataDir: "data", LogLevel: "verbose",
 		DefaultEventsPerPage: 1000, MaxEventsPerPage: 10000, MaxEventSize: 65536,
-		MaxProjectionSize: 65536, MaxProjectionsPerRequest: 100,
+		MaxProjectionSize: 65536,
 		MaxEventsPerWrite: 100, MaxProjectionsPerWrite: 500, MaxRequestBodySize: 8 << 20,
-		TransactionTimeout: 5, MaxTransactionDuration: 15, MaxQueuedTransactions: 100, ReadPoolSize: 8,
+		MaxQueuedWrites: 100, ReadPoolSize: 8,
 	}
 	if err := cfg.Validate(); err == nil {
 		t.Error("Validate() error = nil, want error for logLevel = \"verbose\"")
@@ -798,26 +754,12 @@ func TestValidateNonPositiveMaxProjectionSize(t *testing.T) {
 		BindAddress: "0.0.0.0", Port: 8443,
 		AuthToken: "secret", DataDir: "data", LogLevel: "warning",
 		DefaultEventsPerPage: 1000, MaxEventsPerPage: 10000, MaxEventSize: 65536,
-		MaxProjectionSize: 0, MaxProjectionsPerRequest: 100,
+		MaxProjectionSize: 0,
 		MaxEventsPerWrite: 100, MaxProjectionsPerWrite: 500, MaxRequestBodySize: 8 << 20,
-		TransactionTimeout: 5, MaxTransactionDuration: 15, MaxQueuedTransactions: 100, ReadPoolSize: 8,
+		MaxQueuedWrites: 100, ReadPoolSize: 8,
 	}
 	if err := cfg.Validate(); err == nil {
 		t.Error("Validate() error = nil, want error for MaxProjectionSize = 0")
-	}
-}
-
-func TestValidateNonPositiveMaxProjectionsPerRequest(t *testing.T) {
-	cfg := Config{
-		BindAddress: "0.0.0.0", Port: 8443,
-		AuthToken: "secret", DataDir: "data", LogLevel: "warning",
-		DefaultEventsPerPage: 1000, MaxEventsPerPage: 10000, MaxEventSize: 65536,
-		MaxProjectionSize: 65536, MaxProjectionsPerRequest: 0,
-		MaxEventsPerWrite: 100, MaxProjectionsPerWrite: 500, MaxRequestBodySize: 8 << 20,
-		TransactionTimeout: 5, MaxTransactionDuration: 15, MaxQueuedTransactions: 100, ReadPoolSize: 8,
-	}
-	if err := cfg.Validate(); err == nil {
-		t.Error("Validate() error = nil, want error for MaxProjectionsPerRequest = 0")
 	}
 }
 
@@ -832,9 +774,9 @@ func TestValidateNonPositiveWriteLimits(t *testing.T) {
 				BindAddress: "0.0.0.0", Port: 8443,
 				AuthToken: "secret", DataDir: "data", LogLevel: "warning",
 				DefaultEventsPerPage: 1000, MaxEventsPerPage: 10000, MaxEventSize: 65536,
-				MaxProjectionSize: 65536, MaxProjectionsPerRequest: 100,
+				MaxProjectionSize: 65536,
 				MaxEventsPerWrite: 100, MaxProjectionsPerWrite: 500, MaxRequestBodySize: 8 << 20,
-				TransactionTimeout: 5, MaxTransactionDuration: 15, MaxQueuedTransactions: 100, ReadPoolSize: 8,
+				MaxQueuedWrites: 100, ReadPoolSize: 8,
 			}
 			zero(&cfg)
 			if err := cfg.Validate(); err == nil {
@@ -849,9 +791,9 @@ func TestValidateEmptyDataDir(t *testing.T) {
 		BindAddress: "0.0.0.0", Port: 8443,
 		AuthToken: "secret", DataDir: "", LogLevel: "warning",
 		DefaultEventsPerPage: 1000, MaxEventsPerPage: 10000, MaxEventSize: 65536,
-		MaxProjectionSize: 65536, MaxProjectionsPerRequest: 100,
+		MaxProjectionSize: 65536,
 		MaxEventsPerWrite: 100, MaxProjectionsPerWrite: 500, MaxRequestBodySize: 8 << 20,
-		TransactionTimeout: 5, MaxTransactionDuration: 15, MaxQueuedTransactions: 100, ReadPoolSize: 8,
+		MaxQueuedWrites: 100, ReadPoolSize: 8,
 	}
 	if err := cfg.Validate(); err == nil {
 		t.Error("Validate() error = nil, want error for empty DataDir")
@@ -863,7 +805,7 @@ func TestValidateDirectly(t *testing.T) {
 		BindAddress: "0.0.0.0", Port: 8443,
 		EnableAuth: true, AuthToken: "secret", DataDir: "data", LogLevel: "warning",
 		DefaultEventsPerPage: 1000, MaxEventsPerPage: 10000, MaxEventSize: 65536,
-		MaxProjectionSize: 65536, MaxProjectionsPerRequest: 100, TransactionTimeout: 5, MaxTransactionDuration: 15, MaxQueuedTransactions: 100,
+		MaxProjectionSize: 65536, MaxQueuedWrites: 100,
 		MaxEventsPerWrite: 100, MaxProjectionsPerWrite: 500, MaxRequestBodySize: 8 << 20,
 		ReadPoolSize: 8,
 	}
@@ -877,10 +819,10 @@ func TestValidateDirectly(t *testing.T) {
 	}
 }
 
-func TestValidateNonPositiveMaxQueuedTransactions(t *testing.T) {
+func TestValidateNonPositiveMaxQueuedWrites(t *testing.T) {
 	tests := []struct {
-		name                  string
-		maxQueuedTransactions int
+		name            string
+		maxQueuedWrites int
 	}{
 		{"negative", -1},
 		{"zero", 0},
@@ -891,12 +833,12 @@ func TestValidateNonPositiveMaxQueuedTransactions(t *testing.T) {
 				BindAddress: "0.0.0.0", Port: 8443,
 				AuthToken: "secret", DataDir: "data", LogLevel: "warning",
 				DefaultEventsPerPage: 1000, MaxEventsPerPage: 10000, MaxEventSize: 65536,
-				MaxProjectionSize: 65536, MaxProjectionsPerRequest: 100,
+				MaxProjectionSize: 65536,
 				MaxEventsPerWrite: 100, MaxProjectionsPerWrite: 500, MaxRequestBodySize: 8 << 20,
-				TransactionTimeout: 5, MaxTransactionDuration: 15, MaxQueuedTransactions: tt.maxQueuedTransactions, ReadPoolSize: 8,
+				MaxQueuedWrites: tt.maxQueuedWrites, ReadPoolSize: 8,
 			}
 			if err := cfg.Validate(); err == nil {
-				t.Errorf("Validate() error = nil, want error for MaxQueuedTransactions = %d", tt.maxQueuedTransactions)
+				t.Errorf("Validate() error = nil, want error for MaxQueuedWrites = %d", tt.maxQueuedWrites)
 			}
 		})
 	}
@@ -916,9 +858,9 @@ func TestValidateNonPositiveReadPoolSize(t *testing.T) {
 				BindAddress: "0.0.0.0", Port: 8443,
 				AuthToken: "secret", DataDir: "data", LogLevel: "warning",
 				DefaultEventsPerPage: 1000, MaxEventsPerPage: 10000, MaxEventSize: 65536,
-				MaxProjectionSize: 65536, MaxProjectionsPerRequest: 100,
+				MaxProjectionSize: 65536,
 				MaxEventsPerWrite: 100, MaxProjectionsPerWrite: 500, MaxRequestBodySize: 8 << 20,
-				TransactionTimeout: 5, MaxTransactionDuration: 15, MaxQueuedTransactions: 100, ReadPoolSize: tt.readPoolSize,
+				MaxQueuedWrites: 100, ReadPoolSize: tt.readPoolSize,
 			}
 			if err := cfg.Validate(); err == nil {
 				t.Errorf("Validate() error = nil, want error for ReadPoolSize = %d", tt.readPoolSize)
@@ -927,57 +869,14 @@ func TestValidateNonPositiveReadPoolSize(t *testing.T) {
 	}
 }
 
-func TestLoadTransactionSettingsFromFileAndEnv(t *testing.T) {
-	setEnv(t, map[string]string{
-		"TAMARACKDB_TRANSACTION_TIMEOUT":      "10",
-		"TAMARACKDB_MAX_TRANSACTION_DURATION": "40",
-	})
-	path := writeConfigFile(t, `[server]
-		maxTransactionDuration = 20
-	`)
-	cfg, err := Load(path)
-	if err != nil {
-		t.Fatalf("Load() error = %v", err)
-	}
-	if cfg.TransactionTimeout != 10 || cfg.MaxTransactionDuration != 20 {
-		t.Errorf("transaction settings = %d/%d, want 10 from env and 20 from the file",
-			cfg.TransactionTimeout, cfg.MaxTransactionDuration)
-	}
-}
-
-func TestValidateTransactionSettings(t *testing.T) {
-	tests := []struct {
-		name             string
-		timeout, ceiling int
-	}{
-		{"zero timeout", 0, 15},
-		{"negative ceiling", 5, -1},
-		{"timeout above ceiling", 20, 15},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			c := Config{
-				SocketPath: DefaultSocketPath, DataDir: "data", LogLevel: "warning",
-				DefaultEventsPerPage: 1000, MaxEventsPerPage: 10000, MaxEventSize: 65536,
-				MaxProjectionSize: 65536, MaxProjectionsPerRequest: 100,
-				TransactionTimeout: tt.timeout, MaxTransactionDuration: tt.ceiling,
-				MaxQueuedTransactions: 100, ReadPoolSize: 8,
-			}
-			if err := c.Validate(); err == nil {
-				t.Errorf("Validate() error = nil, want an error")
-			}
-		})
-	}
-}
-
 func TestLoadRejectsUnknownKey(t *testing.T) {
 	path := writeConfigFile(t, `[server]
 		dataDir = "data"
-		maxQueuedTransaction = 5
+		maxQueuedWrite = 5
 	`)
 	_, err := Load(path)
-	if err == nil || !strings.Contains(err.Error(), "server.maxQueuedTransaction") {
-		t.Fatalf("Load() error = %v, want it to name server.maxQueuedTransaction", err)
+	if err == nil || !strings.Contains(err.Error(), "server.maxQueuedWrite") {
+		t.Fatalf("Load() error = %v, want it to name server.maxQueuedWrite", err)
 	}
 }
 

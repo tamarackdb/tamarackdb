@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http/httptest"
 	"strings"
@@ -24,16 +23,6 @@ func waitQueued(t *testing.T, tm *txn.Manager, n int) {
 	}
 }
 
-// decodeProjectionsResponse decodes a successful POST /projections body.
-func decodeProjectionsResponse(t *testing.T, body string) projectionsResponse {
-	t.Helper()
-	var resp projectionsResponse
-	if err := json.Unmarshal([]byte(body), &resp); err != nil {
-		t.Fatalf("decode POST /projections response %q: %v", body, err)
-	}
-	return resp
-}
-
 // writeProjectionsCommitted writes body, the projections object of a
 // POST /write body, and returns the new versions.
 func writeProjectionsCommitted(t *testing.T, srv *Server, body string) projectionsResponse {
@@ -42,8 +31,8 @@ func writeProjectionsCommitted(t *testing.T, srv *Server, body string) projectio
 	return resp.Projections
 }
 
-// getProjection reads type/id without a ticket, checks the status, and
-// returns the version header and the body.
+// getProjection reads type/id, checks the status, and returns the version
+// header and the body.
 func getProjection(t *testing.T, srv *Server, typ, id string, wantCode int) (version, body string) {
 	t.Helper()
 	rec := doRequest(t, srv, "GET", "/projections/"+typ+"/"+id, "")
@@ -112,109 +101,9 @@ func TestStaleVersionGets409(t *testing.T) {
 	getProjection(t, srv, "user-profile", "456", 404)
 
 	values := parseMetrics(t, doRequest(t, srv, "GET", "/metrics", "").Body.String())
-	if got := values["tamarackdb_appends_failed_total"]; got != 0 {
-		t.Errorf("tamarackdb_appends_failed_total = %v, want 0: a projection conflict isn't a failed Append Condition", got)
-	}
-}
-
-// TestProjectionsInsideTransaction checks that a read with the ticket sees
-// the transaction's own writes and their version, that a read without it
-// doesn't, and that a 404 with the ticket doesn't end the transaction.
-func TestProjectionsInsideTransaction(t *testing.T) {
-	srv, _, _ := newTestServer(t)
-	ticket := begin(t, srv)
-
-	if rec := doTicketRequest(t, srv, "GET", "/projections/user-profile/123", ticket, ""); rec.Code != 404 {
-		t.Fatalf("get with ticket status = %d, want 404", rec.Code)
-	}
-	rec := doTicketRequest(t, srv, "POST", "/projections", ticket, `{"create":[{"type":"user-profile","id":"123","payload":"v1"}]}`)
-	if rec.Code != 200 {
-		t.Fatalf("write status = %d, body = %s (the 404 must not have ended the transaction)", rec.Code, rec.Body.String())
-	}
-	v1 := decodeProjectionsResponse(t, rec.Body.String()).Create[0].Version
-	rec = doTicketRequest(t, srv, "GET", "/projections/user-profile/123", ticket, "")
-	if rec.Code != 200 || rec.Body.String() != "v1" || rec.Header().Get(VersionHeader) != v1 {
-		t.Errorf("get with ticket = %d %q version %q, want 200 v1 version %q", rec.Code, rec.Body.String(), rec.Header().Get(VersionHeader), v1)
-	}
-	getProjection(t, srv, "user-profile", "123", 404)
-
-	commit(t, srv, ticket)
-	if _, body := getProjection(t, srv, "user-profile", "123", 200); body != "v1" {
-		t.Errorf("get after commit = %q, want v1", body)
-	}
-}
-
-func TestEventsAndProjectionsCommitTogether(t *testing.T) {
-	srv, _, _ := newTestServer(t)
-	ticket := begin(t, srv)
-	doTicketRequest(t, srv, "POST", "/events", ticket, `{"events":[{"type":"user-created","identifiers":{},"metadata":{},"payload":""}]}`)
-	doTicketRequest(t, srv, "POST", "/projections", ticket, `{"create":[{"type":"user-profile","id":"123","payload":"v1"}]}`)
-	doTicketRequest(t, srv, "POST", "/rollback", ticket, "")
-
-	if _, events := parseNDJSON(t, doRequest(t, srv, "QUERY", "/events", `{"query":"*"}`).Body.String()); len(events) != 0 {
-		t.Errorf("events after rollback = %d, want 0", len(events))
-	}
-	getProjection(t, srv, "user-profile", "123", 404)
-}
-
-func TestWriteProjectionFailuresRollBack(t *testing.T) {
-	var tooMany []string
-	for i := 0; i < 101; i++ {
-		tooMany = append(tooMany, fmt.Sprintf(`{"type":"t","id":"%d","payload":"x"}`, i))
-	}
-	tests := []struct {
-		name       string
-		body       string
-		wantStatus int
-		wantError  string
-	}{
-		{"missing type", `{"create":[{"id":"123","payload":"x"}]}`, 400, "InvalidRequest"},
-		{"missing id", `{"create":[{"type":"user-profile","payload":"x"}]}`, 400, "InvalidRequest"},
-		{"no list", `{}`, 400, "InvalidRequest"},
-		{"null lists", `{"create":null,"replace":null,"delete":null}`, 400, "InvalidRequest"},
-		{"unknown top-level key", `{"create":[],"replce":[{"type":"t","id":"1","version":"v","payload":"x"}]}`, 400, "InvalidRequest"},
-		{"unknown element key", `{"delete":[{"type":"t","id":"1","verison":"v"}]}`, 400, "InvalidRequest"},
-		{"create missing payload", `{"create":[{"type":"user-profile","id":"123"}]}`, 400, "InvalidRequest"},
-		{"create null payload", `{"create":[{"type":"user-profile","id":"123","payload":null}]}`, 400, "InvalidRequest"},
-		{"create with version", `{"create":[{"type":"user-profile","id":"123","version":"v","payload":"x"}]}`, 400, "InvalidRequest"},
-		{"replace missing version", `{"replace":[{"type":"user-profile","id":"123","payload":"x"}]}`, 400, "InvalidRequest"},
-		{"replace missing payload", `{"replace":[{"type":"user-profile","id":"123","version":"v"}]}`, 400, "InvalidRequest"},
-		{"delete missing version", `{"delete":[{"type":"user-profile","id":"123"}]}`, 400, "InvalidRequest"},
-		{"delete with payload", `{"delete":[{"type":"user-profile","id":"123","version":"v","payload":"x"}]}`, 400, "InvalidRequest"},
-		{"too many projections", `{"create":[` + strings.Join(tooMany, ",") + `]}`, 400, "InvalidRequest"},
-		{"duplicate key in one list", `{"create":[{"type":"user-profile","id":"123","payload":"a"},{"type":"user-profile","id":"123","payload":"b"}]}`, 400, "InvalidRequest"},
-		{"duplicate key across lists", `{"create":[{"type":"user-profile","id":"123","payload":"a"}],"delete":[{"type":"user-profile","id":"123","version":"v"}]}`, 400, "InvalidRequest"},
-		{"oversized payload", fmt.Sprintf(`{"create":[{"type":"user-profile","id":"123","payload":%q}]}`, strings.Repeat("x", 70000)), 413, "PayloadTooLarge"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			srv, _, _ := newTestServer(t)
-			ticket := begin(t, srv)
-			rec := doTicketRequest(t, srv, "POST", "/projections", ticket, tt.body)
-			if rec.Code != tt.wantStatus || errorCode(t, rec) != tt.wantError {
-				t.Fatalf("status = %d, body = %s, want %d %s", rec.Code, rec.Body.String(), tt.wantStatus, tt.wantError)
-			}
-			if rec := doTicketRequest(t, srv, "POST", "/commit", ticket, ""); rec.Code != 410 {
-				t.Errorf("commit after the failed write status = %d, want 410", rec.Code)
-			}
-		})
-	}
-}
-
-// TestWriteEmptyProjectionsIsANoOp checks that empty lists write nothing,
-// respond with empty version lists, and leave the transaction active, and
-// that the same call without a ticket succeeds.
-func TestWriteEmptyProjectionsIsANoOp(t *testing.T) {
-	srv, _, _ := newTestServer(t)
-	ticket := begin(t, srv)
-	rec := doTicketRequest(t, srv, "POST", "/projections", ticket, `{"create":[]}`)
-	if rec.Code != 200 || strings.TrimSpace(rec.Body.String()) != `{"create":[],"replace":[]}` {
-		t.Fatalf("status = %d, body = %s, want 200 {\"create\":[],\"replace\":[]}", rec.Code, rec.Body.String())
-	}
-	commit(t, srv, ticket)
-
-	if rec := doRequest(t, srv, "POST", "/projections", `{"create":[],"replace":[],"delete":[]}`); rec.Code != 200 {
-		t.Fatalf("without ticket status = %d, body = %s, want 200", rec.Code, rec.Body.String())
+	cond, proj := `tamarackdb_writes_rejected_total{reason="condition"}`, `tamarackdb_writes_rejected_total{reason="projection"}`
+	if values[cond] != 0 || values[proj] != 1 {
+		t.Errorf("%s = %v, %s = %v, want 0 and 1: a projection conflict isn't a failed Append Condition", cond, values[cond], proj, values[proj])
 	}
 }
 
@@ -258,29 +147,13 @@ func TestBulkDeleteReturns503WhenQueueFull(t *testing.T) {
 	waitQueued(t, tm, 1)
 
 	rec := doRequest(t, srv, "DELETE", "/projections/user-profile", "")
-	if rec.Code != 503 || errorCode(t, rec) != "TransactionQueueFull" {
-		t.Fatalf("status = %d, body = %s, want 503 TransactionQueueFull", rec.Code, rec.Body.String())
+	if rec.Code != 503 || errorCode(t, rec) != "WriteQueueFull" {
+		t.Fatalf("status = %d, body = %s, want 503 WriteQueueFull", rec.Code, rec.Body.String())
 	}
 
 	release()
 	if code := <-queued; code != 204 {
 		t.Errorf("queued DELETE /projections status = %d, want 204", code)
-	}
-}
-
-// TestInvalidTicketlessWriteGets400WithoutWaiting checks that the body is
-// checked before joining the FIFO.
-func TestInvalidTicketlessWriteGets400WithoutWaiting(t *testing.T) {
-	srv, tm, _ := newTestServer(t)
-	ticket := begin(t, srv)
-	defer commit(t, srv, ticket)
-
-	rec := doRequest(t, srv, "POST", "/projections", `{"create":[{"type":"","id":"123","payload":"x"}]}`)
-	if rec.Code != 400 || errorCode(t, rec) != "InvalidRequest" {
-		t.Fatalf("status = %d, body = %s, want 400 InvalidRequest", rec.Code, rec.Body.String())
-	}
-	if n := len(tm.Snapshot().Queue.Queued); n != 0 {
-		t.Errorf("FIFO has %d requests waiting, want 0", n)
 	}
 }
 

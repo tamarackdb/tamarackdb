@@ -47,8 +47,7 @@ func (s *Store) Read(ctx context.Context, f ReadFilter) (*EventIterator, error) 
 	return it, nil
 }
 
-// querier is what a read needs, satisfied by both *sql.DB (the read pool)
-// and *sql.Tx (a write transaction).
+// querier is what a read needs, satisfied by both *sql.DB and *sql.Tx.
 type querier interface {
 	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
@@ -137,8 +136,8 @@ func scanEvent(rows *sql.Rows) (ReadEvent, error) {
 // rebuilds, never held open across pages.
 type EventIterator struct {
 	rows    *sql.Rows
-	tx      *sql.Tx // the read transaction Close ends; nil for a Tx.Read
-	storeID string  // empty for a Tx.Read
+	tx      *sql.Tx // the read transaction Close ends
+	storeID string  // read in the same transaction as the page
 	limit   int
 	n       int
 	hasMore bool

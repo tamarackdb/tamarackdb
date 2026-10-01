@@ -1,6 +1,10 @@
 package api
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/tamarackdb/tamarackdb/internal/queue"
+)
 
 func TestResetDeletesEventsAndProjections(t *testing.T) {
 	srv, _, _ := newTestServerWith(t, testOptions{devMode: true})
@@ -23,14 +27,31 @@ func TestResetDeletesEventsAndProjections(t *testing.T) {
 	}
 }
 
-func TestResetCutsOffTheActiveTransaction(t *testing.T) {
-	srv, _, _ := newTestServerWith(t, testOptions{devMode: true})
-	ticket := begin(t, srv)
-	if rec := doRequest(t, srv, "POST", "/reset", ""); rec.Code != 204 {
-		t.Fatalf("reset status = %d, body = %s", rec.Code, rec.Body.String())
+// TestResetWaitsForItsTurn checks that POST /reset queues like a write:
+// the write ahead of it goes through, then the reset deletes it.
+func TestResetWaitsForItsTurn(t *testing.T) {
+	srv, tm, _ := newTestServerWith(t, testOptions{devMode: true})
+	release := holdTurn(t, tm)
+
+	written := make(chan int, 1)
+	go func() { written <- doRequest(t, srv, "POST", "/write", `{"events":[{"type":"t","payload":""}]}`).Code }()
+	waitQueued(t, tm, 1)
+	reset := make(chan int, 1)
+	go func() { reset <- doRequest(t, srv, "POST", "/reset", "").Code }()
+	waitQueued(t, tm, 2)
+	if kind := tm.Snapshot().Queue.Queued[1].Kind; kind != queue.KindReset {
+		t.Errorf("queued kind = %q, want %q", kind, queue.KindReset)
 	}
-	if rec := doTicketRequest(t, srv, "POST", "/commit", ticket, ""); rec.Code != 410 {
-		t.Errorf("commit after reset status = %d, want 410", rec.Code)
+
+	release()
+	if code := <-written; code != 200 {
+		t.Errorf("POST /write status = %d, want 200: it was queued before the reset", code)
+	}
+	if code := <-reset; code != 204 {
+		t.Fatalf("POST /reset status = %d, want 204", code)
+	}
+	if n := countEvents(t, srv); n != 0 {
+		t.Errorf("store holds %d events after the reset, want 0", n)
 	}
 }
 

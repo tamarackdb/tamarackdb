@@ -44,12 +44,8 @@ type Options struct {
 
 	// MaxProjectionSize is the maximum combined UTF-8 byte size of one
 	// projection's type, id, and payload (a deletion has no payload) in a
-	// POST /projections request; over it, 413. Default: 65536 (64 KiB).
+	// POST /write request; over it, 413. Default: 65536 (64 KiB).
 	MaxProjectionSize int
-
-	// MaxProjectionsPerRequest caps how many projections a single
-	// POST /projections request may carry; over it, 400.
-	MaxProjectionsPerRequest int
 
 	// MaxEventsPerWrite caps how many events, and how many Append
 	// Conditions, a single POST /write may carry; over it, 400.
@@ -93,17 +89,11 @@ type Server struct {
 	st   *store.Store
 	opts Options
 
-	// failedTotal counts POST /events and POST /write calls that failed on
-	// an Append Condition, exposed by GET /metrics. It lives here, not in
-	// internal/txn, because only this layer knows why a call failed.
-	failedTotal atomic.Uint64
-
 	// writeHTTPOpen and readHTTPOpen count requests in flight on each
 	// side, exposed by GET /debug. The write side is every request that
-	// waits in the FIFO or uses the write connection: POST /begin, calls
-	// with a ticket, POST /write, and projection writes without a ticket.
-	// The read side
-	// is every read without a ticket.
+	// waits in the FIFO or uses the write connection: POST /write, the
+	// bulk deletes of projections, and POST /reset. The read side is
+	// QUERY /events and GET /projections/{type}/{id}.
 	writeHTTPOpen atomic.Int64
 	readHTTPOpen  atomic.Int64
 
@@ -140,8 +130,6 @@ func New(tm *txn.Manager, st *store.Store, opts Options) *Server {
 		panic("api: New: Options.MaxEventSize must be positive")
 	case opts.MaxProjectionSize <= 0:
 		panic("api: New: Options.MaxProjectionSize must be positive")
-	case opts.MaxProjectionsPerRequest <= 0:
-		panic("api: New: Options.MaxProjectionsPerRequest must be positive")
 	case opts.MaxEventsPerWrite <= 0:
 		panic("api: New: Options.MaxEventsPerWrite must be positive")
 	case opts.MaxProjectionsPerWrite <= 0:
@@ -155,14 +143,9 @@ func New(tm *txn.Manager, st *store.Store, opts Options) *Server {
 	s := &Server{tm: tm, st: st, opts: opts, logThreshold: logThreshold}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /begin", s.handleBegin)
-	mux.HandleFunc("POST /commit", s.handleCommit)
-	mux.HandleFunc("POST /rollback", s.handleRollback)
 	mux.HandleFunc("POST /write", s.handleWrite)
 	mux.HandleFunc("QUERY /events", s.handleReadEvents)
-	mux.HandleFunc("POST /events", s.handleAppendEvents)
 	mux.HandleFunc("GET /projections/{type}/{id}", s.handleGetProjection)
-	mux.HandleFunc("POST /projections", s.handleWriteProjections)
 	mux.HandleFunc("DELETE /projections/{type}", s.handleDeleteProjectionsByType)
 	mux.HandleFunc("DELETE /projections", s.handleDeleteAllProjections)
 	mux.HandleFunc("GET /health", s.handleHealth)
@@ -175,7 +158,8 @@ func New(tm *txn.Manager, st *store.Store, opts Options) *Server {
 	// matches). An unknown path gets the stdlib's plain-text 404; a known
 	// path with the wrong method correctly gets 405 + Allow.
 	if opts.DevMode {
-		// Deletes every event and projection, see txn.Manager.Reset.
+		// Deletes every event and projection, in its turn in the FIFO,
+		// see txn.Manager.Reset.
 		mux.HandleFunc("POST /reset", s.handleReset)
 
 		// Standard net/http/pprof registration, mounted on our own mux

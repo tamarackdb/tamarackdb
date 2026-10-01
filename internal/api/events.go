@@ -11,9 +11,10 @@ import (
 	"github.com/tamarackdb/tamarackdb/internal/store"
 )
 
-// StoreHeader carries the store ID in a response to a read without a
-// ticket: QUERY /events and GET /projections/{type}/{id}. It's read in the
-// same SQLite snapshot as the events or projection returned.
+// StoreHeader carries the store ID in a response that depends on the
+// store: QUERY /events, GET /projections/{type}/{id}, and POST /write. A
+// read takes it in the same SQLite snapshot as the events or projection
+// returned, and a write in the same SQLite transaction as what it wrote.
 const StoreHeader = "X-Tamarackdb-Store"
 
 // readRequest is the exact wire shape of QUERY /events's JSON body.
@@ -52,31 +53,10 @@ type readEventWire struct {
 	Payload     string          `json:"payload"`
 }
 
-// handleReadEvents implements QUERY /events. With a ticket, the read runs
-// inside the transaction and sees the events it appended; any failure,
-// a malformed body included, rolls the transaction back. Without a
-// ticket, the read runs on the read pool and sees committed events only,
-// and the response carries the store ID in the X-Tamarackdb-Store header.
+// handleReadEvents implements QUERY /events: the read runs on the read pool
+// and sees committed events only, and the response carries the store ID in
+// the X-Tamarackdb-Store header.
 func (s *Server) handleReadEvents(w http.ResponseWriter, r *http.Request) {
-	if ticket, ok := ticketFrom(r); ok {
-		defer s.trackWrite()()
-		err := s.doInTx(w, ticket, func(tx *store.Tx) error {
-			filter, err := s.parseReadRequest(r)
-			if err != nil {
-				return err
-			}
-			it, err := tx.Read(r.Context(), filter)
-			if err != nil {
-				return err
-			}
-			return streamEvents(w, it, nil) // bounded by the ceiling, see doInTx
-		})
-		if err != nil {
-			s.handleErr(w, r, err)
-		}
-		return
-	}
-
 	s.readHTTPOpen.Add(1)
 	defer s.readHTTPOpen.Add(-1)
 	filter, err := s.parseReadRequest(r)
@@ -90,11 +70,11 @@ func (s *Server) handleReadEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set(StoreHeader, it.StoreID())
-	// A read without a ticket holds a read connection, and pins its
-	// SQLite snapshot, until the page is fully sent. A client that stops
-	// reading would hold both forever: each line gets readStallTimeout to
-	// go out, renewed on every line, so a page that keeps moving is never
-	// cut, and a stalled one frees its connection.
+	// A read holds a read connection, and pins its SQLite snapshot, until
+	// the page is fully sent. A client that stops reading would hold both
+	// forever: each line gets readStallTimeout to go out, renewed on every
+	// line, so a page that keeps moving is never cut, and a stalled one
+	// frees its connection.
 	rc := http.NewResponseController(w)
 	renew := func() { _ = rc.SetWriteDeadline(time.Now().Add(readStallTimeout)) }
 	defer func() {
@@ -110,9 +90,9 @@ func (s *Server) handleReadEvents(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// readStallTimeout is how long a line of a QUERY /events page without a
-// ticket may take to go out before the server gives up on the client. A
-// variable, not a constant, so tests can shorten it.
+// readStallTimeout is how long a line of a QUERY /events page may take to
+// go out before the server gives up on the client. A variable, not a
+// constant, so tests can shorten it.
 var readStallTimeout = 30 * time.Second
 
 // parseReadRequest decodes and validates a QUERY /events body into a
@@ -196,15 +176,8 @@ func streamEvents(w http.ResponseWriter, it *store.EventIterator, beforeWrite fu
 	return nw.WriteValue(readTrailer{HasMore: it.HasMore()})
 }
 
-type appendRequest struct {
-	Events    []dcb.EventData      `json:"events"`
-	Condition *dcb.AppendCondition `json:"condition,omitempty"`
-}
-
-type appendResponse struct {
-	Events []appendedEvent `json:"events"`
-}
-
+// appendedEvent is one event's Sequence Position and time in a POST /write
+// response.
 type appendedEvent struct {
 	Sequence int64  `json:"sequence"`
 	Time     string `json:"time"`
@@ -222,70 +195,6 @@ type oversizeError struct {
 
 func (e *oversizeError) Error() string {
 	return fmt.Sprintf("%s is %d bytes, more than %s (%d)", e.at, e.size, e.setting, e.max)
-}
-
-// handleAppendEvents implements POST /events: it checks the optional
-// Append Condition, then appends the events, inside the transaction. The
-// ticket is required. Any failure, a failed condition included, rolls the
-// transaction back.
-func (s *Server) handleAppendEvents(w http.ResponseWriter, r *http.Request) {
-	defer s.trackWrite()()
-	ticket, ok := s.requireTicket(w, r)
-	if !ok {
-		return
-	}
-
-	var resp appendResponse
-	err := s.doInTx(w, ticket, func(tx *store.Tx) error {
-		var req appendRequest
-		if err := decodeJSON(r, &req); err != nil {
-			return err
-		}
-		if err := validateAppendRequest(req, s.opts.MaxEventSize); err != nil {
-			return err
-		}
-		events, err := tx.Append(r.Context(), req.Events, req.Condition)
-		if err != nil {
-			return err // store.ErrConcurrencyConflict -> 409, etc.
-		}
-		resp.Events = make([]appendedEvent, len(events))
-		for i, ev := range events {
-			resp.Events[i] = appendedEvent{Sequence: ev.Sequence, Time: ev.Time.UTC().Format(dcb.TimeLayout)}
-		}
-		return nil
-	})
-	if err != nil {
-		s.handleErr(w, r, err)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(resp)
-}
-
-// validateAppendRequest checks request-shape rules (an events field, with
-// at most dcb.MaxEventsPerWrite events), then the events (see
-// validateEvents), then condition.Validate() if a condition was given.
-func validateAppendRequest(req appendRequest, maxEventSize int) error {
-	// A missing field (nil) is most likely a misspelled key, so it's
-	// rejected. An empty array is a command that decided to append
-	// nothing: it appends nothing, and its condition isn't checked.
-	if req.Events == nil {
-		return &dcb.ValidationError{Err: errMissingEvents, Message: "request is missing its events field"}
-	}
-	if len(req.Events) > dcb.MaxEventsPerWrite {
-		return &dcb.ValidationError{Err: errTooManyEvents, Message: fmt.Sprintf(
-			"request carries %d events, more than the maximum of %d", len(req.Events), dcb.MaxEventsPerWrite)}
-	}
-	if err := validateEvents(req.Events, maxEventSize); err != nil {
-		return err
-	}
-	if req.Condition != nil {
-		if err := req.Condition.Validate(); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 // validateEvents checks each event, in order: dcb.EventData.Validate()

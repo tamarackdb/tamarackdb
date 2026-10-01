@@ -7,12 +7,12 @@ import (
 	"modernc.org/sqlite"
 )
 
-// ErrConcurrencyConflict is returned by Tx.Append when the Append
-// Condition's check finds a matching event, and wrapped by
-// ConditionConflictError and ProjectionConflictError.
-// This package has no knowledge of HTTP or JSON; internal/api maps both to
+// ErrConcurrencyConflict is what ConditionConflictError and
+// ProjectionConflictError unwrap to: a write refused because what it was
+// decided on no longer holds. It's never returned alone. This package has
+// no knowledge of HTTP or JSON; internal/api maps both to
 // 409 {"error":"ConcurrencyException"}.
-var ErrConcurrencyConflict = errors.New("store: an event matching the append condition already exists")
+var ErrConcurrencyConflict = errors.New("store: concurrency conflict")
 
 // ProjectionConflictError is returned by WriteProjections when a
 // projection's stored state doesn't match what the write expects: a

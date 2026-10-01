@@ -18,7 +18,7 @@ func joinResultChan(t *testing.T, m *Manager, ctx context.Context) <-chan joinOu
 	t.Helper()
 	ch := make(chan joinOutcome, 1)
 	go func() {
-		turn, err := m.Join(ctx, KindTransaction)
+		turn, err := m.Join(ctx, KindWrite)
 		ch <- joinOutcome{turn: turn, err: err}
 	}()
 	return ch
@@ -28,7 +28,7 @@ func mustJoin(t *testing.T, m *Manager) *Turn {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
-	turn, err := m.Join(ctx, KindTransaction)
+	turn, err := m.Join(ctx, KindWrite)
 	if err != nil {
 		t.Fatalf("Join() error = %v", err)
 	}
@@ -215,7 +215,7 @@ func TestCloseIsIdempotentAndUnblocksCallers(t *testing.T) {
 	m.Close()
 	m.Close() // must not block or panic
 
-	if _, err := m.Join(context.Background(), KindTransaction); err != ErrClosed {
+	if _, err := m.Join(context.Background(), KindWrite); err != ErrClosed {
 		t.Errorf("Join() after Close() error = %v, want ErrClosed", err)
 	}
 }
@@ -238,7 +238,7 @@ func TestJoinRejectsWhenQueueFull(t *testing.T) {
 		}
 	}()
 
-	if _, err := m.Join(context.Background(), KindTransaction); err != ErrFull {
+	if _, err := m.Join(context.Background(), KindWrite); err != ErrFull {
 		t.Errorf("Join() with a full queue error = %v, want ErrFull", err)
 	}
 }
@@ -260,7 +260,7 @@ func TestJoinUncappedWhenMaxQueuedZero(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 		defer cancel()
 		go func() {
-			turn, err := m.Join(ctx, KindTransaction)
+			turn, err := m.Join(ctx, KindWrite)
 			results <- joinOutcome{turn: turn, err: err}
 		}()
 	}
@@ -299,7 +299,7 @@ func TestConcurrentStress(t *testing.T) {
 			defer wg.Done()
 			for j := 0; j < itersEach; j++ {
 				ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
-				turn, err := m.Join(ctx, KindTransaction)
+				turn, err := m.Join(ctx, KindWrite)
 				cancel()
 				if err != nil {
 					t.Errorf("Join() error = %v", err)

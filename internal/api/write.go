@@ -1,7 +1,6 @@
 package api
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,7 +8,6 @@ import (
 
 	"github.com/tamarackdb/tamarackdb/internal/dcb"
 	"github.com/tamarackdb/tamarackdb/internal/projection"
-	"github.com/tamarackdb/tamarackdb/internal/queue"
 	"github.com/tamarackdb/tamarackdb/internal/store"
 )
 
@@ -52,11 +50,7 @@ func (s *Server) handleWrite(w http.ResponseWriter, r *http.Request) {
 			// wait for.
 			result, err = s.st.Append(r.Context(), nil, nil, projection.Writes{})
 		} else {
-			err = s.tm.RunInTurn(r.Context(), queue.KindWrite, func(ctx context.Context) error {
-				var err error
-				result, err = s.st.Append(ctx, req.Events, req.Conditions, req.Projections)
-				return err
-			})
+			result, err = s.tm.Write(r.Context(), req.Events, req.Conditions, req.Projections)
 		}
 	}
 	if err != nil {
@@ -116,4 +110,11 @@ func (s *Server) validateWriteRequest(req writeRequest) error {
 		}
 	}
 	return validateProjections(req.Projections, s.opts.MaxProjectionSize, "projections.")
+}
+
+// trackWrite counts a request on the write side for GET /debug. Callers
+// defer the returned function.
+func (s *Server) trackWrite() func() {
+	s.writeHTTPOpen.Add(1)
+	return func() { s.writeHTTPOpen.Add(-1) }
 }

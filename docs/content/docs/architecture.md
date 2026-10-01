@@ -1002,9 +1002,8 @@ transaction timeouts, pagination/size limits, and the FIFO depth) comes from thr
    [Backup](/docs/guides/backup/)); each binary reads only its own section.
 2. `TAMARACKDB_*` environment variables, one per configuration key.
 3. Built-in defaults, for the keys that have one (`socketPath`, `socketMode`, `dataDir`, `logLevel`, `defaultEventsPerPage`,
-   `maxEventsPerPage`, `maxEventSize`, `maxProjectionSize`, `maxProjectionsPerRequest`, `maxEventsPerWrite`,
-   `maxProjectionsPerWrite`, `maxRequestBodySize`, `transactionTimeout`, `maxTransactionDuration`,
-   `maxQueuedTransactions`, `readPoolSize`).
+   `maxEventsPerPage`, `maxEventSize`, `maxProjectionSize`, `maxEventsPerWrite`, `maxProjectionsPerWrite`,
+   `maxRequestBodySize`, `maxQueuedWrites`, `readPoolSize`).
 
 A value set in the configuration file always wins over the matching environment variable. The file is checked as a
 whole, `[server]` and `[backup]` sections included: an unknown key, or a key outside any section, is fatal at startup
@@ -1028,34 +1027,25 @@ instead.
 | `maxEventsPerPage` | `TAMARACKDB_MAX_EVENTS_PER_PAGE` | `10000` |
 | `maxEventSize` | `TAMARACKDB_MAX_EVENT_SIZE` | `65536` (64 KiB) |
 | `maxProjectionSize` | `TAMARACKDB_MAX_PROJECTION_SIZE` | `65536` (64 KiB) |
-| `maxProjectionsPerRequest` | `TAMARACKDB_MAX_PROJECTIONS_PER_REQUEST` | `100` |
 | `maxEventsPerWrite` | `TAMARACKDB_MAX_EVENTS_PER_WRITE` | `100` |
 | `maxProjectionsPerWrite` | `TAMARACKDB_MAX_PROJECTIONS_PER_WRITE` | `500` |
 | `maxRequestBodySize` | `TAMARACKDB_MAX_REQUEST_BODY_SIZE` | `8388608` (8 MiB) |
-| `transactionTimeout` | `TAMARACKDB_TRANSACTION_TIMEOUT` | `5` (seconds) |
-| `maxTransactionDuration` | `TAMARACKDB_MAX_TRANSACTION_DURATION` | `15` (seconds) |
-| `maxQueuedTransactions` | `TAMARACKDB_MAX_QUEUED_TRANSACTIONS` | `100` |
+| `maxQueuedWrites` | `TAMARACKDB_MAX_QUEUED_WRITES` | `100` |
 | `readPoolSize` | `TAMARACKDB_READ_POOL_SIZE` | `8` |
 
 `dataDir` is the directory holding the database file, `tamarackdb.sqlite`. Only the directory is configurable, the
 same convention MySQL's own `datadir` uses: the filename within it is fixed.
 
-`maxProjectionSize` bounds one projection (its `type`, `id`, and `payload`) the same way `maxEventSize` bounds one event. `maxProjectionsPerRequest`
-caps how many projections one `POST /projections` call may carry. Unlike the fixed 100-events-per-call limit, it's
-configuration, not an architectural boundary: projection volume needs vary more between applications, especially for a
-rebuild's calls.
+`maxProjectionSize` bounds one projection (its `type`, `id`, and `payload`) the same way `maxEventSize` bounds one
+event. `maxEventsPerWrite` and `maxProjectionsPerWrite` cap how many events and projections one `POST /write` may
+carry; `maxEventsPerWrite` also caps its Append Conditions. `maxRequestBodySize` caps any request body. It isn't checked
+against the other limits: it's the real bound on a write, and the others are rules for each item.
 
-`transactionTimeout` is a transaction's idle timeout: how long it may go without a call before it's rolled back, counted
-from the moment its ticket is given out, then from the end of each call made with the ticket. `maxTransactionDuration`
-is the ceiling: the total time no transaction can exceed, however many calls it makes (see Deadline and ceiling).
-`transactionTimeout` can't be greater than `maxTransactionDuration`: `Load` rejects that configuration.
-
-`maxQueuedTransactions` caps how many requests may wait in the FIFO at once. A request that arrives when the FIFO is
-already at that depth gets `503 TransactionQueueFull` instead of joining. It isn't "0 means no limit": a FIFO with no
-bound would let a burst, or a broken client, pile up an unlimited number of blocked HTTP connections, so every
-deployment gets a bound whether it sets one or not. How long a request waits needs no setting of its own: with at most
-`maxQueuedTransactions` requests ahead of it, each held at most `maxTransactionDuration`, the wait is already bounded.
-A client that wants a shorter wait closes the connection.
+`maxQueuedWrites` caps how many requests may wait in the FIFO at once. A request that arrives when the FIFO is already
+at that depth gets `503 WriteQueueFull` instead of joining. It isn't "0 means no limit": a FIFO with no bound would let
+a burst, or a broken client, pile up an unlimited number of blocked HTTP connections, so every deployment gets a bound
+whether it sets one or not. How long a request waits needs no setting of its own: each request ahead of it holds the
+turn only for the time of its own write. A client that wants a shorter wait closes the connection.
 
 ## Security
 

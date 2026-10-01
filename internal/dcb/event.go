@@ -11,9 +11,8 @@ import (
 
 // Fixed DCB-domain constants, not configuration.
 const (
-	MaxIdentifiers    = 20  // max identifiers per event
-	MaxMetadata       = 20  // max metadata entries per event
-	MaxEventsPerWrite = 100 // max events in a single POST /events call
+	MaxIdentifiers = 20 // max identifiers per event
+	MaxMetadata    = 20 // max metadata entries per event
 )
 
 // Identifier is a business-identifier {name, value} pair, the primary
@@ -145,7 +144,7 @@ func unmarshalCompact[T any](data []byte, build func(name, value string) T) ([]T
 }
 
 // EventData is everything known about an event before it is appended:
-// what a client submits to POST /events, and all a Query matches against
+// what a client submits to POST /write, and all a Query matches against
 // (see internal/store/query.go). Sequence and Time play no part in
 // matching.
 type EventData struct {

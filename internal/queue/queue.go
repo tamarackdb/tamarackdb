@@ -2,7 +2,7 @@
 // admission to the single active turn on the write connection, with no
 // awareness of what a turn will do with it. Exactly two states exist:
 // Active (at most one turn at a time) and Queued (every other request,
-// waiting in arrival order). Package txn builds transactions on top of it.
+// waiting in arrival order). Package txn runs the writes on top of it.
 package queue
 
 import (
@@ -24,10 +24,10 @@ var ErrFull = errors.New("queue: full")
 type Kind string
 
 const (
-	KindTransaction Kind = "transaction"
-	KindWrite       Kind = "write"
-	KindProjections Kind = "projections"
-	KindOptimize    Kind = "optimize"
+	KindWrite       Kind = "write"       // POST /write
+	KindProjections Kind = "projections" // a bulk delete of projections
+	KindReset       Kind = "reset"       // POST /reset
+	KindOptimize    Kind = "optimize"    // the hourly PRAGMA optimize
 )
 
 // Manager is TamarackDB's FIFO. A new arrival has no multi-entry decision
