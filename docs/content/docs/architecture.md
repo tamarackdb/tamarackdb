@@ -718,8 +718,9 @@ as the next-sequence counter. An empty table starts the counter the same way `AU
 gets sequence 1.
 
 A write reserves its Sequence Positions only after every condition holds and every projection is written, never
-before. It inserts its events with them in the same call. If the insert or the commit then fails, the write gives its
-positions back before it ends, so a failed write leaves no gap in the sequence. `POST /reset` sets the counter back so
+before. It inserts its events with them in the same call. Unless the commit succeeds (the insert or the commit fails,
+or the request panics), the write gives its positions back before it ends, so a failed write leaves no gap in the
+sequence. `POST /reset` sets the counter back so
 the next event gets sequence 1.
 
 Knowing every event's sequence up front means a write's `events` rows can be written as one multi-row `INSERT`,

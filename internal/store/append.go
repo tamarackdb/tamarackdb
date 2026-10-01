@@ -73,19 +73,25 @@ func (s *Store) Append(ctx context.Context, events []dcb.EventData, conditions [
 		return AppendResult{}, err
 	}
 
-	// From here on, the Sequence Positions are reserved: if the write
-	// fails, the counter goes back, so it leaves no gap in the sequence.
-	// Nothing else can reserve any meanwhile: this transaction holds the
-	// only write connection.
+	// From here on, the Sequence Positions are reserved: unless the write
+	// commits, the counter goes back, whether the write fails or panics, so
+	// it leaves no gap in the sequence. Nothing else can reserve any
+	// meanwhile: this transaction holds the only write connection.
 	start := s.reserveSequences(len(events))
+	committed := false
+	defer func() {
+		if !committed {
+			s.releaseSequences(start)
+		}
+	}()
 	appended, err := insertEvents(ctx, tx, events, start)
-	if err == nil {
-		err = wrapf("commit", tx.Commit())
-	}
 	if err != nil {
-		s.releaseSequences(start)
 		return AppendResult{}, err
 	}
+	if err := tx.Commit(); err != nil {
+		return AppendResult{}, wrapf("commit", err)
+	}
+	committed = true
 	return AppendResult{StoreID: storeID, Events: appended, Versions: versions}, nil
 }
 
