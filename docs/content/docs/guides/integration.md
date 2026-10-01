@@ -111,6 +111,19 @@ makes reads inside the transaction see them:
   Taking the position of the last event seen would fail every write, because
   of the older events left unread. An application that only needs to know
   whether an event exists narrows its query, or uses a condition with no read.
+- **Processors running at once.** To check a condition against pending
+  events, a read remembers how many pending events existed when it merged
+  them: its marker. A library that runs several processors of one command at
+  the same time (fibers, coroutines, threads) takes that marker and the list
+  of pending events to merge at the same moment, with no suspension between
+  the two: right after the server's last page arrives, just before the merge.
+  Checking a new pending event against its condition and adding it to the list
+  also happen in one block. Otherwise another processor can add a pending
+  event in between, and the check no longer protects anything. When two
+  processors of one command depend on each other, the check then fails or
+  passes depending on timing. That's still a design error: the fix is in the
+  application (run them one after the other, or split them differently), not
+  in a retry, which could pass by luck and hide the bug.
 - **Projection changes.** Keep the projections touched in the transaction by
   `type` + `id`, with the version read from the server, and send only the net
   effect: a `create`, a `replace`, or a `delete` (see
