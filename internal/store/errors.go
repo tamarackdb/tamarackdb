@@ -14,7 +14,7 @@ import (
 // 409 {"error":"ConcurrencyException"}.
 var ErrConcurrencyConflict = errors.New("store: concurrency conflict")
 
-// ProjectionConflictError is returned by WriteProjections when a
+// ProjectionConflictError is returned by Append when a
 // projection's stored state doesn't match what the write expects: a
 // create whose type+id already exists, or a replace or delete whose
 // version isn't the stored one (or whose projection no longer exists).

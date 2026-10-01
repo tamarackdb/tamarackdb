@@ -185,7 +185,6 @@ func (it *EventIterator) Err() error       { return it.err }
 func (it *EventIterator) HasMore() bool    { return it.hasMore }
 
 // StoreID returns the store ID read in the same snapshot as the page.
-// It's empty for an iterator from Tx.Read.
 func (it *EventIterator) StoreID() string { return it.storeID }
 
 // Close releases the underlying *sql.Rows, read transaction, and

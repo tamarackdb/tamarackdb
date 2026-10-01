@@ -205,9 +205,9 @@ func (s *Store) WritePoolStats() PoolStats {
 
 // Reset deletes every event and every projection, sets the Sequence
 // Position counter back to zero (the next event appended gets sequence 1),
-// and draws a new store ID. The schema stays in place. It's meant for dev mode only. Since the write
-// pool holds a single connection, Reset waits for an open Tx to end: the
-// caller rolls it back first.
+// and draws a new store ID. The schema stays in place. It's meant for dev
+// mode only. Since the write pool holds a single connection, Reset waits
+// for a write in progress to end.
 func (s *Store) Reset(ctx context.Context) error {
 	tx, err := s.writeDB.BeginTx(ctx, nil)
 	if err != nil {
