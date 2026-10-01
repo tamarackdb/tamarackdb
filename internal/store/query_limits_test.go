@@ -47,8 +47,8 @@ func TestLargestValidQueryRuns(t *testing.T) {
 
 	// Force the SQL check: an event exists after afterSequence 0.
 	after := int64(0)
-	cond := &dcb.AppendCondition{FailIfEventsMatch: &q, AfterSequence: &after}
-	if _, err := s.Append(context.Background(), []dcb.EventData{{Type: "t"}}, cond, projection.Writes{}); err != nil {
+	cond := dcb.AppendCondition{FailIfEventsMatch: &q, AfterSequence: &after, Store: s.storeID}
+	if _, err := s.Append(context.Background(), []dcb.EventData{{Type: "t"}}, []dcb.AppendCondition{cond}, projection.Writes{}); err != nil {
 		t.Fatalf("Append() error = %v, want nil: no event carries every identifier of an item", err)
 	}
 }

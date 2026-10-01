@@ -139,7 +139,7 @@ func TestRunCopiesAllEventsAcrossMultiplePages(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Append() error = %v", err)
 		}
-		sourceTimes = append(sourceTimes, appended[0].Time)
+		sourceTimes = append(sourceTimes, appended.Events[0].Time)
 	}
 
 	ts := newSourceServer(t, sourceStore)

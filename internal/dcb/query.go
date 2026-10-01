@@ -182,9 +182,13 @@ func (q Query) Validate() error {
 // internal/store (checking it against the database) need the same shape.
 // internal/queue, which admits writers before any condition is checked,
 // never needs to know this type at all.
+//
+// Store is the store ID the condition's afterSequence was read with (see
+// ValidateStore): a Sequence Position only means something next to it.
 type AppendCondition struct {
 	FailIfEventsMatch *Query `json:"failIfEventsMatch,omitempty"`
 	AfterSequence     *int64 `json:"afterSequence,omitempty"`
+	Store             string `json:"store,omitempty"`
 }
 
 func (c AppendCondition) Validate() error {
@@ -199,10 +203,25 @@ func (c AppendCondition) Validate() error {
 	return nil
 }
 
+// ValidateStore checks that Store goes with AfterSequence: a condition
+// with an afterSequence carries the store ID it was read with, and a
+// condition without one carries none, since it read nothing.
+func (c AppendCondition) ValidateStore() error {
+	switch {
+	case c.AfterSequence != nil && c.Store == "":
+		return &ValidationError{Err: ErrMissingStore, Message: "a condition with afterSequence must carry the store it was read on"}
+	case c.AfterSequence == nil && c.Store != "":
+		return &ValidationError{Err: ErrUnexpectedStore, Message: "a condition without afterSequence must not carry a store"}
+	}
+	return nil
+}
+
 var (
 	ErrEmptyQuery            = errors.New("empty query")
 	ErrEmptyQueryItem        = errors.New("empty QueryItem")
 	ErrEmptyQueryItemArray   = errors.New("empty QueryItem array")
 	ErrNegativeAfterSequence = errors.New("negative afterSequence")
+	ErrMissingStore          = errors.New("afterSequence without store")
+	ErrUnexpectedStore       = errors.New("store without afterSequence")
 	ErrQueryTooLarge         = errors.New("query too large")
 )

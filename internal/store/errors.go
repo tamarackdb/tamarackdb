@@ -7,8 +7,9 @@ import (
 	"modernc.org/sqlite"
 )
 
-// ErrConcurrencyConflict is returned by Append when the Append Condition's
-// check finds a matching event, and wrapped by ProjectionConflictError.
+// ErrConcurrencyConflict is returned by Tx.Append when the Append
+// Condition's check finds a matching event, and wrapped by
+// ConditionConflictError and ProjectionConflictError.
 // This package has no knowledge of HTTP or JSON; internal/api maps both to
 // 409 {"error":"ConcurrencyException"}.
 var ErrConcurrencyConflict = errors.New("store: an event matching the append condition already exists")
@@ -32,6 +33,25 @@ func (e *ProjectionConflictError) Error() string {
 }
 
 func (e *ProjectionConflictError) Unwrap() error { return ErrConcurrencyConflict }
+
+// ConditionConflictError is returned by Append when one of its Append
+// Conditions doesn't hold: an event matching it was appended after its
+// afterSequence, or, with StoreChanged, it was read on a store ID that
+// isn't the current one (see Reset). Index is its position in the list of
+// conditions. It unwraps to ErrConcurrencyConflict.
+type ConditionConflictError struct {
+	Index        int
+	StoreChanged bool
+}
+
+func (e *ConditionConflictError) Error() string {
+	if e.StoreChanged {
+		return fmt.Sprintf("condition[%d] was read on another store", e.Index)
+	}
+	return fmt.Sprintf("condition[%d] no longer holds", e.Index)
+}
+
+func (e *ConditionConflictError) Unwrap() error { return ErrConcurrencyConflict }
 
 // ErrDatabaseLocked is returned by Open when another process already holds
 // the lock on this database file (see acquireLock in lock.go). Two

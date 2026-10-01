@@ -189,6 +189,56 @@ func TestAppendConditionValidate(t *testing.T) {
 	}
 }
 
+func TestAppendConditionValidateStore(t *testing.T) {
+	seq := int64(5)
+	all := QueryAll()
+	const store = "5b0c7e2a-1f4d-4a9b-8c3e-6d2f1a0b9e47"
+
+	tests := []struct {
+		name    string
+		cond    AppendCondition
+		wantErr error
+	}{
+		{"no condition fields", AppendCondition{}, nil},
+		{"failIfEventsMatch only", AppendCondition{FailIfEventsMatch: &all}, nil},
+		{"afterSequence with store", AppendCondition{AfterSequence: &seq, Store: store}, nil},
+		{"afterSequence without store", AppendCondition{AfterSequence: &seq}, ErrMissingStore},
+		{"store without afterSequence", AppendCondition{FailIfEventsMatch: &all, Store: store}, ErrUnexpectedStore},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.cond.ValidateStore()
+			if tt.wantErr == nil {
+				if err != nil {
+					t.Errorf("ValidateStore() = %v, want nil", err)
+				}
+				return
+			}
+			var ve *ValidationError
+			if !errors.Is(err, tt.wantErr) || !errors.As(err, &ve) {
+				t.Errorf("ValidateStore() = %v, want a *ValidationError wrapping %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestAppendConditionStoreJSON(t *testing.T) {
+	var c AppendCondition
+	if err := json.Unmarshal([]byte(`{"afterSequence":5,"store":"abc"}`), &c); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if c.Store != "abc" {
+		t.Errorf("Store = %q, want abc", c.Store)
+	}
+	data, err := json.Marshal(AppendCondition{})
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+	if string(data) != "{}" {
+		t.Errorf("Marshal(AppendCondition{}) = %s, want {}", data)
+	}
+}
+
 func TestQueryValidateSizeLimits(t *testing.T) {
 	item := func(n int) QueryItem {
 		types := make([]string, n)

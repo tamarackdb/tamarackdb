@@ -30,7 +30,7 @@ func TestConcurrentAppendsNoConditions(t *testing.T) {
 				t.Errorf("Append() error = %v", err)
 				return
 			}
-			seqCh <- got[0].Sequence
+			seqCh <- got.Events[0].Sequence
 		}()
 	}
 	wg.Wait()
@@ -68,8 +68,8 @@ func TestConcurrentAppendsConflictingCondition(t *testing.T) {
 	for i := 0; i < attempts; i++ {
 		go func() {
 			defer wg.Done()
-			cond := &dcb.AppendCondition{FailIfEventsMatch: &q}
-			_, err := s.Append(context.Background(), []dcb.EventData{eventWithIdentifier("t", "lockId", "shared")}, cond, projection.Writes{})
+			cond := dcb.AppendCondition{FailIfEventsMatch: &q}
+			_, err := s.Append(context.Background(), []dcb.EventData{eventWithIdentifier("t", "lockId", "shared")}, []dcb.AppendCondition{cond}, projection.Writes{})
 			switch {
 			case err == nil:
 				successes.Add(1)

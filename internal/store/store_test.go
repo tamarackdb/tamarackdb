@@ -21,13 +21,13 @@ func openTestStore(t *testing.T) *Store {
 	return s
 }
 
-func mustAppend(t *testing.T, s *Store, events []dcb.EventData, condition *dcb.AppendCondition) []dcb.Event {
+func mustAppend(t *testing.T, s *Store, events []dcb.EventData, conditions []dcb.AppendCondition) []dcb.Event {
 	t.Helper()
-	got, err := s.Append(context.Background(), events, condition, projection.Writes{})
+	got, err := s.Append(context.Background(), events, conditions, projection.Writes{})
 	if err != nil {
 		t.Fatalf("Append() error = %v", err)
 	}
-	return got
+	return got.Events
 }
 
 func mustReadAll(t *testing.T, s *Store, f ReadFilter) ([]dcb.Event, bool) {

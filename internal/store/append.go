@@ -11,68 +11,122 @@ import (
 	"github.com/tamarackdb/tamarackdb/internal/projection"
 )
 
-// Append writes events and projections in one transaction of its own,
-// optionally checking condition first: Begin, Tx.Append,
-// Tx.WriteProjections, then Commit. Events and projections commit together, or
-// not at all. events and projections are assumed already validated by the
-// caller (dcb.EventData.Validate, projection.Data.Validate, the per-call
-// caps): this package doesn't re-validate request shape, only concurrency
-// and persistence.
-func (s *Store) Append(ctx context.Context, events []dcb.EventData, condition *dcb.AppendCondition, projections projection.Writes) ([]dcb.Event, error) {
-	if len(events) == 0 && projections.Len() == 0 {
-		return nil, nil
+// AppendResult is what Append wrote.
+type AppendResult struct {
+	StoreID  string      // the store ID the write happened on
+	Events   []dcb.Event // each event with its Sequence Position and time
+	Versions Versions    // the new version of each created and replaced projection
+}
+
+// Append writes events and projections in one transaction of its own, if
+// every one of conditions holds: Begin, the condition checks, the event
+// inserts, Tx.WriteProjections, then Commit. Events and projections
+// commit together, or not at all. The conditions are checked first,
+// against the events committed before this write, and are checked even
+// when there is nothing else to write. The first one that doesn't hold
+// returns a *ConditionConflictError.
+//
+// events and projections are assumed already validated by the caller
+// (dcb.EventData.Validate, projection.Data.Validate, the per-call caps),
+// and conditions too (dcb.AppendCondition.Validate and ValidateStore):
+// this package doesn't re-validate request shape, only concurrency and
+// persistence.
+func (s *Store) Append(ctx context.Context, events []dcb.EventData, conditions []dcb.AppendCondition, projections projection.Writes) (AppendResult, error) {
+	if len(events) == 0 && len(conditions) == 0 && projections.Len() == 0 {
+		return AppendResult{StoreID: s.currentStoreID()}, nil
 	}
 
 	tx, err := s.Begin(ctx)
 	if err != nil {
-		return nil, err
+		return AppendResult{}, err
 	}
 	defer tx.Rollback() // no-op after Commit
 
-	result, err := tx.Append(ctx, events, condition)
-	if err != nil {
-		return nil, err
+	// Reset runs on the same single write connection, and updates the
+	// store ID before it frees it: the ID can't change until this
+	// transaction ends.
+	storeID := s.currentStoreID()
+	for i, c := range conditions {
+		if c.AfterSequence != nil && c.Store != storeID {
+			return AppendResult{}, &ConditionConflictError{Index: i, StoreChanged: true}
+		}
+		holds, err := s.checkCondition(ctx, tx.tx, c)
+		if err != nil {
+			return AppendResult{}, err
+		}
+		if !holds {
+			return AppendResult{}, &ConditionConflictError{Index: i}
+		}
 	}
-	if _, err := tx.WriteProjections(ctx, projections); err != nil {
-		return nil, err
+
+	appended, err := s.insertEvents(ctx, tx.tx, events)
+	if err != nil {
+		return AppendResult{}, err
+	}
+	versions, err := tx.WriteProjections(ctx, projections)
+	if err != nil {
+		return AppendResult{}, err
 	}
 	if err := tx.Commit(); err != nil {
-		return nil, err
+		return AppendResult{}, err
 	}
-	return result, nil
+	return AppendResult{StoreID: storeID, Events: appended, Versions: versions}, nil
 }
 
 // appendEvents checks condition, then inserts events, inside tx. The
 // check runs against every event visible to tx: committed ones, and the
 // ones appended earlier in the same transaction. The write lock is already
 // held (BEGIN IMMEDIATE), so no other writer can commit conflicting rows
-// between the check and the inserts.
+// between the check and the inserts. With no events, the condition isn't
+// checked at all.
 func (s *Store) appendEvents(ctx context.Context, tx *sql.Tx, events []dcb.EventData, condition *dcb.AppendCondition) ([]dcb.Event, error) {
 	if len(events) == 0 {
 		return nil, nil
 	}
-
-	if condition != nil && (condition.FailIfEventsMatch != nil || condition.AfterSequence != nil) {
-		after := int64(0)
-		if condition.AfterSequence != nil {
-			after = *condition.AfterSequence
-		}
-		holds, decided := resolveWithoutQuery(condition.FailIfEventsMatch, after, s.peekLastAssigned())
-		if !decided {
-			var err error
-			holds, err = checkFailIfEventsMatchSQL(ctx, tx, *condition.FailIfEventsMatch, after)
-			if err != nil {
-				return nil, wrapf("check append condition", err)
-			}
+	if condition != nil {
+		holds, err := s.checkCondition(ctx, tx, *condition)
+		if err != nil {
+			return nil, err
 		}
 		if !holds {
 			return nil, ErrConcurrencyConflict
 		}
 	}
+	return s.insertEvents(ctx, tx, events)
+}
+
+// checkCondition reports whether c holds against every event visible to
+// tx. It ignores c.Store: checking it is up to the caller.
+func (s *Store) checkCondition(ctx context.Context, tx *sql.Tx, c dcb.AppendCondition) (bool, error) {
+	if c.FailIfEventsMatch == nil && c.AfterSequence == nil {
+		return true, nil
+	}
+	after := int64(0)
+	if c.AfterSequence != nil {
+		after = *c.AfterSequence
+	}
+	holds, decided := resolveWithoutQuery(c.FailIfEventsMatch, after, s.peekLastAssigned())
+	if decided {
+		return holds, nil
+	}
+	holds, err := checkFailIfEventsMatchSQL(ctx, tx, *c.FailIfEventsMatch, after)
+	if err != nil {
+		return false, wrapf("check append condition", err)
+	}
+	return holds, nil
+}
+
+// insertEvents gives events their Sequence Positions and time, and
+// inserts them inside tx. The caller must only call it once the write is
+// confirmed to happen: every condition has already been checked.
+func (s *Store) insertEvents(ctx context.Context, tx *sql.Tx, events []dcb.EventData) ([]dcb.Event, error) {
+	if len(events) == 0 {
+		return nil, nil
+	}
 
 	// The counter is only consulted, and only advanced, now that the
-	// condition (if any) has been confirmed to hold: a failed condition
-	// must leave no gap in the sequence.
+	// conditions have been confirmed to hold: a failed condition must
+	// leave no gap in the sequence.
 	start := s.reserveSequences(len(events))
 	// One time for the whole append: every event in it is appended at the
 	// same moment. Order within the append comes from Sequence. Truncated
@@ -98,6 +152,13 @@ func (s *Store) appendEvents(ctx context.Context, tx *sql.Tx, events []dcb.Event
 		return nil, err
 	}
 	return result, nil
+}
+
+// currentStoreID returns the store ID (see storeid.go).
+func (s *Store) currentStoreID() string {
+	s.seqMu.Lock()
+	defer s.seqMu.Unlock()
+	return s.storeID
 }
 
 // peekLastAssigned returns the highest sequence number the in-memory
