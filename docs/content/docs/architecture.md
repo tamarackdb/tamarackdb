@@ -69,8 +69,8 @@ people with paper and pencils, to reason about concurrency without getting lost 
 - **The board and the bulletin board.** The board is large, on wheels, and it pivots; its name is written at the top of
   the side that faces the courtyard. On it is the log of events, numbered in the order they're added (`sequence`).
   Pages are glued end to end: whoever reads the board sees one long list of events, not pages. Nothing is ever taken
-  off the board. On a huge bulletin board are the projections: one card pinned per projection, with a version number
-  that changes on every write. A card can be replaced or taken down. Everyone can look at both, but only the clerks
+  off the board. On a huge bulletin board are the projections: one card pinned per projection, with a version stamp,
+  new on every write. A card can be replaced or taken down. Everyone can look at both, but only the clerks
   write on them. People keep their backs to them, and only turn around when they really need to read. No one is told
   when the clerks write.
 - **The notebook.** Starting a transaction is taking a blank notebook. A person holds one at a time, and no one else
@@ -114,9 +114,9 @@ people with paper and pencils, to reason about concurrency without getting lost 
   page, a page holding every event of the notebook, and one for each card touched on the bulletin board (created,
   replaced, or taken down). They all wait for the order, then act together. No one ever sees a write half done: the
   whole notebook appears at once, or nothing does (the SQLite transaction).
-- **Leaving before or during the write.** The person must still be there when the head clerk gives the order to write;
-  if they left before, nothing is written. Once the order is given, the under-clerks finish, even if the person
-  leaves. They then don't know whether their notebook was written, and it's up to them to deal with it.
+- **Leaving before or during the write.** The person must still be there when the head clerk takes their notebook;
+  if they left before, nothing is written. From then on, the head clerk goes to the end, checks and writing alike, even
+  if the person leaves. They then don't know whether their notebook was written, and it's up to them to deal with it.
 - **Taking cards down in bulk.** A person with no notebook can ask the head clerk to take down every card of one type,
   or the whole bulletin board. They get in line like everyone else: the notebooks that arrived before them are written
   first, and the removal applies to everything accepted before it.
