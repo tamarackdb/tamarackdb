@@ -10,8 +10,8 @@ TamarackDB is an event store in Go. It follows the [DCB (Dynamic Consistency Bou
 specification](https://dcb.events/specification/), is reachable over HTTP, and uses SQLite as its storage engine. The
 service runs as a single instance ("single brain"), not a multi-instance cluster.
 
-It also stores projections: projections an application reads and updates in the same transaction as the events that
-changed them (see Projections). An application that keeps its projections elsewhere never has to touch this mechanism.
+It also stores projections: projections an application writes in the same write as the events that changed them (see
+Projections). An application that keeps its projections elsewhere never has to touch this mechanism.
 
 Applications can share a single TamarackDB instance when they share events. TamarackDB does not track which
 application produced an event.
@@ -26,42 +26,104 @@ which you rebuild current state by replaying them.
 
 ### Scope
 
-TamarackDB serves applications with modest throughput and few concurrent users. Every design choice here follows from
-that scope: one SQLite file, one transaction at a time, no clustering.
+TamarackDB serves applications with modest throughput. Every design choice here follows from that scope: one SQLite
+file, one writer, no clustering. It trades speed for simplicity, on purpose. A system that needs high write
+throughput is not a good fit for TamarackDB.
 
-It trades speed for simplicity, on purpose. A system that needs high write throughput, or that is built around eventual
-consistency, is not a good fit for TamarackDB.
+Eventual consistency is supported, not imposed. An application can make each command atomic, with its events and
+every projection they change written together, or let its projectors and processors catch up later, each in a
+transaction of its own. The choice belongs to the application, through its client library, by where it ends its
+transactions. The server knows nothing about it.
 
 ### Transactional model
 
-TamarackDB is built for applications that process a command synchronously and atomically. A typical command, inside
-one request of the application:
+A transaction lives in the client library, not on the server. While a command runs, the library keeps what the
+command wants to write in memory: new events, the Append Conditions they depend on, and projection changes. Reads
+made inside the transaction see those pending writes, merged into what the server returns. When the transaction ends,
+the library sends everything in one `POST /write`.
 
-1. A Decision Model reads events, decides, and appends new events.
-2. Event handlers react to those events in the same request. Projectors update projections. Processors read events,
-   including the ones just appended, and may append follow-up events, which trigger more handlers.
-3. Everything lands together, or nothing does. If any handler fails, no event and no projection is persisted.
+The server checks the write and applies it in one SQLite transaction of its own: every Append Condition must hold, and
+every projection must still be at the version read. Then it appends the events and writes the projections, or writes
+nothing at all. The server keeps nothing between two requests: no open transaction, no pending write, no timer.
+
+Many transactions run at the same time, one per thread or request of the application. None of them holds anything on
+the server while it runs: reads never wait, and a slow client blocks no one. Conflicts between transactions are found
+when each write arrives, one write at a time, by its Append Conditions and projection versions. A transaction that
+became stale learns it then, with `409 ConcurrencyException`.
 
 Decision models and event handlers are code in the application, not in TamarackDB: the server stores what they read
 and write, and never runs them.
 
-This needs a transaction that spans several HTTP calls: the handlers must read what the command just appended, before
-anything is committed. TamarackDB provides exactly that:
+### The courtyard
 
-- A client opens a transaction and gets a ticket. Every call that carries the ticket runs inside one SQLite
-  transaction: reading events, appending events, reading projections, writing projections.
-- Only one transaction exists at a time. It holds SQLite's write lock from the moment its ticket is given out until it
-  ends. Other clients wait their turn in a FIFO.
-- The client ends the transaction explicitly, with a commit or a rollback. A deadline rolls it back if the client
-  never does.
-- A transaction fits inside one request of the application, on the server side. The speed of the end user's browser
-  connection has no effect on how long it lasts.
+A picture helps to reason about this model. It follows [Pull-The-Plug
+Modeling](https://maximegosselin.com/posts/pull-the-plug-modeling/): imagine the work done with no electricity, by
+people with paper and pencils, to reason about concurrency without getting lost in technical details.
 
-The consistency boundary is the whole store, with a pessimistic lock. That's the widest boundary possible: the
-guarantee is stronger than DCB requires, not weaker (see DCB compliance).
+- **The courtyard is the application, and the people are its threads or requests.** The application decides how many
+  people come into the courtyard, not TamarackDB.
+- **The board and the bulletin board.** The board is large, on wheels, and it pivots; its name is written at the top of
+  the side that faces the courtyard. On it is the log of events, numbered in the order they're added (`sequence`).
+  Pages are glued end to end: whoever reads the board sees one long list of events, not pages. Nothing is ever taken
+  off the board. On a huge bulletin board are the projections: one card pinned per projection, with a version number
+  that changes on every write. A card can be replaced or taken down. Everyone can look at both, but only the clerks
+  write on them. People keep their backs to them, and only turn around when they really need to read. No one is told
+  when the clerks write.
+- **The notebook.** Starting a transaction is taking a blank notebook. A person holds one at a time, and no one else
+  sees it. In it, the person writes down their wishes, with no numbers: only events glued to the board have one. When
+  they look at the board or the bulletin board, they add in their head what's in their notebook. They can throw the
+  notebook away at any time; handing it to the head clerk is the write. Either way, they no longer have a notebook.
+- **A notebook that stands on its own.** The head clerk knows nothing of what the person did before reaching them:
+  everything to check is written in the notebook. Next to each wish for events, the person notes what the decision
+  rests on: the board's name and the number they read it up to (`afterSequence`), and which events would have changed
+  their mind (`failIfEventsMatch`). A wish that rests on no reading notes neither name nor number: it holds on any
+  board. For each card they want to change, they note the version they read.
+- **The bookmark.** One person can follow several lines of thought in the same transaction (the processors). When they
+  look at the board for one of them, they slip a bookmark into the notebook. Before writing down the wish that comes out
+  of it, they read again what was added to the notebook after the bookmark. If one of those additions bears on the
+  decision, they tear the notebook up: they decided on a stale view, and the whole notebook is suspect. This is the
+  only check that falls to them: only they know their notebook in order.
+- **A projector is a person like any other.** In an eventually consistent application, the person playing a projector
+  wears a watch that reminds them, now and then, to go look at the board: no one tells them when the clerks write.
+  They take a notebook (it costs nothing), read the card holding their marker on the bulletin board (the board's name
+  and the last number processed) and note its version, then look at the board after that number. If they find new
+  events, they write down the cards to create, replace, or take down, and their new marker, and get in line.
+  Otherwise, they throw the blank notebook away. Their notebook never holds new events: the ones they project are
+  already on the board. A newcomer with no marker card reads the board from the start: they see its name there, and
+  note their first marker with the last number processed. A rebuild goes the same way, in one notebook or several.
+- **A refused projector starts over.** If the head clerk refuses a projector's notebook because a card is no longer at
+  the version noted, nothing is written, neither the cards nor the new marker, since they go together. The person
+  throws the notebook away and starts again at the next tick of the watch, from their marker card: if someone moved
+  that marker in the meantime, they pick up where it stopped, with no event projected twice or skipped. A card doesn't
+  carry the name of who wrote it: the head clerk can't stop two people from touching the same ones.
+- **The head clerk, in a corner of the courtyard, handles notebooks one at a time.** People who are ready line up in
+  front of them. Once in line, a person no longer touches their notebook. They can leave the line; the person behind
+  them then takes their place.
+- **Only the head clerk decides, and only once.** They check what the notebook notes against the board and the
+  bulletin board as they are at that moment. If the board's name isn't the one the notebook notes, if an event added
+  after the noted number would have changed the decision, or if a card is no longer at the version noted, they refuse
+  the whole notebook (`409`). Otherwise, they have everything written. No one tries to guess the verdict: turning
+  around to look at the board just before getting in line would prove nothing, since the board can change during the
+  wait. Refused, the person leaves the line. If they want, they start over: take a blank notebook, look at the board,
+  decide, write it down.
+- **Under-clerks who act together.** The head clerk directs under-clerks: one who glues to the board, after the last
+  page, a page holding every event of the notebook, and one for each card touched on the bulletin board (created,
+  replaced, or taken down). They all wait for the order, then act together. No one ever sees a write half done: the
+  whole notebook appears at once, or nothing does (the SQLite transaction).
+- **Leaving before or during the write.** The person must still be there when the head clerk gives the order to write;
+  if they left before, nothing is written. Once the order is given, the under-clerks finish, even if the person
+  leaves. They then don't know whether their notebook was written, and it's up to them to deal with it.
+- **Taking cards down in bulk.** A person with no notebook can ask the head clerk to take down every card of one type,
+  or the whole bulletin board. They get in line like everyone else: the notebooks that arrived before them are written
+  first, and the removal applies to everything accepted before it.
+- **Turning the board around (dev mode only).** A person with no notebook can ask for the board to be turned around.
+  The head clerk handles the request in its turn, like a notebook: the ones that arrived before it are written on the
+  visible side, then the board pivots. The side that comes up is blank and carries a new name, and no one can read the
+  old side any more. The bulletin board is cleared at the same time. A notebook that notes the old name will be
+  refused. Those who keep a marker elsewhere (a projector that remembers the name and the last number read, for
+  example) see that the name changed, and start over from zero.
 
-Every transaction costs several HTTP round trips. TamarackDB is meant to run on the same host as the application, and
-listens on a unix socket by default, which keeps each round trip short (see Security).
+In the courtyard, people make writes. Committing is what the SQLite transaction does inside one write.
 
 ## Data model
 
@@ -110,14 +172,26 @@ Metadata behave exactly like Tags for matching. The split is just a naming choic
 the spec.
 
 An event can't carry the same `{name, value}` pair twice in its identifiers, or twice in its metadata. This matches the
-DCB specification's own rule that a set of Tags should not contain duplicates. A `POST /events` call that breaks this
-rule gets `400 Bad Request`, instead of being silently deduplicated, like every other invalid request (see Error
-responses).
+DCB specification's own rule that a set of Tags should not contain duplicates. A write that breaks this rule gets
+`400 Bad Request`, instead of being silently deduplicated, like every other invalid request (see Error responses).
 
 An event can't carry more than **20 identifiers**, or more than **20 metadata** entries. These are fixed limits, not
-configuration, for the same reason as the cap on events per `POST /events` call (see Appending events): an event
-should stay a short, meaningful statement, not a container for a large list of values. A `POST /events` call that
-breaks this rule gets `400 Bad Request`.
+configuration: an event should stay a short, meaningful statement, not a container for a large list of values. A
+write that breaks this rule gets `400 Bad Request`.
+
+### Store ID
+
+Every database file has a store ID: a UUID drawn when the file is created, kept in the single row of the `store`
+table (see Schema), and drawn again by `POST /reset` (see Reset). Two responses that carry the same store ID come from
+the same history. A Sequence Position only means something next to the store ID it was read with: after a reset,
+sequence 5 names a different event. A position kept by a client is therefore a pair, the store ID and the Sequence
+Position.
+
+The store ID is in the `X-Tamarackdb-Store` header of every response that depends on the store: `QUERY /events` on
+every page, empty ones included, `GET /projections/{type}/{id}` on both `200` and `404`, and `POST /write` on `200`. A
+read takes it in the same SQLite snapshot as the events or the projection, so a response never pairs the data of one
+store ID with another. A write takes it in the same SQLite transaction as what it wrote. A request refused before it
+reads or writes (`400`, for example) carries no store ID.
 
 ## Query grammar (per the DCB spec)
 
@@ -143,6 +217,8 @@ For each `QueryItem`:
 - **AND** across `metadata` (the event must carry **all** of the listed metadata)
 - The three are combined with **AND**: an event must satisfy its type, its identifiers, and its metadata together
 
+Values are compared exactly, byte for byte: case counts, and no Unicode normalization happens.
+
 Negation (`<>`, and so on) is not allowed. It's left out on purpose: a negation describes an unlimited set of matching
 events ("anything that isn't X"), so there's no way to guarantee that no future event could break the condition.
 
@@ -160,110 +236,127 @@ gets `400 Bad Request`: it poses no constraint.
 A Query carries at most **100** `QueryItem`, and a `QueryItem` at most **100** values across its `types`,
 `identifiers`, and `metadata` combined. These are fixed limits, not configuration: they keep the SQL a Query turns into
 well inside SQLite's own limits on expression depth and bound parameters, which a Query of about 1,000 terms would
-otherwise hit, failing inside SQLite instead of getting a clear `400 Bad Request`. They apply to `query` and to
-`condition.failIfEventsMatch` alike, counted after duplicate items are dropped.
+otherwise hit, failing inside SQLite instead of getting a clear `400 Bad Request`. They apply to `query` and to a
+condition's `failIfEventsMatch` alike, counted after duplicate items are dropped.
 
 If two `QueryItem` in the same array are exact duplicates (same types, identifiers, and metadata, in any order),
 TamarackDB silently keeps one and drops the rest: a repeated item adds nothing to the OR beyond a wasted clause. This
-applies to `query` on `QUERY /events` and to `condition.failIfEventsMatch` on `POST /events` alike, since both use
-this same grammar. It's useful when a client builds one Query by merging several sources (several models reacting to
-the same identifier, for example) and doesn't want to bother deduplicating them itself first.
+applies to `query` on `QUERY /events` and to `failIfEventsMatch` on `POST /write` alike, since both use this same
+grammar. It's useful when a client builds one Query by merging several sources (several models reacting to the same
+identifier, for example) and doesn't want to bother deduplicating them itself first.
+
+A client library matches its own pending events against a Query, in memory (see Transactional model). Its matcher must
+follow this grammar exactly, or a command could miss one of its own pending events without any error. The repository
+publishes shared test cases for that, `testdata/query-cases.json`: each case is a query, an event, and whether it
+matches. A test in `internal/store` checks every case against the SQL the server runs; a client library replays them
+against its matcher.
 
 ## HTTP API
 
-Every endpoint is named by the resource it acts on (`/events`, `/projections`) or by the transaction step it performs
-(`/begin`, `/commit`, `/rollback`). A call that belongs to a transaction carries the ticket in the
-`X-Tamarackdb-Ticket` header.
+Every endpoint is named by the resource it acts on (`/events`, `/projections`) or by what it does (`/write`,
+`/reset`). No request belongs to a transaction on the server: each one stands on its own.
 
-| Endpoint | Ticket | Purpose |
-|---|---|---|
-| `POST /begin` | none | Wait for a turn in the FIFO, open a transaction, get a ticket |
-| `QUERY /events` | optional | Read events, inside the transaction or from committed data |
-| `POST /events` | required | Append events, with an optional Append Condition |
-| `GET /projections/{type}/{id}` | optional | Read one projection, inside the transaction or from committed data |
-| `POST /projections` | optional | Write or delete projections, inside the transaction or in a turn of its own |
-| `POST /commit` | required | Commit the transaction |
-| `POST /rollback` | required | Roll the transaction back |
-| `DELETE /projections/{type}` | none | Delete every projection of one type, in a turn of its own |
-| `DELETE /projections` | none | Delete every projection, in a turn of its own |
-| `POST /reset` | none, dev mode only | Delete all events and projections |
+| Endpoint | Purpose |
+|---|---|
+| `QUERY /events` | Read committed events |
+| `GET /projections/{type}/{id}` | Read one committed projection |
+| `POST /write` | Check Append Conditions, append events, and write projections, all or nothing, in its turn |
+| `DELETE /projections/{type}` | Delete every projection of one type, in its turn |
+| `DELETE /projections` | Delete every projection, in its turn |
+| `POST /reset` | Delete all events and projections and draw a new store ID, in its turn (dev mode only) |
 
-`GET /health`, `GET /metrics`, and `GET /debug` are covered in Management / observability.
+"In its turn" means the request waits in the write FIFO (see Concurrency handling in Go). `GET /health`, `GET
+/metrics`, and `GET /debug` are covered in Management / observability.
 
-### Transactions
+### Writing
 
-#### Opening a transaction
-
-`POST /begin` opens a transaction and responds with its ticket:
+`POST /write` carries one write: the events to append, the Append Conditions they depend on, and the projection
+changes:
 
 ```json
-{ "ticket": "a045ad63-5d4b-4847-8eb9-fbddb4e2d65b" }
+{
+  "events": [
+    {
+      "type": "user-created",
+      "identifiers": { "userId": "123" },
+      "metadata": { "tenantId": "acme" },
+      "payload": "..."
+    }
+  ],
+  "conditions": [
+    {
+      "failIfEventsMatch": [ ... ],
+      "afterSequence": 12345,
+      "store": "5b0c7e2a-1f4d-4a9b-8c3e-6d2f1a0b9e47"
+    }
+  ],
+  "projections": {
+    "create":  [{ "type": "user-list-entry", "id": "789", "payload": "..." }],
+    "replace": [{ "type": "user-profile", "id": "123", "version": "9f3c...", "payload": "..." }],
+    "delete":  [{ "type": "user-list-entry", "id": "456", "version": "1b2c..." }]
+  }
+}
 ```
 
-It takes no request body. How long a transaction may last is set by the operator, not the client (see Deadline and
-ceiling).
+Every key is optional, and a missing one is an empty list. The body is decoded strictly: an unknown key, at any level,
+gets `400 Bad Request`, since a misspelled optional key would otherwise drop a whole list without a word.
 
-If another transaction is active, the request waits in a FIFO, with its HTTP connection held open, until its turn
-comes. The SQLite transaction starts with `BEGIN IMMEDIATE` at the moment the ticket is given out: the write lock is
-held from the first operation, reads included, until the transaction ends.
+The body is read and checked in full before the write joins the FIFO: a client sending its body slowly never holds
+the turn, and an invalid body gets `400 Bad Request` without waiting. When its turn comes, the write runs in one
+SQLite transaction:
 
-A client that disconnects while waiting leaves the FIFO. The server puts no limit on how long a request waits: only
-the client knows how long its own caller can wait, so the client ends the wait by closing the connection. A request
-that has waited a long time is close to the head of the FIFO; turning it away would send its retry to the back, behind
-every request that arrived after it. A request that arrives when the FIFO is already at its configured depth gets
-`503 TransactionQueueFull` right away, instead of joining (see Configuration).
+1. Every Append Condition is checked, in order, against the events committed before this write (see Append Condition
+   and concurrency). The first that doesn't hold ends the write.
+2. The projections are written, each one conditional on its version (see Projections). The first that doesn't hold
+   ends the write.
+3. The events get their Sequence Positions and their `time`, and are inserted.
+4. The SQLite transaction commits.
 
-#### Deadline and ceiling
+Events and projections become durable together, or nothing is written. Conditions are checked even when the write
+carries nothing else. A write with nothing at all (no event, no condition, no projection) responds `200` right away,
+without joining the FIFO.
 
-A transaction must end before its deadline, or it's rolled back automatically. Two limits set the deadline, both
-configuration, neither chosen by the client:
+On success, the server responds `200 OK`, with the store ID in the `X-Tamarackdb-Store` header. The body gives the
+Sequence Position and `time` of each event, in the order they were sent, and the new version of each created and
+replaced projection:
 
-- **An idle timeout**, 5 seconds by default. The deadline starts at the moment the ticket is given out plus the idle
-  timeout. Each call made with the ticket renews it: when the call ends, the deadline moves to that moment plus the
-  idle timeout. A client that stops making calls, because it crashed or hangs, loses its transaction after that long.
-- **A total ceiling**, 15 seconds by default, counted from the moment the ticket is given out. Renewals never push the
-  deadline past it. It keeps a buggy client that keeps making calls from holding the store indefinitely.
+```json
+{
+  "events": [
+    {"sequence": 12348, "time": "2026-09-01T14:25:00.000000Z"}
+  ],
+  "projections": {
+    "create": [{"version": "5a6b..."}],
+    "replace": [{"version": "d4c3..."}]
+  }
+}
+```
 
-The deadline is a safety net for a client that fails, not a time budget for a command. A healthy client always ends
-its transaction itself, with a commit or a rollback, long before either limit. The store holds a single global lock,
-so how long one client may hold it is the operator's decision: it's what every other client waits for.
+Every list is always present, empty if need be.
 
-#### Calls inside a transaction
+A condition that doesn't hold, or a projection that isn't at the version given, gets `409 ConcurrencyException`, with
+a `message` naming the item by its place in the body: `conditions[1] no longer holds`, `conditions[0] was read on
+another store`, `projections.replace[0] no longer has the given version`, `projections.create[0] already exists`.
 
-A call with a ticket that isn't active (unknown, already committed, rolled back, or expired) gets
-`410 TicketNotActive`. The server keeps only the active ticket, so it can't tell an unknown ticket from one whose
-transaction has ended.
+**Limits.** A write carries at most `maxEventsPerWrite` events (100 by default), at most as many conditions, and at
+most `maxProjectionsPerWrite` projections across the three lists (500 by default). Each event is at most
+`maxEventSize` bytes, and each projection at most `maxProjectionSize` (see Event size limit). The body as a whole is
+at most `maxRequestBodySize` (see Error responses). These limits count everything one transaction of the application
+writes, since it all goes out in one write. Each error from a limit names its setting, for example `request carries
+612 projections, more than maxProjectionsPerWrite (500)`, so a developer who hits one in development knows what to
+ask the operator to raise.
 
-A call that fails inside a transaction ends it: the transaction is rolled back, and the ticket stops being active.
-This covers every error response: a malformed request, a failed Append Condition, a payload over its size limit, an
-internal error. A `404 ProjectionNotFound` from `GET /projections/{type}/{id}` is not an error in this sense: it's an
-ordinary answer, and the transaction goes on.
+**The client leaving.** A client that disconnects while its write waits in the FIFO leaves the FIFO, and nothing is
+written. The server checks once more that the client is still there just as the turn comes. Once the SQLite
+transaction has started, the write goes to the end, even if the client leaves: the transaction no longer depends on
+the request's context. The client then can't tell whether the write happened.
 
-#### Ending a transaction
-
-A transaction ends, and gives its turn to the next one in the FIFO, in one of these cases:
-
-- The client calls `POST /commit`.
-- The client calls `POST /rollback`. The transaction is rolled back.
-- A call inside the transaction fails. The transaction is rolled back.
-- The deadline passes before `POST /commit`. The transaction is rolled back.
-
-`POST /commit` runs in this order:
-
-1. The ticket stops being active.
-2. The SQLite transaction commits. Events and projections become durable together.
-3. The next transaction in the FIFO gets its ticket.
-
-A commit never fails with `409`: every Append Condition was already checked when its events were appended. `POST
-/commit` and `POST /rollback` both respond `204 No Content`.
-
-If the connection drops before the `POST /commit` response reaches the client, the ticket is already inactive and the
-next transaction can take its turn. The client can't tell whether its data was committed. This is the same
-lost-acknowledgment problem as any request/response protocol. It's rare enough that TamarackDB leaves it to the
-application's user experience: reloading the page shows whether the change was applied. A client that wants to retry
-such a command safely runs it again in a new transaction, and appends with the same Append Condition as the first
-attempt, `afterSequence` included. If the original commit went through, its events are past that position and match
-the condition, so the retry fails with `409 ConcurrencyException` instead of appending a duplicate event.
+**A lost response.** If the connection drops before the response arrives, the client can't tell whether the write
+happened, and reading the events again doesn't settle it: finding nothing can mean "not written" or "not written yet".
+A client that wants to retry safely sends the same write again, with the same Append Conditions, `afterSequence`
+included. The FIFO serves writes in the order they arrive, so the retry runs after the first attempt. If the first
+attempt went through, its events are past that position and match the condition, so the retry fails with `409
+ConcurrencyException` instead of appending a duplicate event. Otherwise, the retry is written normally.
 
 ### Reading events
 
@@ -301,12 +394,12 @@ from the start of the store.
 The body is decoded strictly: an unknown key, at any level, gets `400 Bad Request`. Every key but `query` is optional,
 so a misspelled one would otherwise widen the read without a word.
 
-**With a ticket**, the read runs inside the transaction, on the write connection. It sees every event appended
-earlier in the same transaction, even though nothing is committed yet. This is how an event handler reads what the
-command just appended.
+There is no filter on `time`. `time` comes from the server's clock, which can jump back (see Response format), so
+neither a decision nor a read should depend on it. An application that looks events up by period tags them when it
+writes them (a `month` metadata entry, for example) and queries that tag.
 
-**Without a ticket**, the read runs on the read connection pool, outside any transaction. It sees committed events
-only, and is never blocked by the active transaction (see Reads).
+A read runs on the read connection pool, outside any write. It sees committed events only, and never waits for a
+write (see Reads). The response carries the store ID (see Store ID).
 
 ### Pagination
 
@@ -370,80 +463,18 @@ treats that exactly like a dropped connection, resuming with `afterSequence` set
 `identifiers` and `metadata` come back in the same compact object shape used when appending (`{"courseId": ["foo",
 "bar"]}`), grouping multiple values for the same name under one key.
 
-`time` is when TamarackDB appended the event, read from the server's clock during the `POST /events` call, in ATOM
-format (RFC 3339) with exactly 6 fractional digits, always in UTC (`Z`). Every event of one `POST /events` call shares
-the same `time`: order within a call comes from Sequence Position. The store has no timezone setting: `time` is a
-reference value, not something meant for display. Converting to local time is left to the application.
+`time` is when TamarackDB wrote the event, read from the server's clock during the write, in ATOM format (RFC 3339)
+with exactly 6 fractional digits, always in UTC (`Z`). Every event of one write shares the same `time`: order within a
+write comes from Sequence Position. The store has no timezone setting: `time` is a reference value, not something
+meant for display. Converting to local time is left to the application.
+
+`time` usually follows Sequence Position order, but nothing guarantees it. Day to day, NTP corrects a small drift
+smoothly, by slowing the clock down or speeding it up, never by moving it back. A jump back is still possible: a large
+gap corrected at once (often at boot), a virtual machine resumed, the time set by hand, a leap second handled badly.
+Order always comes from `sequence`.
 
 `payload` is an opaque string: the store never parses or checks it. Its real format (JSON, XML, or anything else) is
 a convention owned by the writing application, based on the event's `type`. The store has no notion of it.
-
-### Store ID
-
-Every database file has a store ID: a UUID drawn when the file is created, and drawn again by `POST /reset` (see
-Reset). Two reads that carry the same store ID read the same history. A Sequence Position only means something next to
-the store ID it was read with: after a reset, sequence 5 names a different event.
-
-A read without a ticket returns the store ID in the `X-Tamarackdb-Store` header: `QUERY /events` on every page, empty
-ones included, and `GET /projections/{type}/{id}` on both `200` and `404`. The server reads it in the same SQLite
-snapshot as the events or the projection, so a response never pairs the data of one store ID with another. A request
-refused before it reads (`400`, for example) carries no store ID.
-
-### Appending events
-
-`POST /events` appends events inside the transaction. The request body carries the events and an optional Append
-Condition:
-
-```json
-{
-  "events": [
-    {
-      "type": "user-created",
-      "identifiers": { "userId": "123" },
-      "metadata": { "tenantId": "acme" },
-      "payload": "..."
-    }
-  ],
-  "condition": {
-    "failIfEventsMatch": [ ... ],
-    "afterSequence": 12345
-  }
-}
-```
-
-`condition.failIfEventsMatch` follows the same grammar as `query` on `QUERY /events` (an array of `QueryItem`, or
-`"*"`). `condition` itself is optional: an event with nothing to protect can be appended with no concurrency check at
-all. The condition is checked inside the transaction, against every event visible to it, including the ones appended
-earlier in the same transaction (see Append Condition and concurrency).
-
-A call may carry at most **100 events**. This is a fixed limit, not configuration, since
-it marks an architectural boundary, not a performance trade-off: a Decision Model appends the handful of events from
-one business decision, not a batch. A call over this limit gets `400 Bad Request`. A transaction can make several
-`POST /events` calls: the limit applies to each call. An empty `events` array appends nothing and skips the
-condition: with nothing appended, there's nothing to protect. A missing `events` field gets `400 Bad Request`: the
-server accepts unknown keys, so a missing field most likely means a misspelled one.
-
-On success, the server responds `200 OK`. The body gives the Sequence Position and `time` of each event, in the order
-they were sent:
-
-```json
-{
-  "events": [
-    {"sequence": 12348, "time": "2026-09-01T14:25:00.000000Z"}
-  ]
-}
-```
-
-These values are final as soon as the call returns, even though nothing is committed yet: the transaction either
-commits them as they are, or rolls them back entirely. Event handlers can use them right away. A projection can store
-an event's `sequence` or `time` in a projection, and a rebuild reads the same values back from `QUERY /events` (see
-Projections).
-
-If the Append Condition fails, the server responds `409 Conflict`, and the transaction is rolled back:
-
-```json
-{ "error": "ConcurrencyException" }
-```
 
 ### Projections
 
@@ -453,101 +484,76 @@ overwritten or removed; the store only ever holds its current state. Every proje
 which is why backups leave projections out (see Backup). Storing projections in TamarackDB is optional: an application
 that keeps its projections elsewhere never has to touch it.
 
-Projections live in the same SQLite file as events (see Storage: SQLite), and are written in the same transaction. A
-commit makes events and projections durable together; a rollback discards both.
+Projections live in the same SQLite file as events (see Storage: SQLite), and are written in the same write. Events
+and projections become durable together, or neither does.
 
 **Reading a projection**: `GET /projections/{type}/{id}` returns `404 ProjectionNotFound` if no projection exists for that
 `type` + `id`, and `200` otherwise, with the payload as the response body, exactly as written. There's no JSON
 envelope around it, since the payload's own format (JSON, XML, plain text) is up to the writing application, not
 something the store imposes a wrapper on top of. The projection's version comes in the `X-Tamarackdb-Version` header
-(see Versions below).
-
-With a ticket, the read runs inside the transaction: it sees projections written earlier in the same transaction. A
-projector uses it to read a projection before changing it. Without a ticket, the read runs on the read connection pool
-and sees committed projections only: this is how an application reads a projection to display a page.
+(see Versions below). The read runs on the read connection pool and sees committed projections only.
 
 A projection is always read by `type` and `id`. There is no query over projections. In the URL, both are
 percent-encoded as path segments: an `id` of `a/b` is written `a%2Fb`.
 
-**Writing projections**: `POST /projections` creates, replaces, and deletes several projections at once:
-
-```json
-{
-  "create":  [{ "type": "user-list-entry", "id": "789", "payload": "..." }],
-  "replace": [{ "type": "user-profile", "id": "123", "version": "9f3c...", "payload": "..." }],
-  "delete":  [{ "type": "user-list-entry", "id": "456", "version": "1b2c..." }]
-}
-```
-
-Each list has a fixed shape: `create` takes `type`, `id` and `payload`; `replace` takes `type`, `id`, `version` and
-`payload`; `delete` takes `type`, `id` and `version`. Three lists, rather than one list with an operation flag, leave
-no combination of keys to forbid. A payload is a string, and an empty string is valid; a missing or `null` payload
-gets `400 Bad Request`, so a key that goes missing on the client (JavaScript's `JSON.stringify` drops `undefined`
-values) never writes an empty payload. Each list is optional and may be empty, so a client that sends one call per
-transaction needs no special case when its handlers changed nothing; a body with none of the three gets `400 Bad
-Request`. This body is decoded strictly: an unknown key, at any level, gets `400 Bad Request`, since a misspelled
-optional key would otherwise drop a whole list without a word. The same `type` + `id` can't appear twice in one call,
-across the three lists, so the order in which the lists are applied doesn't matter. A call carries at most
-`maxProjectionsPerRequest` projections in total, and each projection at most `maxProjectionSize` bytes, measured like
-an event: the combined UTF-8 byte length of its `type`, `id`, and `payload` (see Configuration).
-
-On success, it responds `200 OK` with the new version of each created and replaced projection, in request order:
-`{"create": [{"version": "..."}], "replace": [{"version": "..."}]}`. Both keys are always present.
+**Writing projections**: the `projections` object of `POST /write` creates, replaces, and deletes projections (see
+Writing). Each list has a fixed shape: `create` takes `type`, `id` and `payload`; `replace` takes `type`, `id`,
+`version` and `payload`; `delete` takes `type`, `id` and `version`. Three lists, rather than one list with an
+operation flag, leave no combination of keys to forbid. A payload is a string, and an empty string is valid; a missing
+or `null` payload gets `400 Bad Request`, so a key that goes missing on the client (JavaScript's `JSON.stringify`
+drops `undefined` values) never writes an empty payload. The same `type` + `id` can't appear twice in one write,
+across the three lists, so the order in which the lists are applied doesn't matter. Each projection is at most
+`maxProjectionSize` bytes, measured like an event: the combined UTF-8 byte length of its `type`, `id`, and `payload`
+(see Configuration).
 
 **Versions.** Every projection has a version, a random UUID (version 4) generated on every write and stored in the
-`version` column. Each write is conditional, inside the transaction that holds the write lock: a `create` inserts
-only if the `type` + `id` is free, and a `replace` or `delete` touches the row only if its stored version is the one
-given. A write that touches no row fails with `409 ConcurrencyException`, with the entry named in `message` (for
-example `replace[0]`), and the transaction rolls back like after any other error. A `delete` of a projection that no
-longer exists fails the same way: another client deleted it since the version was read.
+`version` column. Each write is conditional: a `create` inserts only if the `type` + `id` is free, and a `replace` or
+`delete` touches the row only if its stored version is the one given. An entry that touches no row fails the whole
+write with `409 ConcurrencyException`, with the entry named in `message` (for example `projections.replace[0]`). A
+`delete` of a projection that no longer exists fails the same way: another write deleted it since the version was
+read.
 
-In the documented flow, the check never fails: a projector reads the projection with the ticket, under the write lock,
-so the version it holds is current. The check catches a client that writes a copy read outside the lock (without a
-ticket, from a cache, or kept from an earlier request), which would otherwise erase another client's update without
-any error. The version is opaque rather than a counter: a client can't compute the next one instead of reading it, and
-since a random UUID never repeats, a stale copy never matches again after the projection is deleted and created anew,
-or after a rebuild.
+The check is what keeps two transactions from overwriting each other's projections: each one read a version, and the
+second write to reach the head of the FIFO finds it changed. The version is opaque rather than a counter: a client
+can't compute the next one instead of reading it, and since a random UUID never repeats, a stale copy never matches
+again after the projection is deleted and created anew, or after a rebuild. A projection doesn't carry who wrote it,
+so the server can't keep two projectors from touching the same projections: giving each projector its own types is
+the application's rule.
 
-The recommended use is one `POST /projections` call per transaction, right before `POST /commit`, carrying every
-projection the event handlers changed (typically about ten). The client collects the changes while the handlers run,
-instead of sending each small change as it happens. The server doesn't enforce this: several calls in one transaction
-remain valid.
+**Deleting projections in bulk**: `DELETE /projections/{type}` deletes every projection of one type, and `DELETE
+/projections` deletes every projection. Both wait for their turn in the FIFO like a write, and respond `204 No
+Content`. A write queued before a bulk delete goes through first, and the delete then removes what it wrote. A later
+write that replaces or deletes a projection the bulk delete removed gets `409`.
 
-**Writing projections without a ticket**: `POST /projections` without a ticket is meant for projection rebuilds (see
-Projection rebuilds). It joins the FIFO like a `POST /begin` request: it's subject to the same FIFO depth limit, and a
-client that disconnects while waiting leaves the FIFO, with nothing written. When its turn comes, the call runs in its
-own SQLite transaction, commits, and gives its turn to the next request in the FIFO. The body is read and checked
-before the call joins the FIFO: a client sending its body slowly never holds the turn, and an invalid body gets `400
-Bad Request` without waiting.
+**What a projection may depend on.** It depends on where the application ends its transactions (see Scope):
 
-**Deleting projections in bulk**: `DELETE /projections/{type}` deletes every projection of one type, and `DELETE /projections`
-deletes every projection. Both take no ticket, wait for their turn in the FIFO the same way, and respond `204 No
-Content`.
+- **Atomic**: projectors run before the write, while the events are still pending in the client library, so they have
+  no `sequence` or `time` yet. A projection can't use them. A business date goes in the payload or the metadata.
+- **Eventually consistent**: projectors read events that are already written, so a projection may use `sequence`
+  and `time` too.
 
-**What a projection may depend on.** Events are appended before the event handlers run, and `POST /events` returns each
-event's `sequence` and `time`. A projection can depend on anything in an event, those two values included. A rebuild
-reads the same events back from `QUERY /events`, with the same values, so it produces the same projections.
+Either way, a rebuild reads the same events back from `QUERY /events`, so it produces the same projections.
 
 ### Projection rebuilds
 
-A projection rebuild runs outside any transaction. The application is fully down while it runs: it serves no reads
-and makes no writes. TamarackDB doesn't enforce this; keeping every other request away is the application's job.
-
-How the rebuild is organized is up to the application: one thread replaying every event in order, several projectors
-in parallel, or anything else. TamarackDB provides the calls it's built from:
+A rebuild replays events to write projections again. How it's organized is up to the application: one thread
+replaying every event in order, several projectors in parallel, or anything else. TamarackDB provides the calls it's
+built from:
 
 - `DELETE /projections/{type}` and `DELETE /projections` clear the projections to rebuild.
-- `QUERY /events` without a ticket pages through the events to replay.
-- `POST /projections` without a ticket writes the rebuilt projections, in as many calls as needed: a `create` the
-  first time, then a `replace` with the version the previous call returned.
-- `GET /projections/{type}/{id}` without a ticket reads a projection back, with its version.
+- `QUERY /events` pages through the events to replay.
+- `POST /write` writes the rebuilt projections, in one write or several: a `create` the first time, then a `replace`
+  with the version the previous write returned.
+- `GET /projections/{type}/{id}` reads a projection back, with its version.
 
-Reads without a ticket run side by side on the read connection pool. Writes without a ticket each wait for a turn in
-the FIFO, so calls from several threads interleave, one at a time. Each waiting write counts toward the FIFO depth:
-many writers at once can get `503 TransactionQueueFull`, and retry.
+One write keeps the rebuild atomic, but it must fit under `maxProjectionsPerWrite` and `maxRequestBodySize`, and it
+holds the turn for as long as its inserts take, with every other write waiting behind it. Several writes each fit the
+limits; a projector writes its position (store ID and Sequence Position) with each one, so a rebuild that stops
+halfway resumes from there. The choice is the application's.
 
-A rebuild has no atomicity as a whole: each call commits on its own. A rebuild that fails, or that a TamarackDB crash
-interrupts, leaves partial projections behind, and is simply run again from the start.
+Reads run side by side on the read connection pool. Writes each wait for a turn in the FIFO, so writes from several
+threads interleave, one at a time. Each waiting write counts toward the FIFO depth: many writers at once can get `503
+WriteQueueFull`, and retry.
 
 Reads during a rebuild page through `limit`-sized requests instead of one response streaming the whole result set
 over one long connection. Holding one SQLite read transaction open for a whole large rebuild would pin one MVCC
@@ -560,22 +566,21 @@ stopped (see Storage: SQLite).
 
 ### Reset (dev mode)
 
-`POST /reset` deletes every event and every projection, sets the Sequence Position counter back to zero (the next
-event appended gets sequence 1), and draws a new store ID (see Store ID), all in one SQLite transaction. It exists only when `devMode` is on (see Dev mode).
+`POST /reset` deletes every event and every projection, sets the Sequence Position counter back so the next event
+written gets sequence 1, and draws a new store ID (see Store ID), all in one SQLite transaction. It exists only when
+`devMode` is on (see Dev mode). It responds `204 No Content`.
 
-It's meant for local development, where only the developer uses the application, and it doesn't wait for anyone. It
-doesn't join the FIFO. If a transaction is active, its ticket stops being active and its SQLite transaction is rolled
-back, then all data is deleted, and the FIFO moves on. The only thing `POST /reset` waits for is a call already
-running on the write connection, so that the two never use the connection at the same time. The client whose
-transaction was cut off gets `410 TicketNotActive` on its next call. Requests waiting in the FIFO stay there, and
-get their ticket on an empty store. It responds `204 No Content`.
+It waits for its turn in the FIFO like a write. The writes queued before it go through, then the reset deletes them.
+A write queued after it runs on the new store: a condition that carries the old store ID gets `409`, as does a
+`replace` or `delete` of a projection, whose version no longer exists; a condition with no `afterSequence`, or a write
+with no condition, goes through, since it holds on any store. For the application, a reset is like a restart of the
+server on a brand new file.
 
 ### Event size limit
 
 A single event may not be bigger than **64 KiB**, measured as the combined UTF-8 byte length of its `type`,
 `identifiers`, `metadata`, and `payload`, not a character count. Multi-byte characters (accented text, for instance)
-count for more than one byte each. A `POST /events` call carrying an event over this limit gets `413 Payload Too
-Large`.
+count for more than one byte each. A write carrying an event over this limit gets `413 Payload Too Large`.
 
 The limit is deliberate, not a technical ceiling to raise later: it keeps an event a short, meaningful statement about
 the world, rather than a data transport container, and keeps Decision Model replay fast (which can reload hundreds of
@@ -593,7 +598,7 @@ Every error response from an endpoint of the API uses the same JSON envelope:
 ```
 
 `error` is a stable code a client can check. `message` is a human-readable detail, included when it helps figure out
-the problem, left out when it wouldn't add anything (as with a failed Append Condition).
+the problem, left out when it wouldn't add anything (as with `WriteQueueFull`).
 
 A few responses come from Go's `net/http` before any endpoint runs, and carry plain text instead: `404` for an unknown
 path, `405` for a known path with the wrong method, and the errors `net/http` itself returns for a malformed HTTP
@@ -604,27 +609,22 @@ request or oversized headers.
 | `400` | `InvalidRequest` | Malformed or invalid body, see below |
 | `401` | `Unauthorized` | Missing or invalid Bearer token, only when `enableAuth` is on (see Security) |
 | `404` | `ProjectionNotFound` | `GET /projections/{type}/{id}` for a projection that doesn't exist |
-| `409` | `ConcurrencyException` | The Append Condition of a `POST /events` call failed, or a `POST /projections` entry doesn't match the stored projection (see Projections) |
-| `410` | `TicketNotActive` | The ticket isn't the active one: it's unknown, or its transaction has already ended |
-| `413` | `PayloadTooLarge` | An event or a projection over its size limit, or a request body over the body limit |
+| `409` | `ConcurrencyException` | `POST /write`: an Append Condition doesn't hold or was read on another store, or a projection doesn't match the stored one. Nothing was written |
+| `413` | `PayloadTooLarge` | An event or a projection over its size limit, or a request body over `maxRequestBodySize` |
 | `500` | `InternalError` | An unexpected server-side failure |
-| `503` | `TransactionQueueFull` | `POST /begin`, or a projection write without a ticket, while the FIFO is at its configured depth |
+| `503` | `WriteQueueFull` | A write, a bulk delete, or a reset, while the FIFO is at its configured depth |
 | `503` | `ShuttingDown` | A request waiting in the FIFO, or arriving after it closed, while the server shuts down |
 | `503` | `Unavailable` | `GET /health` only: SQLite can't be reached (see Health check) |
 
-Inside a transaction, every error except `404 ProjectionNotFound` rolls the transaction back (see Calls inside a
-transaction).
-
-`QUERY /events`, `POST /events`, and `POST /projections` respond `400 Bad Request` for any malformed or invalid body:
-invalid JSON, anything after the JSON value other than whitespace, a `query` / `condition.failIfEventsMatch` that
-isn't an array of `QueryItem` or `"*"`, an empty array anywhere the Query grammar needs a non-empty one, more than 100
-`QueryItem` or more than 100 values in one `QueryItem` (see Query grammar), a non-integer `afterSequence` or `limit`, a `limit` below 1 or above the configured maximum (see
-Pagination), an unknown key in a `QUERY /events` body, an event
-missing its `type`, an event carrying a duplicate identifier or metadata value, more than 20 identifiers/metadata
-entries (see Metadata), a `POST /events` call missing its `events` field or carrying more than 100 events (see Appending events), a
-`POST /projections` body with none of `create`, `replace`, `delete` or with an unknown key, a projection missing its `payload` or `version`, a duplicate `type` + `id`, or more than `maxProjectionsPerRequest` projections,
-and so on. A call that needs a ticket (`POST /events`, `POST /commit`, `POST /rollback`) and carries none gets
-`400 Bad Request` too: it names no transaction, so there's none to report as inactive.
+`QUERY /events` and `POST /write` respond `400 Bad Request` for any malformed or invalid body: invalid JSON, anything
+after the JSON value other than whitespace, an unknown key at any level, a `query` or `failIfEventsMatch` that isn't
+an array of `QueryItem` or `"*"`, an empty array anywhere the Query grammar needs a non-empty one, more than 100
+`QueryItem` or more than 100 values in one `QueryItem` (see Query grammar), a non-integer `afterSequence` or `limit`,
+a `limit` below 1 or above `maxEventsPerPage` (see Pagination), an event missing its `type`, an event carrying a
+duplicate identifier or metadata value, more than 20 identifiers or metadata entries (see Metadata), a condition with
+`afterSequence` and no `store` or the other way around, a projection missing its `payload` or `version`, a duplicate
+`type` + `id`, more events, conditions, or projections than one write allows (see Writing), and so on. The `message`
+names the item at fault by its place in the body, for example `events[3]` or `projections.create[0]`.
 
 Every request body is capped at `maxRequestBodySize` (8 MiB by default), so a client can't make the server read an
 unbounded body into memory before the per-event and per-projection limits are checked. Past the cap, the server stops
@@ -640,25 +640,29 @@ Standard DCB flow:
 3. `append(events, condition: {failIfEventsMatch: query, afterSequence})`
 4. The operation fails if an event matching `query` exists after `afterSequence`
 
-TamarackDB supports two ways to run this flow.
+TamarackDB runs this flow optimistically. A read never locks anything. The decision is made on what was read, and the
+write carries the condition that describes what the decision depends on. If another write appended a matching event
+in between, the condition fails with `409 ConcurrencyException`, nothing is written, and the client reads again,
+decides again, and retries.
 
-**Inside a transaction.** Steps 1 to 3 all carry the same ticket. The transaction holds the write lock from the start,
-so no other client can append between the read and the append. The Append Condition can only fail if the client itself
-appended a matching event in the same transaction after the read the decision was based on, for example when two
-models both read before either appends. The failure then points at a decision made on stale data, a mistake in the
-client's own ordering, not at contention. Each model can make its own `POST /events` call with its own condition: the transaction, not a merged condition, is what makes the
-whole command atomic.
+A condition also carries `store`, the store ID its `afterSequence` was read with (see Store ID). A condition read on
+another store ID than the current one fails without any SQL: its `afterSequence` names a position in a different
+history. A condition with `afterSequence` must carry `store`, and a condition without it must not: it read nothing,
+so it holds on any store. `failIfEventsMatch` is optional too: an `afterSequence` alone fails if any event at all
+exists after it.
 
-**Optimistic.** Step 1 runs without a ticket, outside any transaction, on committed data. The client decides, then
-opens a transaction for step 3, with `afterSequence` set to the last Sequence Position it read. Event handlers then run
-inside that transaction, as in any other, and read with the ticket, so a processor always decides on data that
-includes the command's append. Only the command's own read and decision happen outside the write lock. If another
-transaction appended a matching event in between, the condition fails with `409 ConcurrencyException`, and the
-client can read again and retry.
+A write carries a list of conditions, and every one must hold. A transaction usually has one per decision: each
+decision model or processor adds the condition its own read supports. This is more precise than one condition merged
+with OR, and never a partial success: the first condition that fails ends the write.
 
-The Append Condition is checked in the same SQLite transaction as the insert, against every event visible to it.
-Only one transaction is ever active (see Concurrency handling in Go), so nothing can slip in between the check and
-the insert.
+The conditions are checked in the same SQLite transaction as the inserts, against every committed event. Only one
+write ever runs at a time (see Concurrency handling in Go), and the write holds SQLite's write lock from its first
+statement, so nothing can slip in between the checks and the inserts.
+
+The server checks conditions against committed events only. Inside one transaction of the application, a decision
+can also go stale because of a pending event added after the read it was based on, by another processor of the same
+command for example. Only the client library knows the order of its reads and pending events, so that check is the
+library's (see Transactional model).
 
 ### DCB compliance
 
@@ -668,150 +672,131 @@ TamarackDB follows the [DCB specification](https://dcb.events/specification/):
 |---|---|---|
 | Read events filtered by type and/or tags through a Query | MUST | `QUERY /events` |
 | Read from a given Sequence Position | SHOULD | `afterSequence` on `QUERY /events` |
-| Append one or more events atomically | MUST | Every `POST /events` of a transaction commits atomically |
-| Fail the append if an event matches the Append Condition, when one is given | MUST | `condition` on `POST /events`, optional for the client |
+| Append one or more events atomically | MUST | Every `POST /write` commits atomically |
+| Fail the append if an event matches the Append Condition, when one is given | MUST | `conditions` on `POST /write`, optional for the client |
 
-DCB relies on a dynamic consistency boundary, defined by a Query, with optimistic concurrency control. Inside a
-transaction, TamarackDB uses the widest boundary possible, the whole store, with a pessimistic lock. The guarantee is
-stronger, not weaker. The Append Condition stays fully supported, for the optimistic flow above and for any client
-that relies on it.
+TamarackDB is DCB compliant: its guarantee is exactly the one of the specification, no more and no less. Only what an
+Append Condition or a projection version expresses is protected. A condition left out, or one narrower than the
+decision it protects, leaves a race that no error reports. A broader guarantee is a business rule of the application,
+not something the event store enforces.
 
 ## Concurrency handling in Go
 
-### Principle: the transaction FIFO
+### Principle: the write FIFO
 
-A queue manager gives out the single active turn, strictly in the order requests arrive. Three kinds of requests join
-its FIFO: `POST /begin`, projection writes without a ticket (`POST /projections`, `DELETE /projections`, `DELETE
-/projections/{type}`), and the hourly `PRAGMA optimize` (see Storage: SQLite). It knows nothing about
-what a transaction will read or append. Only two states exist: **Active** (at most one transaction at a time, the only
-one allowed to touch the write connection) and **Queued** (every other request, waiting its turn in line).
+A queue manager gives out the single turn on the write connection, strictly in the order requests arrive. Four kinds
+of requests join its FIFO: `POST /write`, the bulk deletes of projections (`DELETE /projections`, `DELETE
+/projections/{type}`), `POST /reset`, and the hourly `PRAGMA optimize` (see Storage: SQLite). It knows nothing about
+what a request will read or write. Only two states exist: **Active** (at most one request at a time, the only one
+allowed to touch the write connection) and **Queued** (every other request, waiting its turn in line). There is no
+priority: every kind waits its turn the same way.
 
 **Flow for a request in the FIFO:**
-1. The HTTP handler asks the queue manager to join the line.
-2. If the FIFO is already at its configured depth (see Configuration), the request is turned away right away with
-   `503 TransactionQueueFull`, instead of joining.
+1. The HTTP handler reads and checks the request body first, outside the FIFO.
+2. It asks the queue manager to join the line. If the FIFO is already at its configured depth (see Configuration), the
+   request is turned away right away with `503 WriteQueueFull`, instead of joining.
 3. Otherwise it waits, with its HTTP connection held open, until every request ahead of it is done. If the client
    disconnects, the request leaves the line right away, and everyone behind it moves up one spot. There is no other
    way out of the line.
-4. When it reaches the head of the line:
-   - If it's a `POST /begin`, the handler runs `BEGIN IMMEDIATE` on the write connection, creates a
-     ticket, sets the transaction's deadline and ceiling, and responds with the ticket.
-   - If it's a projection write without a ticket, it runs and commits on its own, then the next request moves up.
-   - If it's `PRAGMA optimize`, it runs, then the next request moves up.
-5. The transaction stays active after the `POST /begin` response: the queue manager holds it in memory, keyed
-   by its ticket, until it ends (see Ending a transaction). Then the next request moves up.
+4. When it reaches the head of the line, the handler checks once more that the client is still there, then runs its
+   work on the write connection: a write, a bulk delete, a reset, or `PRAGMA optimize`. From that moment, the work
+   runs with a context the client can no longer cancel: `database/sql` would otherwise roll the SQLite transaction back
+   halfway if the client left.
+5. When the work ends, the request gives the turn to the next one.
 
-**The active transaction outlives any single request.** Every call with a ticket looks up the active transaction.
-A ticket that doesn't match it gets `410 TicketNotActive`. Calls with the same ticket run one at a time: a mutex
-guards the write connection, and a second call made in parallel waits for the first to finish. The mutex is also what
-the deadline timer and `POST /reset` wait on, so nothing ever uses the write connection at the same time as a call.
-
-**Deadline.** A timer tracks the active transaction's deadline and ceiling. When it fires, it takes the mutex, which
-waits for a call already running to finish, then rolls the transaction back and gives the turn to the next request.
-A call that was already running when the deadline passed finishes normally; if it was `POST /commit`, the commit
-wins. The next call with that ticket gets `410 TicketNotActive`. Every call with the ticket resets the timer
-when it ends, up to the ceiling.
-
-**A call can't outlive the ceiling.** Since the timer waits for a running call, a call stuck on the network (a client
-that stops reading a streamed page, or sends its body very slowly) would hold the write lock with no bound. Every call
-with a ticket therefore sets its connection's read and write deadlines to the transaction's ceiling, and clears them
-when it ends. A stuck call fails at the ceiling at the latest, which rolls the transaction back.
+Nothing outlives the request: no transaction stays open between two requests, and nothing on the server has to
+expire. A request holds the turn only for the time of its own work, usually a few milliseconds.
 
 ### Application-controlled Sequence Position
 
-Since only one transaction ever touches the write connection, TamarackDB assigns the Sequence Position itself, in
-memory, instead of leaving it to SQLite's `AUTOINCREMENT`.
+Since only one request ever touches the write connection, TamarackDB assigns the Sequence Position itself, in memory,
+instead of leaving it to SQLite's `AUTOINCREMENT`.
 
 `events.sequence` is a plain `INTEGER PRIMARY KEY`, with the value set by the application on insert (see Schema).
-Before giving out any ticket (reads without a ticket are unaffected, and can start right away), the process reads the
-current highest `sequence` in the `events` table, and keeps it in memory as the next-sequence counter. An empty table
-starts the counter the same way `AUTOINCREMENT` would: the first event gets sequence 1.
+When the store opens, the process reads the current highest `sequence` in the `events` table, and keeps it in memory
+as the next-sequence counter. An empty table starts the counter the same way `AUTOINCREMENT` would: the first event
+gets sequence 1.
 
-**The counter follows the transaction.** When a transaction starts, the queue manager saves the counter's value. Each
-`POST /events` call moves the counter forward only once its Append Condition has been checked and holds, never
-before. On commit, the counter keeps its new value. On rollback, for any reason, it goes back to the saved value.
-Events appended inside a transaction get their final Sequence Position right away, which is what lets a `QUERY
-/events` with the same ticket see them, and lets `POST /events` return them. A rolled-back transaction leaves no gap
-in the sequence, since the counter goes back to where it was. `POST /reset` sets the counter back to zero.
+A write reserves its Sequence Positions only after every condition holds and every projection is written, never
+before. It inserts its events with them in the same call. If the insert or the commit then fails, the write gives its
+positions back before it ends, so a failed write leaves no gap in the sequence. `POST /reset` sets the counter back so
+the next event gets sequence 1.
 
-Knowing every event's sequence up front means a call's `events` rows can be written as one multi-row `INSERT`,
+Knowing every event's sequence up front means a write's `events` rows can be written as one multi-row `INSERT`,
 followed by one multi-row `INSERT` into `identifiers` and one into `metadata`, instead of a per-event round trip to
 fetch an ID between each event and its tags. `PRAGMA foreign_keys = ON` is still checked right away, not deferred to
 commit, so a row in `identifiers` or `metadata` still can't point to an `event_sequence` that doesn't exist yet in
 `events`, within the same transaction.
 
 **Skipping the conflict check when nothing was appended since the read.** If a condition's `afterSequence` equals the
-counter's last-assigned value, no event exists past that point at all, committed or appended earlier in the same
-transaction. `failIfEventsMatch` can't match anything, whatever it is, so the SELECT that would otherwise check it can
-be skipped entirely. A bare `afterSequence` condition (no `failIfEventsMatch`) never needs a SELECT at all: "does any
-event exist after `afterSequence`" can be answered directly from the counter. This is purely an internal shortcut: it
+counter's last-assigned value, no event exists past that point at all. `failIfEventsMatch` can't match anything,
+whatever it is, so the SELECT that would otherwise check it can be skipped entirely. A bare `afterSequence` condition
+(no `failIfEventsMatch`) never needs a SELECT at all: "does any event exist after `afterSequence`" can be answered
+directly from the counter. The shortcut applies to each condition of a write on its own. It's purely internal: it
 changes how the decision is reached, never the decision itself, or anything in the HTTP contract.
 
 ### Reads
 
-A read without a ticket doesn't go through the queue manager. It runs on the read connection pool. Consistency
-comes from SQLite's **MVCC** mode (WAL): a read sees a steady snapshot of committed data from the moment it starts,
-and never sees an active transaction's changes. It's never blocked by the active transaction, however long that one
-runs. A read that starts just before a commit simply won't see the new events, which is fine: a client that then
-appends with an Append Condition uses the Sequence Position it actually read as `afterSequence`.
+A read doesn't go through the queue manager. It runs on the read connection pool. Consistency comes from SQLite's
+**MVCC** mode (WAL): a read sees a steady snapshot of committed data from the moment it starts, and never sees a
+write in progress. It's never blocked by a write. A read that starts just before a commit simply won't see the new
+events, which is fine: a client that then writes with an Append Condition uses the Sequence Position it actually read
+as `afterSequence`.
 
-Each read without a ticket runs in its own read transaction: it first reads the store ID, then the page or the
-projection. SQLite takes the snapshot at the first statement, so both come from the same one. For a `QUERY /events`
-page, the transaction ends once the page is fully sent.
+Each read runs in its own read transaction: it first reads the store ID, then the page or the projection. SQLite takes
+the snapshot at the first statement, so both come from the same one. For a `QUERY /events` page, the transaction ends
+once the page is fully sent.
 
-A `QUERY /events` page without a ticket holds its read connection, and pins its snapshot, until the page is fully
-sent. So each line of the page gets 30 seconds to go out, renewed on every line: a page that keeps moving is never
-cut, however slow the client, but a client that stops reading loses its connection after 30 seconds, and the read
-connection goes back to the pool. Without this, `readPoolSize` stalled clients would block every read without a
-ticket, `/health` included, and keep the WAL from checkpointing. The client sees a page with no trailer, and resumes
-like after any dropped connection (see Response format).
+A `QUERY /events` page holds its read connection, and pins its snapshot, until the page is fully sent. So each line of
+the page gets 30 seconds to go out, renewed on every line: a page that keeps moving is never cut, however slow the
+client, but a client that stops reading loses its connection after 30 seconds, and the read connection goes back to
+the pool. Without this, `readPoolSize` stalled clients would block every read, `/health` included, and keep the WAL
+from checkpointing. The client sees a page with no trailer, and resumes like after any dropped connection (see
+Response format).
 
 ### Startup, shutdown, and crash behavior
 
 On startup, before opening the store, the process prints a banner and its resolved configuration to stdout: bind
 address, port, the socket path and mode, the auth flag (`authToken` itself is never printed), data directory, dev mode,
-the transaction timeouts, and the pagination/event-size/queue-depth limits. This is a plain operational aid, for
-checking at a glance what a given instance is actually set up to do, not a machine-readable format meant for parsing.
+and the pagination, size, write, and queue-depth limits. This is a plain operational aid, for checking at a glance
+what a given instance is actually set up to do, not a machine-readable format meant for parsing.
 
 Opening the store checks the schema version (see Schema), then reads the current highest `sequence` in the `events`
 table into the in-memory Sequence Position counter (see Application-controlled Sequence Position above), and the store
-ID into memory next to it (see Store ID). This finishes
-before the process gives out any ticket; reads without a ticket can be served as soon as the store is open.
+ID into memory next to it (see Store ID). Requests are served once the store is open.
 
 On `SIGINT` or `SIGTERM`, the process shuts down in order. The HTTP server stops taking new connections
 (`http.Server.Shutdown`, capped at 10 seconds). At the same moment, the queue manager closes: requests still waiting
-in the FIFO are turned away with `503 ShuttingDown`, no new ticket is given out, and the active transaction, if any, is rolled back once a
-call already running with it finishes. The HTTP server then finishes the requests still in flight, and the SQLite
-store closes last, releasing its connections and the `.lock` file. The FIFO has to close first: a request waiting in
-it only ends once it gets its turn, so the HTTP server would otherwise wait for it, and hand out tickets that no
-client can use any more. A transaction is never committed on shutdown: only its client can
-decide to commit. A fatal storage error found mid-flight (see Fatal storage errors below) drives this same ordered
-shutdown, instead of an abrupt exit. The HTTP server also sets `ReadHeaderTimeout` to 10 seconds, closing a connection
-that never finishes sending its request headers, instead of holding it open forever, and `IdleTimeout` to 2 minutes,
-closing a keep-alive connection that has no request in flight for that long.
+in the FIFO are turned away with `503 ShuttingDown`, and so is any later one. A write already running finishes. The
+HTTP server then finishes the requests still in flight, and the SQLite store closes last, releasing its connections
+and the `.lock` file. The FIFO has to close first: a request waiting in it only ends once it gets its turn, so the
+HTTP server would otherwise wait for it. A fatal storage error found mid-flight (see Fatal storage errors below)
+drives this same ordered shutdown, instead of an abrupt exit. The HTTP server also sets `ReadHeaderTimeout` to 10
+seconds, closing a connection that never finishes sending its request headers, instead of holding it open forever,
+and `IdleTimeout` to 2 minutes, closing a keep-alive connection that has no request in flight for that long.
 
-The queue manager's state (the active transaction, its ticket and deadline, the requests waiting) is purely
+The queue manager's state (the request holding the turn, the requests waiting, the write counters) is purely
 transient, held only in memory for the life of the process. Nothing is saved, and nothing needs to be rebuilt on
-startup: a freshly started process begins with an empty FIFO and no active transaction, which is correct, since every
-client that existed before a crash lost its connection or its ticket too. One piece of state is rebuilt on startup,
-because it has to match what's on disk: the Sequence Position counter, read from the database.
+startup: a freshly started process begins with an empty FIFO, which is correct, since every client that was waiting
+before a crash lost its connection too. Two pieces of state are rebuilt on startup, because they have to match what's
+on disk: the Sequence Position counter and the store ID, read from the database.
 
 A panic in one request handler is caught by the HTTP server, without crashing the process. The handler's deferred
-rollback and release still run during the panic's unwind (see Calls inside a transaction), so no transaction
-stays active forever. A full process crash (an unrecovered panic, SIGKILL, an out-of-memory kill) takes the whole
-in-memory state down with it, so there's nothing left to leak either way.
+rollback and the release of its turn still run during the panic's unwind, so no turn stays taken forever. A full
+process crash (an unrecovered panic, SIGKILL, an out-of-memory kill) takes the whole in-memory state down with it, so
+there's nothing left to leak either way.
 
-SQLite's own atomicity guarantees the store itself: a crash during an active transaction leaves an uncommitted WAL
-transaction, discarded the next time a connection opens. Neither the transaction's events nor its projections ever
-become visible, in whole or in part. The counter, read back from the database, matches.
+SQLite's own atomicity guarantees the store itself: a crash during a write leaves an uncommitted WAL transaction,
+discarded the next time a connection opens. Neither the write's events nor its projections ever become visible, in
+whole or in part. The counter, read back from the database, matches.
 
 **Fatal storage errors:** a SQLite error that suggests the file itself may be damaged (an I/O error, detected
 corruption, failure to open the database file) is treated as fatal: the process logs it and exits, instead of trying to
 keep serving requests against a store it can no longer trust. This is deliberately simple: no per-error recovery logic,
 just a clean restart, which is cheap and safe given the transient state described above, and which `/health` and a
 process supervisor are already set up to catch and act on. A temporary, non-fatal SQLite error (a busy lock during a WAL
-checkpoint, say) doesn't count as fatal: it fails that one call, which rolls its transaction back (see Calls inside a
-transaction), instead of taking the whole process down for every other client.
+checkpoint, say) doesn't count as fatal: it fails that one request, and nothing it would have written is kept,
+instead of taking the whole process down for every other client.
 
 ## Storage: SQLite
 
@@ -821,21 +806,21 @@ SQLite is used as the storage engine, for these reasons:
 - No external network or process to depend on
 - Single-writer behavior, in line with the single-process model ("single brain"): the process is the only writer for
   as long as it runs
-- WAL mode allows reads without a ticket to happen at the same time as the active transaction, without blocking
+- WAL mode allows reads to happen at the same time as a write, without blocking
 - A plain, inspectable file format: the database can be opened and queried with ordinary SQLite tools, not some closed
   format, and backed up the same way, through SQLite's own backup tools (for example `.backup`, `VACUUM INTO`) instead
   of a raw copy of the file, which can miss commits still sitting in the WAL
 
-Events and projections live in one file, `tamarackdb.sqlite`, so one SQLite transaction covers both. Projections are larger
-than events and are rewritten in place, so they make the WAL grow faster than events alone would. This stays small in
-practice: only one transaction writes at a time anyway, and a command writes about ten projections, once, right before its
-commit (see Projections). The one heavy case is a projection rebuild, which writes every rebuilt projection, but it runs
-while the application is down, with no other writer (see Projection rebuilds). SQLite reuses the space of deleted projections
-for later writes on its own. Giving that space back to the operating system takes a `VACUUM`, which rewrites the whole
-file, events included. The server never runs one: it's run by hand, with `sqlite3`, while the server is stopped, the
-same way as a full `ANALYZE` (see below). Both run as the server's own user: the data directory is readable by its
-owner only, and a WAL file left behind by another user is one the server can't open. Stopping the server costs a few seconds, on top of a rebuild's downtime that's
-already accepted, and keeps the server free of a long operation it would have to coordinate with reads still in flight.
+Events and projections live in one file, `tamarackdb.sqlite`, so one SQLite transaction covers both. Projections are
+larger than events and are rewritten in place, so they make the WAL grow faster than events alone would. This stays
+small in practice: a write carries the projections of one command, typically about ten. The one heavy case is a
+projection rebuild, which writes every rebuilt projection (see Projection rebuilds). SQLite reuses the space of
+deleted projections for later writes on its own. Giving that space back to the operating system takes a `VACUUM`,
+which rewrites the whole file, events included. The server never runs one: it's run by hand, with `sqlite3`, while
+the server is stopped, the same way as a full `ANALYZE` (see below). Both run as the server's own user: the data
+directory is readable by its owner only, and a WAL file left behind by another user is one the server can't open.
+Stopping the server costs a few seconds, and keeps the server free of a long operation it would have to coordinate
+with reads still in flight.
 
 **Enforcing single-writer at the OS level:** `writeDB.SetMaxOpenConns(1)`, WAL, and `_busy_timeout` only keep writes
 in order *inside* one process: nothing stops a second `tamarackdb-server` process from opening the same database file
@@ -905,7 +890,7 @@ as it does chronologically, and nothing needs to be converted between what's sto
 the stored text straight through. This only holds because
 the format is strict: an offset, or a different number of fractional digits, would break the ordering (`05.123Z`
 sorts after `05.123456Z`, since `Z` comes after every digit). The server always writes `time` itself, in that exact
-format.
+format. No index covers `time`: nothing filters or orders on it.
 
 `identifiers` and `metadata` are `WITHOUT ROWID` tables, keyed by their natural combined primary key
 `(event_sequence, name, value)`: these are pure link rows, so a separate rowid would just be an extra, unneeded
@@ -931,29 +916,29 @@ volume that cost doesn't matter, and it buys the strongest durability SQLite off
 application, its single source of truth.
 
 The write connection opens every transaction with `BEGIN IMMEDIATE` (`_txlock=immediate` in the DSN), taking SQLite's
-write lock at the start of the transaction, rather than waiting until the first write statement runs. For a transaction
-opened by `POST /begin`, that's the moment the ticket is given out: reads, checks, and inserts all run under the lock,
-with no window where another connection could slip in between them. A projection write without a ticket runs in its
-own short transaction, during its own turn in the FIFO: `POST /projections` as its own `BEGIN IMMEDIATE` ...
-`COMMIT`, and `DELETE /projections` or `DELETE /projections/{type}` as a single statement that commits on its own. No
-transaction is active during that turn, so it has the write connection to itself. The write connection also sets `_busy_timeout =
-5000` (five seconds). Since `writeDB.SetMaxOpenConns(1)` already forces every write onto one connection, and the FIFO
-already lets only one transaction run at a time, the busy timeout only guards against something else briefly holding the
-file (a passive checkpoint, an external `sqlite3` shell), not against another transaction.
+write lock at the start of the transaction, rather than waiting until the first write statement runs. A write's
+condition checks, projection writes, and inserts all run under the lock, with no window where another connection
+could slip in between them. A bulk delete of projections runs as a single statement that commits on its own. Each
+runs during its own turn in the FIFO, so it has the write connection to itself. The write connection also sets
+`_busy_timeout = 5000` (five seconds). Since `writeDB.SetMaxOpenConns(1)` already forces every write onto one
+connection, and the FIFO already lets only one request use it at a time, the busy timeout only guards against
+something else briefly holding the file (a passive checkpoint, an external `sqlite3` shell), not against another
+write.
 
 Checkpointing relies on SQLite's own automatic passive checkpoint (triggered on its own once the WAL crosses its
 default size, without blocking any reader or writer), instead of a separate checkpoint goroutine or schedule. Two
-things can hold it back: a long read without a ticket, which pins an MVCC snapshot (bounded by pagination, see
-Projection rebuilds, and by the 30-second limit on a stalled page, see Reads), and a long transaction, whose changes can't be checkpointed before it commits (bounded by the
-transaction ceiling, see Deadline and ceiling). Nothing about the checkpoint itself needs to be triggered by hand.
+things can hold it back: a long read, which pins an MVCC snapshot (bounded by pagination, see Projection rebuilds,
+and by the 30-second limit on a stalled page, see Reads), and a large write, whose changes can't be checkpointed
+before it commits (a projection rebuild sent in one write, for example). Nothing about the checkpoint itself needs to
+be triggered by hand.
 
 Query planner statistics are kept up to date the same hands-off way: once an hour, the process runs `PRAGMA optimize`
-on the write connection. It joins the FIFO like a transaction, so it never runs inside a client's transaction. `events`
-only grows, for the life of a deployment that's never restarted, so statistics gathered once at some point in the past
-drift further from reality the longer the process stays up. `PRAGMA optimize` is SQLite's own answer to this: cheap
-enough to run often, since it only re-analyzes tables it judges to have changed enough to matter (or that have no
-statistics at all yet), rather than scanning everything the way a plain `ANALYZE` does. A full `ANALYZE` is never run
-automatically; it's still the right tool right after a one-off bulk import, run by hand while the server is stopped.
+on the write connection. It joins the FIFO like a write, so it never runs during one. `events` only grows, for the
+life of a deployment that's never restarted, so statistics gathered once at some point in the past drift further from
+reality the longer the process stays up. `PRAGMA optimize` is SQLite's own answer to this: cheap enough to run often,
+since it only re-analyzes tables it judges to have changed enough to matter (or that have no statistics at all yet),
+rather than scanning everything the way a plain `ANALYZE` does. A full `ANALYZE` is never run automatically; it's
+still the right tool right after a one-off bulk import, run by hand while the server is stopped.
 
 On startup, the process reads `PRAGMA user_version` and checks it against the schema version built into the binary.
 A database file that doesn't exist yet is created fresh, with the schema above setting it at the current version. An
@@ -963,39 +948,49 @@ binary) is fatal: the process logs it and refuses to start, the same treatment a
 
 ## Backup
 
-`tamarackdb-backup` keeps a standing copy of an instance's events in a local SQLite file. It does one catch-up run and
-exits; a scheduler runs it again (see [Backup](/docs/guides/backup/)). Each run:
+`tamarackdb-backup` keeps a standing copy of an instance's events in local SQLite files, one per store ID of the
+source. It does one catch-up run and exits; a scheduler runs it again (see [Backup](/docs/guides/backup/)). Each run:
 
-1. Creates the local file's directory if it doesn't exist yet, then opens the file with `store.Open`, the same path
-   the server uses: the file gets the server's schema, and the
-   run holds the file's `.lock` (see Storage: SQLite). A backup file can't be updated while a server is serving it.
-2. Reads the highest Sequence Position already in the file.
-3. Pages through the source's `QUERY /events`, over HTTP to `sourceUrl`, or over the unix socket at `sourceSocket`
-   for a source on the same host, without a ticket, with `afterSequence` set to that position and `limit`
-   set to `pageLimit`. A read without a ticket sees committed events only, and never waits for the source's active
-   transaction.
-4. Writes each page with `Store.Import`, in one SQLite transaction per page. `Import` is a variant of `Append` that
+1. Asks the source for its first event (`QUERY /events` with `afterSequence: 0` and `limit: 1`), only for the store ID
+   in the response's header. The event itself is dropped, and the page is empty for an empty source. The store ID
+   comes from the network, so it must be a UUID in its canonical form before it becomes a file name: nothing else can
+   point outside the backup directory.
+2. Creates `dataDir` if it doesn't exist yet, then opens `<store ID>.sqlite` in it with `store.Open`, the same path the
+   server uses: a new file gets the server's schema, and the run holds the file's `.lock` (see Storage: SQLite). A
+   backup file can't be updated while a server is serving it.
+3. Reads the highest Sequence Position already in the file.
+4. Pages through the source's `QUERY /events`, over HTTP to `sourceUrl`, or over the unix socket at `sourceSocket`
+   for a source on the same host, with `afterSequence` set to that position and `limit` set to `pageLimit`. Every page
+   must carry the same store ID as the first response. If it changes, the source was reset during the run: the run
+   stops with an error, without importing that page, and the next run starts the new file.
+5. Writes each page with `Store.Import`, in one SQLite transaction per page. `Import` is a variant of `Append` that
    skips sequence reservation and the Append Condition check: each event keeps the `sequence` and `time` the source
    gave it. It then moves the local Sequence Position counter past the highest sequence imported.
-5. Stops once a page's trailer reads `hasMore: false`.
+6. Stops once a page's trailer reads `hasMore: false`.
+
+The file name is what keeps the events of one store out of the file of another: nothing else needs to be stored or
+checked. After a reset of the source, the next run sees a new store ID, creates a new file, and starts from zero; the
+old file stays as it is.
 
 A page cut short (a response that ends without its trailer, see Response format) fails the run instead of importing a
 partial page. So does a page request that takes more than 5 minutes, so a source that stops answering never holds
-the backup file's lock past that. There's no retry inside a run: the error goes to stderr, with a non-zero exit code. Every page imported
-before the failure is already committed, so the next run resumes right after it.
+the backup file's lock past that. There's no retry inside a run: the error goes to stderr, with a non-zero exit code.
+Every page imported before the failure is already committed, so the next run resumes right after it.
 
 The backup copies events only. Projections are left out on purpose: every projection can be rebuilt from events (see
 Projection rebuilds), so the backup file's `projections` table stays empty.
 
 The result is a regular TamarackDB database file. Unlike a raw copy of the source's file, which can miss commits still
-in the WAL, it can be opened and served by `tamarackdb-server` as a live instance. A source on the same host is read
-straight from its unix socket, with nothing exposed over the network. A source on another host is reached over HTTPS,
-through a reverse proxy in front of its socket (see [Backup](/docs/guides/backup/#a-source-on-another-host)).
+in the WAL, it can be opened and served by `tamarackdb-server` as a live instance. It has a store ID of its own, drawn
+when the run created it: served as an instance, it's seen as another store, which is right, since it can be behind
+the source. A source on the same host is read straight from its unix socket, with nothing exposed over the network. A
+source on another host is reached over HTTPS, through a reverse proxy in front of its socket (see
+[Backup](/docs/guides/backup/#a-source-on-another-host)).
 
 ## Configuration
 
-TamarackDB's startup configuration (socket path or bind address/port, auth token, data directory,
-transaction timeouts, pagination/size limits, and the FIFO depth) comes from three sources, in this order:
+TamarackDB's startup configuration (socket path or bind address/port, auth token, data directory, pagination, size,
+and write limits, and the FIFO depth) comes from three sources, in this order:
 
 1. A TOML configuration file, passed via `--config` (defaults to `config.toml` in the working directory). Keys live
    under a `[server]` section, so the same file can also hold `tamarackdb-backup`'s `[backup]` section (see
@@ -1039,7 +1034,9 @@ same convention MySQL's own `datadir` uses: the filename within it is fixed.
 `maxProjectionSize` bounds one projection (its `type`, `id`, and `payload`) the same way `maxEventSize` bounds one
 event. `maxEventsPerWrite` and `maxProjectionsPerWrite` cap how many events and projections one `POST /write` may
 carry; `maxEventsPerWrite` also caps its Append Conditions. `maxRequestBodySize` caps any request body. It isn't checked
-against the other limits: it's the real bound on a write, and the others are rules for each item.
+against the other limits: it's the real bound on a write, and the others are rules for each item. The defaults are a
+cautious starting point: an application finds its real limits in development, with its own data, and the operator
+sets them for production.
 
 `maxQueuedWrites` caps how many requests may wait in the FIFO at once. A request that arrives when the FIFO is already
 at that depth gets `503 WriteQueueFull` instead of joining. It isn't "0 means no limit": a FIFO with no bound would let
@@ -1051,12 +1048,13 @@ turn only for the time of its own write. A client that wants a shorter wait clos
 
 TamarackDB listens on a unix socket by default (`socketPath`), and switches to TCP once `bindAddress` or `port` is set
 (see Configuration); `socketPath` wins whenever it's set, even alongside `bindAddress`/`port`. The unix socket is the
-recommended setup: TamarackDB runs on the same host as the application, and every transaction costs several round
-trips, which a unix socket keeps short.
+recommended setup: TamarackDB runs on the same host as the application, nothing goes over the network, and the
+socket's permissions decide who may connect. A transaction often makes several reads before its one write, and a unix
+socket keeps each of those round trips short.
 
 The server speaks plain HTTP only, on the socket and over TCP alike. TLS, for an application or a backup on another
 host, is a reverse proxy's job. A server that loads its certificate once at startup would need a restart, cutting
-off the active transaction, every time a short-lived certificate is renewed; a reverse proxy renews on its own. It
+off any write in progress, every time a short-lived certificate is renewed; a reverse proxy renews on its own. It
 also handles what surrounds TLS (protocol versions, client certificates, address allowlists) better than a store
 should, and keeps a single path for every access from another host, the application's and the backup's alike. The
 Bearer token stays checked by the server itself: the proxy passes the `Authorization` header through, and the token
@@ -1088,12 +1086,6 @@ One token, with no per-client scope, is enough because a TamarackDB instance has
 owning application. If that application itself serves many tenants, keeping them apart is its own job, done with the
 `tenantId` metadata already carried on events. It's not something TamarackDB's auth layer needs to handle.
 
-A ticket is not a credential. It identifies the active transaction, not the caller: the Bearer token, when on, is what
-authenticates each call. A ticket is a random UUID, so a caller can't guess the ticket of a transaction it didn't
-open, and it's never exposed while its transaction is active, not even in `/debug` (see Queue and connection pool
-observability). The one place a ticket appears is the log line for an expired transaction (see Request logging), once
-the ticket can no longer be used.
-
 ### Dev mode
 
 `devMode` (see Configuration) turns on two things, neither reachable otherwise, both meant only for local development
@@ -1102,10 +1094,11 @@ and test environments, never a production instance: `POST /reset`, and Go's stan
 default of `false`, a request to either gets the stdlib's plain `404`, like any other unregistered path. That keeps
 them out of reach in a normal deployment, instead of reachable-but-guarded.
 
-The profiling endpoints are read-only and outside the FIFO: they inspect the running process (CPU samples, memory
-allocations, goroutine stacks), not the database, so they carry none of `POST /reset`'s data-loss risk. They're still
-dev-mode-only because a CPU or heap profile can reveal details about the data flowing through a live request that a
-production deployment shouldn't expose to whoever can reach the port.
+`POST /reset` waits for its turn in the FIFO like a write, then deletes everything and draws a new store ID (see
+Reset). The profiling endpoints are read-only and outside the FIFO: they inspect the running process (CPU samples,
+memory allocations, goroutine stacks), not the database, so they carry none of `POST /reset`'s data-loss risk. They're
+still dev-mode-only because a CPU or heap profile can reveal details about the data flowing through a live request
+that a production deployment shouldn't expose to whoever can reach the port.
 
 ## Management / observability features
 
@@ -1126,59 +1119,53 @@ elsewhere in the API.
 ### Request logging
 
 Every request logs one line to stdout once its handler finishes: HTTP method, path, resulting status code, response size
-in bytes, and how long it took, tagged with its level, e.g. `tamarackdb-server: [DEBUG] POST /events 200 42B 1.23ms`.
+in bytes, and how long it took, tagged with its level, e.g. `tamarackdb-server: [DEBUG] POST /write 200 106B 1.23ms`.
 This wraps the whole routed handler, including authentication, so a request turned away with `401 Unauthorized` gets
-logged just like any other. `logLevel` sets the minimum severity a line is written at (see Configuration).
-
-A transaction rolled back because it reached its idle timeout or its ceiling has no request of its own to log. The
-deadline timer logs one line for it instead, at `warning`: the ticket, which limit was reached, and how long the
-transaction lasted, e.g. `tamarackdb-server: [WARNING] transaction a045ad63-... expired: idle timeout reached after
-5.00s`. It's the sign of a client that crashed, hung, or ran a command far longer than it should. The ticket is
-already inactive at that point, so logging it is safe, and it lets a client that logged its own tickets find the
-command that expired.
+logged just like any other. `logLevel` sets the minimum severity a line is written at (see Configuration). The line
+never carries a request or response body, so queries, conditions, and events never reach the log.
 
 ### Queue and connection pool observability
 
 Event and projection counts, per-type breakdowns, and database file size (anything you can work out from the store's
 own content) are a query away, straight against the SQLite file, so the store doesn't need to expose them itself. What
-the file can't answer is live, in-memory state that only exists for the life of the process: the active transaction,
-the FIFO, and how busy the read and write SQLite connection pools are. Two endpoints cover that, kept
-separate since they serve different needs:
+the file can't answer is live, in-memory state that only exists for the life of the process: the request holding the
+write turn, the FIFO, the writes so far, and how busy the read and write SQLite connection pools are. Two endpoints
+cover that, kept separate since they serve different needs:
 
 **`GET /metrics`**: Prometheus exposition format, for scraping into existing monitoring:
-- `tamarackdb_transaction_active` (gauge): whether a transaction is currently active (`1`) or not (`0`)
-- `tamarackdb_requests_queued` (gauge): number of requests (`POST /begin`, a projection write without a ticket, or
-  the hourly `PRAGMA optimize`) currently waiting in the FIFO
+- `tamarackdb_write_active` (gauge): whether a request holds the write turn (`1`) or not (`0`): a write, a bulk delete,
+  a reset, or `PRAGMA optimize`
+- `tamarackdb_requests_queued` (gauge): number of requests currently waiting in the FIFO
 - `tamarackdb_queue_longest_wait_seconds` (gauge): longest current wait, in seconds, among queued requests; `0` when
   the FIFO is empty
-- `tamarackdb_transactions_started_total` (counter): total transactions given a ticket since startup
-- `tamarackdb_transactions_committed_total` (counter): total transactions committed since startup
-- `tamarackdb_transactions_rolled_back_total` (counter, label `reason`): total transactions rolled back since startup,
-  by reason: `client` (`POST /rollback`), `error` (a failed call), `expired` (deadline or ceiling), `shutdown`, `reset`
-- `tamarackdb_transaction_duration_seconds` (histogram): time from ticket to end, for every transaction, however it
-  ended
-- `tamarackdb_appends_failed_total` (counter): total `POST /events` calls that failed on their Append Condition
-  (`409 ConcurrencyException`) since startup
+- `tamarackdb_writes_committed_total` (counter): total `POST /write` calls committed since startup
+- `tamarackdb_writes_rejected_total` (counter, label `reason`): total `POST /write` calls refused with `409
+  ConcurrencyException` since startup, by reason: `condition` (an Append Condition didn't hold, or was read on another
+  store) or `projection` (a projection wasn't at the version given)
+- `tamarackdb_write_duration_seconds` (histogram): how long each `POST /write` held the turn, from its turn to its end,
+  however it ended
 
-**`GET /debug`**: a JSON snapshot for digging into one specific stuck or slow transaction, or a read pool that looks
-saturated, too detailed to fit a metric:
+The two reasons for a refused write point at different things. A refused condition is real business contention: two
+decisions raced on the same events. A refused projection is often operational: two instances of one projector running
+at once, or a bulk delete during a rebuild.
+
+**`GET /debug`**: a JSON snapshot for digging into one specific slow write, a queue that keeps growing, or a read pool
+that looks saturated, too detailed to fit a metric:
 
 ```json
 {
   "time": "2026-09-01T14:23:05.123456Z",
   "write": {
     "active": {
-      "since": "2026-09-01T14:23:04.900000Z",
-      "ageSeconds": 0.223,
-      "deadline": "2026-09-01T14:23:09.900000Z",
-      "ceiling": "2026-09-01T14:23:19.900000Z",
-      "calls": 7
+      "kind": "write",
+      "since": "2026-09-01T14:23:05.120000Z",
+      "ageSeconds": 0.003
     },
     "queued": [
       {
-        "kind": "transaction",
-        "queuedAt": "2026-09-01T14:23:05.000000Z",
-        "waitSeconds": 0.1
+        "kind": "projections",
+        "queuedAt": "2026-09-01T14:23:05.121000Z",
+        "waitSeconds": 0.002
       }
     ],
     "httpOpen": 2,
@@ -1193,15 +1180,15 @@ saturated, too detailed to fit a metric:
 }
 ```
 
-`write.active` describes the active transaction, if any (`null` otherwise): when its ticket was given out, its current
-deadline and fixed ceiling, and how many calls it has made so far. It never carries the ticket itself (see Security),
-nor the transaction's queries, conditions, or events: the queue manager never knows them. `write.queued` lists every
-request still waiting, oldest first, with its `kind` (`transaction`, `projections`, or `optimize`), and `waitSeconds` instead
-of `ageSeconds`. `write.queued` is always present, never `null`, even when empty.
+`write.active` describes the request holding the turn, if any (`null` otherwise): its `kind` and since when. It never
+carries what the request reads or writes: the queue manager never knows it. `write.queued` lists every request still
+waiting, oldest first, with its `kind`, and `waitSeconds` instead of `ageSeconds`. `write.queued` is always present,
+never `null`, even when empty. A `kind` is one of `write` (`POST /write`), `projections` (a bulk delete), `reset`, and
+`optimize`.
 
-`httpOpen` is how many requests are currently in flight on each side: on the write side, requests waiting in the FIFO,
-calls with a ticket, and projection writes without a ticket; on the read side, reads without a ticket. `sqliteInUse` and `sqliteMax` are the underlying
-SQLite connection pool's usage against its configured ceiling (`database/sql`'s own
+`httpOpen` is how many requests are currently in flight on each side: on the write side, every request that waits in
+the FIFO or holds the turn (writes, bulk deletes, resets); on the read side, every read. `sqliteInUse` and
+`sqliteMax` are the underlying SQLite connection pool's usage against its configured ceiling (`database/sql`'s own
 `DBStats.InUse`/`MaxOpenConnections`, read straight off the read and write `*sql.DB` pools). `write.sqliteMax` is
 always `1`: the write pool is deliberately capped at one connection, so SQLite's own driver enforces the same
 single-writer guarantee the FIFO already provides at the HTTP layer. `read.httpOpen` can run higher than
@@ -1209,13 +1196,14 @@ single-writer guarantee the FIFO already provides at the HTTP layer. `read.httpO
 connection. A sustained gap between the two is a sign that `readPoolSize` (see
 [Deployment](/docs/guides/deployment/)) is too small for the traffic.
 
-Since the queue manager serializes access to its own state behind a mutex, separate from the write connection's
-mutex, and the SQLite pool stats come straight from `database/sql`'s own counters, answering a `GET /debug` request is
-always a quick, non-blocking read: never stuck behind a queued request or a running call.
+Since the queue manager serializes access to its own state behind a mutex, separate from the write connection, and
+the SQLite pool stats come straight from `database/sql`'s own counters, answering a `GET /debug` request is always a
+quick, non-blocking read: never stuck behind a queued request or a running write.
 
 ## Implementation
 
-The concrete Go code lives in `internal/queue` (the FIFO), `internal/txn` (tickets, deadlines, turns for projection writes without a ticket, and reset),
-`internal/store` (the transaction on the write connection and the Query-to-SQL translation), and `cmd/tamarackdb-backup`
-(the backup tool). The projection wire shape and its validation rules live in `internal/projection`, independent of
-`internal/dcb`.
+The concrete Go code lives in `internal/queue` (the FIFO), `internal/txn` (the write manager: a turn in the FIFO for
+each write, bulk delete, reset, and `PRAGMA optimize`, and the write counters), `internal/store` (the SQLite
+transaction of a write, reads, and the Query-to-SQL translation), and `cmd/tamarackdb-backup` (the backup tool). The
+projection wire shape and its validation rules live in `internal/projection`, independent of `internal/dcb`. The
+shared matcher cases live in `testdata/query-cases.json`.
