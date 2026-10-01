@@ -445,6 +445,34 @@ func TestAppendProjectionConflictWritesNothing(t *testing.T) {
 // TestAppendFailedInsertPutsTheCounterBack checks that a write failing
 // after its Sequence Positions were reserved gives them back: here, a row
 // already sits at the next sequence, outside Append, so the insert fails.
+// TestAppendPanicPutsTheCounterBack checks that a write that panics after
+// reserving its Sequence Positions gives them back, so the next write
+// leaves no gap.
+func TestAppendPanicPutsTheCounterBack(t *testing.T) {
+	s := openTestStore(t)
+	mustAppend(t, s, []dcb.EventData{{Type: "a"}}, nil)
+	before := s.peekLastAssigned()
+
+	afterReserve = func() { panic("boom") }
+	t.Cleanup(func() { afterReserve = nil })
+	func() {
+		defer func() {
+			if recover() == nil {
+				t.Fatal("Append() didn't panic")
+			}
+		}()
+		s.Append(context.Background(), []dcb.EventData{{Type: "b"}}, nil, projection.Writes{})
+	}()
+	afterReserve = nil
+
+	if got := s.peekLastAssigned(); got != before {
+		t.Errorf("last assigned sequence = %d after the panic, want %d", got, before)
+	}
+	if got := mustAppend(t, s, []dcb.EventData{{Type: "c"}}, nil); got[0].Sequence != before+1 {
+		t.Errorf("next write got sequence %d, want %d", got[0].Sequence, before+1)
+	}
+}
+
 func TestAppendFailedInsertPutsTheCounterBack(t *testing.T) {
 	s := openTestStore(t)
 	mustAppend(t, s, []dcb.EventData{{Type: "a"}}, nil)

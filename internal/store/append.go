@@ -84,6 +84,9 @@ func (s *Store) Append(ctx context.Context, events []dcb.EventData, conditions [
 			s.releaseSequences(start)
 		}
 	}()
+	if afterReserve != nil {
+		afterReserve()
+	}
 	appended, err := insertEvents(ctx, tx, events, start)
 	if err != nil {
 		return AppendResult{}, err
@@ -94,6 +97,11 @@ func (s *Store) Append(ctx context.Context, events []dcb.EventData, conditions [
 	committed = true
 	return AppendResult{StoreID: storeID, Events: appended, Versions: versions}, nil
 }
+
+// afterReserve, when set, runs in Append right after it reserves its
+// Sequence Positions. It's nil outside tests: a variable, so a test can
+// make a write panic there.
+var afterReserve func()
 
 // checkCondition reports whether c holds against every event visible to
 // tx. It ignores c.Store: checking it is up to the caller.
