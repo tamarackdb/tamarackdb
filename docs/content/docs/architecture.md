@@ -149,7 +149,8 @@ cover the multi-value case directly:
 ```
 
 Each key becomes a `name`. Each value, or array element, becomes its own `{name, value}` row. An event carrying
-`courseId: ["foo", "bar"]` has both `courseId:foo` **and** `courseId:bar` at the same time.
+`courseId: ["foo", "bar"]` has both `courseId:foo` **and** `courseId:bar` at the same time. An empty array gets `400 Bad
+Request`, since it would leave the key with no value: to carry no value, leave the key out.
 
 ### Metadata
 

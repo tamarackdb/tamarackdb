@@ -425,7 +425,8 @@ client is gone (see [A lost write response](#a-lost-write-response)).
 ### Events
 
 `identifiers` and `metadata` are objects whose values are a string, or an array of
-strings: an array gives one tag per value, all on the same event. An event
+strings: an array gives one tag per value, all on the same event. An empty
+array gets `400`: to carry no value, leave the key out. An event
 carries at most 20 identifiers and 20 metadata values, and never the same
 `{name, value}` pair twice. `payload` is an opaque string. TamarackDB never
 parses it, so its format (JSON, XML, or anything else) is entirely up to the
