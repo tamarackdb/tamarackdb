@@ -14,8 +14,8 @@ using SQLite as the storage engine.
   writes.
 - Full HTTP API to read and write events, with pagination for large
   result sets.
-- Optional projection store, written in the same transaction as the events
-  it's computed from.
+- Optional projection store, written with the events or on its own: each
+  command atomic, or eventually consistent, as the application chooses.
 - Single-instance design with no external dependency.
 - Plain SQLite storage with no opaque format lock-in.
 - Bearer token authentication.
