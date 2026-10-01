@@ -449,10 +449,13 @@ holding the write turn, the requests waiting for theirs, the writes so far,
 and the SQLite connection pools. They matter when you are chasing slow
 writes, a queue that keeps growing, or a read pool that looks saturated.
 
-- `GET /metrics`: Prometheus text format. Shows whether a request holds the
-  write turn, how many requests are waiting and the longest current wait, the
-  writes committed, the writes refused with `409` (by reason: an Append
-  Condition, or a projection version), and how long each write held the turn.
+- `GET /metrics`: Prometheus text format. It shows:
+  - whether a request holds the write turn;
+  - how many requests are waiting, and the longest current wait;
+  - the writes committed;
+  - the writes refused with `409`, by reason: an Append Condition, or a
+    projection version;
+  - how long each write held the turn.
 - `GET /debug`: a JSON snapshot with a `write` object (what holds the turn
   and since when; every waiting request with its wait time; the write SQLite
   pool's usage) and a `read` object (reads in flight, and the read SQLite

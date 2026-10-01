@@ -585,9 +585,9 @@ written gets sequence 1, and draws a new store ID (see Store ID), all in one SQL
 `devMode` is on (see Dev mode). It responds `204 No Content`.
 
 It waits for its turn in the FIFO like a write. The writes queued before it go through, then the reset deletes them.
-A write queued after it runs on the new store: a condition that carries the old store ID gets `409`, as does a
-`replace` or `delete` of a projection, whose version no longer exists; a condition with no `afterSequence`, or a write
-with no condition, goes through, since it holds on any store. For the application, a reset is like a restart of the
+A write queued after it runs on the new store. A condition that carries the old store ID gets `409`. So does a
+`replace` or `delete` of a projection, since its version no longer exists. A condition with no `afterSequence`, or a
+write with no condition, goes through: it holds on any store. For the application, a reset is like a restart of the
 server on a brand new file.
 
 ### Event size limit
