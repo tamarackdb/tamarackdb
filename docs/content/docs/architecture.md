@@ -1090,7 +1090,9 @@ never changes them.
 When `enableAuth` is on, every registered route needs a Bearer token in the `Authorization` header
 (`Authorization: Bearer <token>`): every endpoint of the HTTP API, `/health`, the observability endpoints (`/metrics`,
 `/debug`), and, in dev mode, `POST /reset` and the profiling endpoints too. The token is a single fixed value, set as
-`authToken`. A request with no valid token gets `401 Unauthorized` before it reaches any handler logic. Rotating the
+`authToken`. A request with no valid token gets `401 Unauthorized` before it reaches any handler logic. The server
+compares the token in constant time, never with a plain string comparison: one that stops at the first differing byte
+would let an attacker guess the token one byte at a time, by timing the responses. Rotating the
 token means changing the configuration file or environment variable and restarting the process: there's no in-memory
 rotation, or window where two tokens both work. When `enableAuth` is off, the API serves every request with no auth
 check at all.
