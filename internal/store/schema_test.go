@@ -23,7 +23,7 @@ func TestOpenCreatesSchemaOnFreshFile(t *testing.T) {
 		t.Errorf("user_version = %d, want %d", version, schemaVersion)
 	}
 
-	for _, table := range []string{"events", "identifiers", "metadata", "projections"} {
+	for _, table := range []string{"events", "identifiers", "metadata", "projections", "store"} {
 		var name string
 		err := s.writeDB.QueryRowContext(context.Background(),
 			"SELECT name FROM sqlite_master WHERE type='table' AND name=?", table).Scan(&name)

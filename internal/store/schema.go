@@ -45,6 +45,11 @@ CREATE TABLE projections (
     payload TEXT NOT NULL,
     PRIMARY KEY (type, id)
 ) WITHOUT ROWID;
+
+CREATE TABLE store (
+    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+    id        TEXT NOT NULL
+);
 `
 
 // SchemaVersionError reports PRAGMA user_version on an existing database
@@ -81,6 +86,9 @@ func createSchema(ctx context.Context, db *sql.DB) error {
 
 	if _, err := tx.ExecContext(ctx, schemaDDL); err != nil {
 		return wrapf("create schema", err)
+	}
+	if _, err := tx.ExecContext(ctx, "INSERT INTO store (singleton, id) VALUES (1, ?)", newStoreID()); err != nil {
+		return wrapf("create store id", err)
 	}
 	// PRAGMA doesn't accept bound parameters; schemaVersion is a
 	// compile-time constant, never untrusted input.

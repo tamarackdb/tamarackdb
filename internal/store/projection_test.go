@@ -36,7 +36,8 @@ func mustCreate(t *testing.T, s *Store, typ, id, payload string) string {
 // is nil, and returns its version.
 func assertProjection(t *testing.T, s *Store, typ, id string, want *string) string {
 	t.Helper()
-	version, got, found, err := s.GetProjection(context.Background(), typ, id)
+	p, err := s.GetProjection(context.Background(), typ, id)
+	version, got, found := p.Version, p.Payload, p.Found
 	if err != nil {
 		t.Fatalf("GetProjection(%s, %s) error = %v", typ, id, err)
 	}

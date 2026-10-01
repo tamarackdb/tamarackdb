@@ -180,6 +180,7 @@ The ticket is optional:
 - **Without a ticket**, the read sees committed events only. It never waits
   for the active transaction. Use this to display data, for a projection
   rebuild, or for the optimistic flow (see [Append Condition](#append-condition)).
+  The response carries the store ID (see [Store ID](#store-id)).
 
 Use the literal string `"*"` in place of `query` to read every event:
 
@@ -288,6 +289,19 @@ stops once `hasMore` reads `false`.
 `limit` defaults to whatever the server operator set (`defaultEventsPerPage`,
 1000 out of the box) and is capped at `maxEventsPerPage` (10000 out of the
 box). Asking for more than that gets you `400 Bad Request`.
+
+### Store ID
+
+A read without a ticket returns the store ID in the `X-Tamarackdb-Store`
+header: a UUID that names the history you read. `QUERY /events` sends it on
+every page, empty ones included, and `GET /projections/{type}/{id}` sends it on
+both `200` and `404`.
+
+The store ID only changes when the store is emptied with `POST /reset` (dev
+mode only). After that, Sequence Positions start over at 1, and a position you
+kept from before names a different event. Keep the store ID next to any
+Sequence Position you keep: if a later read returns a different store ID,
+start over from the beginning.
 
 ## Appending events
 
@@ -422,6 +436,7 @@ curl -i http://127.0.0.1:8085/projections/user-profile/123
 HTTP/1.1 200 OK
 Content-Type: text/plain; charset=utf-8
 X-Tamarackdb-Version: 9f3c2a1e-7b4d-4c8e-a5f6-0d1e2f3a4b5c
+X-Tamarackdb-Store: 5b0c7e2a-1f4d-4a9b-8c3e-6d2f1a0b9e47
 
 {"name":"Ada Lovelace"}
 ```
@@ -437,7 +452,8 @@ The ticket is optional, as for events:
 - **With a ticket**, the read sees projections written earlier in the same
   transaction. A projector uses it to read a projection before changing it.
 - **Without a ticket**, the read sees committed projections only. This is how you
-  read a projection to display a page.
+  read a projection to display a page. The response carries the store ID (see
+  [Store ID](#store-id)).
 
 A projection that doesn't exist gets `404 ProjectionNotFound`. Inside a
 transaction, this is an ordinary answer, not an error: the transaction goes on.
@@ -590,7 +606,8 @@ the start.
 ## Resetting between test runs
 
 If the server has `devMode` on, `POST /reset` deletes every event and every
-projection. The next event appended gets sequence 1:
+projection, and gives the store a new store ID (see [Store ID](#store-id)).
+The next event appended gets sequence 1:
 
 ```sh
 curl -X POST http://127.0.0.1:8085/reset

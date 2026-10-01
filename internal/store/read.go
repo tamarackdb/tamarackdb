@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -20,11 +21,30 @@ type ReadFilter struct {
 	Limit         int    // must be >= 1; Read fetches Limit+1 rows
 }
 
-// Read runs a paginated DCB read on the read pool, outside any
-// transaction: it sees committed events only. The returned *EventIterator
-// must be closed by the caller (directly, or by exhausting Next).
+// Read runs a paginated DCB read on the read pool: it sees committed
+// events only. It reads the store ID and the page in one read transaction,
+// so both come from the same SQLite snapshot: a page never pairs the events
+// of one store ID with another (see Reset). The returned *EventIterator
+// holds that transaction until it's closed, by the caller directly or by
+// exhausting Next.
 func (s *Store) Read(ctx context.Context, f ReadFilter) (*EventIterator, error) {
-	return readEvents(ctx, s.readDB, f)
+	tx, err := s.readDB.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, wrapf("begin read", err)
+	}
+	storeID, err := readStoreID(ctx, tx)
+	if err != nil {
+		tx.Rollback()
+		return nil, err
+	}
+	it, err := readEvents(ctx, tx, f)
+	if err != nil {
+		tx.Rollback()
+		return nil, err
+	}
+	it.tx = tx
+	it.storeID = storeID
+	return it, nil
 }
 
 // querier is what a read needs, satisfied by both *sql.DB (the read pool)
@@ -117,6 +137,8 @@ func scanEvent(rows *sql.Rows) (ReadEvent, error) {
 // rebuilds, never held open across pages.
 type EventIterator struct {
 	rows    *sql.Rows
+	tx      *sql.Tx // the read transaction Close ends; nil for a Tx.Read
+	storeID string  // empty for a Tx.Read
 	limit   int
 	n       int
 	hasMore bool
@@ -163,7 +185,12 @@ func (it *EventIterator) Event() ReadEvent { return it.cur }
 func (it *EventIterator) Err() error       { return it.err }
 func (it *EventIterator) HasMore() bool    { return it.hasMore }
 
-// Close releases the underlying *sql.Rows/connection. Safe to call more
+// StoreID returns the store ID read in the same snapshot as the page.
+// It's empty for an iterator from Tx.Read.
+func (it *EventIterator) StoreID() string { return it.storeID }
+
+// Close releases the underlying *sql.Rows, read transaction, and
+// connection. Safe to call more
 // than once, and safe to call before exhausting Next (e.g. a client
 // disconnects mid-stream); HasMore then simply reflects whatever was known
 // at that point.
@@ -172,5 +199,10 @@ func (it *EventIterator) Close() error {
 		return nil
 	}
 	it.closed = true
-	return it.rows.Close()
+	err := it.rows.Close()
+	if it.tx != nil {
+		// The transaction only read: rolling it back just ends it.
+		err = errors.Join(err, it.tx.Rollback())
+	}
+	return err
 }

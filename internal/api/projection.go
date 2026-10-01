@@ -39,7 +39,9 @@ func toProjectionVersions(versions []string) []projectionVersion {
 // version in the X-Tamarackdb-Version header. With a
 // ticket, the read runs inside the transaction and sees projections written
 // earlier in it; a 404 is an ordinary answer there, not a failure, and the
-// transaction goes on. Without a ticket, it sees committed projections only.
+// transaction goes on. Without a ticket, it sees committed projections only,
+// and both the 200 and the 404 carry the store ID in the X-Tamarackdb-Store
+// header.
 // The payload is returned as-is: its own format (JSON, XML, plain text) is
 // up to the writing application, the store never parses it.
 func (s *Server) handleGetProjection(w http.ResponseWriter, r *http.Request) {
@@ -57,7 +59,12 @@ func (s *Server) handleGetProjection(w http.ResponseWriter, r *http.Request) {
 	} else {
 		s.readHTTPOpen.Add(1)
 		defer s.readHTTPOpen.Add(-1)
-		version, payload, found, err = s.st.GetProjection(r.Context(), typ, id)
+		var p store.ProjectionRead
+		p, err = s.st.GetProjection(r.Context(), typ, id)
+		version, payload, found = p.Version, p.Payload, p.Found
+		if err == nil {
+			w.Header().Set(StoreHeader, p.StoreID)
+		}
 	}
 	if err != nil {
 		s.handleErr(w, r, err)

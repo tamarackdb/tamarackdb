@@ -11,6 +11,11 @@ import (
 	"github.com/tamarackdb/tamarackdb/internal/store"
 )
 
+// StoreHeader carries the store ID in a response to a read without a
+// ticket: QUERY /events and GET /projections/{type}/{id}. It's read in the
+// same SQLite snapshot as the events or projection returned.
+const StoreHeader = "X-Tamarackdb-Store"
+
 // readRequest is the exact wire shape of QUERY /events's JSON body.
 // Query's own UnmarshalJSON (dispatched automatically by encoding/json on
 // this named field) handles "*" vs. an array of QueryItem.
@@ -50,7 +55,8 @@ type readEventWire struct {
 // handleReadEvents implements QUERY /events. With a ticket, the read runs
 // inside the transaction and sees the events it appended; any failure,
 // a malformed body included, rolls the transaction back. Without a
-// ticket, the read runs on the read pool and sees committed events only.
+// ticket, the read runs on the read pool and sees committed events only,
+// and the response carries the store ID in the X-Tamarackdb-Store header.
 func (s *Server) handleReadEvents(w http.ResponseWriter, r *http.Request) {
 	if ticket, ok := ticketFrom(r); ok {
 		defer s.trackWrite()()
@@ -83,6 +89,7 @@ func (s *Server) handleReadEvents(w http.ResponseWriter, r *http.Request) {
 		s.handleErr(w, r, err)
 		return
 	}
+	w.Header().Set(StoreHeader, it.StoreID())
 	// A read without a ticket holds a read connection, and pins its
 	// SQLite snapshot, until the page is fully sent. A client that stops
 	// reading would hold both forever: each line gets readStallTimeout to

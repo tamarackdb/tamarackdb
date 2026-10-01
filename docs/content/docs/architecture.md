@@ -378,6 +378,17 @@ reference value, not something meant for display. Converting to local time is le
 `payload` is an opaque string: the store never parses or checks it. Its real format (JSON, XML, or anything else) is
 a convention owned by the writing application, based on the event's `type`. The store has no notion of it.
 
+### Store ID
+
+Every database file has a store ID: a UUID drawn when the file is created, and drawn again by `POST /reset` (see
+Reset). Two reads that carry the same store ID read the same history. A Sequence Position only means something next to
+the store ID it was read with: after a reset, sequence 5 names a different event.
+
+A read without a ticket returns the store ID in the `X-Tamarackdb-Store` header: `QUERY /events` on every page, empty
+ones included, and `GET /projections/{type}/{id}` on both `200` and `404`. The server reads it in the same SQLite
+snapshot as the events or the projection, so a response never pairs the data of one store ID with another. A request
+refused before it reads (`400`, for example) carries no store ID.
+
 ### Appending events
 
 `POST /events` appends events inside the transaction. The request body carries the events and an optional Append
@@ -549,8 +560,8 @@ stopped (see Storage: SQLite).
 
 ### Reset (dev mode)
 
-`POST /reset` deletes every event and every projection, and sets the Sequence Position counter back to zero: the next
-event appended gets sequence 1. It exists only when `devMode` is on (see Dev mode).
+`POST /reset` deletes every event and every projection, sets the Sequence Position counter back to zero (the next
+event appended gets sequence 1), and draws a new store ID (see Store ID), all in one SQLite transaction. It exists only when `devMode` is on (see Dev mode).
 
 It's meant for local development, where only the developer uses the application, and it doesn't wait for anyone. It
 doesn't join the FIFO. If a transaction is active, its ticket stops being active and its SQLite transaction is rolled
@@ -749,6 +760,10 @@ and never sees an active transaction's changes. It's never blocked by the active
 runs. A read that starts just before a commit simply won't see the new events, which is fine: a client that then
 appends with an Append Condition uses the Sequence Position it actually read as `afterSequence`.
 
+Each read without a ticket runs in its own read transaction: it first reads the store ID, then the page or the
+projection. SQLite takes the snapshot at the first statement, so both come from the same one. For a `QUERY /events`
+page, the transaction ends once the page is fully sent.
+
 A `QUERY /events` page without a ticket holds its read connection, and pins its snapshot, until the page is fully
 sent. So each line of the page gets 30 seconds to go out, renewed on every line: a page that keeps moving is never
 cut, however slow the client, but a client that stops reading loses its connection after 30 seconds, and the read
@@ -764,7 +779,8 @@ the transaction timeouts, and the pagination/event-size/queue-depth limits. This
 checking at a glance what a given instance is actually set up to do, not a machine-readable format meant for parsing.
 
 Opening the store checks the schema version (see Schema), then reads the current highest `sequence` in the `events`
-table into the in-memory Sequence Position counter (see Application-controlled Sequence Position above). This finishes
+table into the in-memory Sequence Position counter (see Application-controlled Sequence Position above), and the store
+ID into memory next to it (see Store ID). This finishes
 before the process gives out any ticket; reads without a ticket can be served as soon as the store is open.
 
 On `SIGINT` or `SIGTERM`, the process shuts down in order. The HTTP server stops taking new connections
@@ -876,7 +892,15 @@ CREATE TABLE projections (
     payload TEXT NOT NULL,
     PRIMARY KEY (type, id)
 ) WITHOUT ROWID;
+
+CREATE TABLE store (
+    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+    id        TEXT NOT NULL
+);
 ```
+
+`store` holds a single row, with the store ID (see Store ID). The `CHECK` on `singleton` keeps a second row out. The
+row is written with the rest of the schema, in the same transaction.
 
 `projections` is `WITHOUT ROWID`, keyed by `(type, id)`: a projection has no history, so its natural key is also its only
 key, with no separate rowid needed. The same key serves `DELETE /projections/{type}`, as a prefix of the primary key.

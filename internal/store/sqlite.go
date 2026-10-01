@@ -37,6 +37,10 @@ type Store struct {
 	// Condition shortcut) safe alongside them.
 	seqMu   sync.Mutex
 	nextSeq int64 // next sequence value to assign; nextSeq-1 is the highest assigned so far
+
+	// storeID is the store ID (see storeid.go), read at Open and changed
+	// only by Reset. seqMu guards it too: Reset changes both together.
+	storeID string
 }
 
 func dsn(path string, extra string) string {
@@ -121,8 +125,15 @@ func Open(ctx context.Context, path string, readPoolSize int) (*Store, error) {
 		releaseLock(lock)
 		return nil, wrapf("read max sequence", err)
 	}
+	storeID, err := readStoreID(ctx, writeDB)
+	if err != nil {
+		writeDB.Close()
+		readDB.Close()
+		releaseLock(lock)
+		return nil, err
+	}
 
-	return &Store{writeDB: writeDB, readDB: readDB, lock: lock, nextSeq: maxSeq + 1}, nil
+	return &Store{writeDB: writeDB, readDB: readDB, lock: lock, nextSeq: maxSeq + 1, storeID: storeID}, nil
 }
 
 // createPrivate creates the database file, empty, readable and writable
@@ -192,9 +203,9 @@ func (s *Store) WritePoolStats() PoolStats {
 	return PoolStats{InUse: stats.InUse, Max: stats.MaxOpenConnections}
 }
 
-// Reset deletes every event and every projection, and sets the Sequence
-// Position counter back to zero: the next event appended gets sequence 1.
-// The schema stays in place. It's meant for dev mode only. Since the write
+// Reset deletes every event and every projection, sets the Sequence
+// Position counter back to zero (the next event appended gets sequence 1),
+// and draws a new store ID. The schema stays in place. It's meant for dev mode only. Since the write
 // pool holds a single connection, Reset waits for an open Tx to end: the
 // caller rolls it back first.
 func (s *Store) Reset(ctx context.Context) error {
@@ -214,6 +225,10 @@ func (s *Store) Reset(ctx context.Context) error {
 			return wrapf("reset", err)
 		}
 	}
+	storeID := newStoreID()
+	if _, err := tx.ExecContext(ctx, "UPDATE store SET id = ?", storeID); err != nil {
+		return wrapf("reset", err)
+	}
 	// The counter's mutex is held across the commit: the commit frees the
 	// write connection, and a Begin waiting for it reads the counter right
 	// after. Holding the mutex makes that Begin read 1, not the value from
@@ -224,5 +239,6 @@ func (s *Store) Reset(ctx context.Context) error {
 		return wrapf("commit reset", err)
 	}
 	s.nextSeq = 1
+	s.storeID = storeID
 	return nil
 }
