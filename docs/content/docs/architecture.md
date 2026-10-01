@@ -556,8 +556,8 @@ built from:
   with the version the previous write returned.
 - `GET /projections/{type}/{id}` reads a projection back, with its version.
 
-One write keeps the rebuild atomic, but it must fit under `maxProjectionsPerWrite` and `maxRequestBodySize`, and it
-holds the turn for as long as its inserts take, with every other write waiting behind it. Several writes each fit the
+A single write must fit under `maxProjectionsPerWrite` and `maxRequestBodySize`, and it holds the turn for as long as
+its inserts take, with every other write waiting behind it. Several writes each fit the
 limits; a projector writes its position (store ID and Sequence Position) with each one, so a rebuild that stops
 halfway resumes from there. The choice is the application's.
 

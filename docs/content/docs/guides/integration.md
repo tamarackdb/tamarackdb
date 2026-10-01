@@ -640,9 +640,8 @@ parallel, or anything else. These calls are what it's built from:
 - Read a projection back with `GET /projections/{type}/{id}`: the response
   carries its payload and its version.
 
-One write keeps the rebuild atomic, but it must fit under
-`maxProjectionsPerWrite` and `maxRequestBodySize`, and it holds the turn for
-as long as the insert takes. Several writes each fit the limits; write the
+A single write must fit under `maxProjectionsPerWrite` and
+`maxRequestBodySize`, and it holds the turn for as long as the insert takes. Several writes each fit the limits; write the
 projector's position (see [Store ID](#store-id)) with each one, so a rebuild
 that stops halfway resumes from there. The choice is your application's.
 
