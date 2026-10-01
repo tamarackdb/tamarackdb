@@ -87,8 +87,8 @@ func (s *Server) validateWriteRequest(req writeRequest) error {
 		return &dcb.ValidationError{Err: errTooManyEvents, Message: fmt.Sprintf(
 			"request carries %d events, more than maxEventsPerWrite (%d)", n, s.opts.MaxEventsPerWrite)}
 	}
-	// Each condition comes with an append of events, so there can't be
-	// more of them than events.
+	// A transaction usually has one condition per decision, each with
+	// events of its own, so the event limit bounds conditions too.
 	if n := len(req.Conditions); n > s.opts.MaxEventsPerWrite {
 		return &dcb.ValidationError{Err: errTooManyConditions, Message: fmt.Sprintf(
 			"request carries %d conditions, more than maxEventsPerWrite (%d)", n, s.opts.MaxEventsPerWrite)}

@@ -176,8 +176,8 @@ func (q Query) Validate() error {
 
 // AppendCondition mirrors one of the conditions in POST /write: FailIfEventsMatch
 // follows the same grammar as a read Query, and is itself optional
-// within a condition (an afterSequence-only condition is valid, used
-// for safe retries after a startup or crash). Defined in dcb rather than
+// within a condition (an afterSequence-only condition is valid: it fails
+// if any event at all exists after afterSequence). Defined in dcb rather than
 // internal/api because both internal/api (decoding the request) and
 // internal/store (checking it against the database) need the same shape.
 // internal/queue, which admits writers before any condition is checked,
