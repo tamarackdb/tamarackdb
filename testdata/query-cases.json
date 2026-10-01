@@ -1,0 +1,168 @@
+[
+  {
+    "name": "\"*\" matches every event",
+    "query": "*",
+    "event": { "type": "user-created", "identifiers": { "userId": "1" } },
+    "matches": true
+  },
+  {
+    "name": "a listed type matches",
+    "query": [{ "types": ["user-created"] }],
+    "event": { "type": "user-created" },
+    "matches": true
+  },
+  {
+    "name": "an unlisted type doesn't match",
+    "query": [{ "types": ["user-created"] }],
+    "event": { "type": "user-deleted" },
+    "matches": false
+  },
+  {
+    "name": "types in one item are an OR: any one of them matches",
+    "query": [{ "types": ["user-created", "user-deleted"] }],
+    "event": { "type": "user-deleted" },
+    "matches": true
+  },
+  {
+    "name": "items are an OR: one matching item is enough",
+    "query": [{ "types": ["order-placed"] }, { "types": ["user-created"] }],
+    "event": { "type": "user-created" },
+    "matches": true
+  },
+  {
+    "name": "items are an OR: no matching item, no match",
+    "query": [{ "types": ["order-placed"] }, { "types": ["order-shipped"] }],
+    "event": { "type": "user-created" },
+    "matches": false
+  },
+  {
+    "name": "an item without types matches any type",
+    "query": [{ "identifiers": [{ "name": "userId", "value": "1" }] }],
+    "event": { "type": "anything-at-all", "identifiers": { "userId": "1" } },
+    "matches": true
+  },
+  {
+    "name": "an identifier the event carries matches",
+    "query": [{ "identifiers": [{ "name": "userId", "value": "1" }] }],
+    "event": { "type": "user-created", "identifiers": { "userId": "1" } },
+    "matches": true
+  },
+  {
+    "name": "an identifier value the event doesn't carry doesn't match",
+    "query": [{ "identifiers": [{ "name": "userId", "value": "2" }] }],
+    "event": { "type": "user-created", "identifiers": { "userId": "1" } },
+    "matches": false
+  },
+  {
+    "name": "identifiers in one item are an AND: the event must carry all of them",
+    "query": [{ "identifiers": [{ "name": "userId", "value": "1" }, { "name": "courseId", "value": "c1" }] }],
+    "event": { "type": "enrolled", "identifiers": { "userId": "1" } },
+    "matches": false
+  },
+  {
+    "name": "identifiers in one item are an AND: carrying all of them matches",
+    "query": [{ "identifiers": [{ "name": "userId", "value": "1" }, { "name": "courseId", "value": "c1" }] }],
+    "event": { "type": "enrolled", "identifiers": { "userId": "1", "courseId": "c1" } },
+    "matches": true
+  },
+  {
+    "name": "metadata in one item are an AND: the event must carry all of them",
+    "query": [{ "metadata": [{ "name": "tenantId", "value": "acme" }, { "name": "region", "value": "east" }] }],
+    "event": { "type": "user-created", "metadata": { "tenantId": "acme" } },
+    "matches": false
+  },
+  {
+    "name": "the axes of one item are an AND: a matching type with a missing identifier doesn't match",
+    "query": [{ "types": ["user-created"], "identifiers": [{ "name": "userId", "value": "2" }] }],
+    "event": { "type": "user-created", "identifiers": { "userId": "1" } },
+    "matches": false
+  },
+  {
+    "name": "the axes of one item are an AND: type, identifier, and metadata all matching",
+    "query": [{
+      "types": ["user-created"],
+      "identifiers": [{ "name": "userId", "value": "1" }],
+      "metadata": [{ "name": "tenantId", "value": "acme" }]
+    }],
+    "event": { "type": "user-created", "identifiers": { "userId": "1" }, "metadata": { "tenantId": "acme" } },
+    "matches": true
+  },
+  {
+    "name": "several values for one name: the second value matches",
+    "query": [{ "identifiers": [{ "name": "courseId", "value": "bar" }] }],
+    "event": { "type": "enrolled", "identifiers": { "courseId": ["foo", "bar"] } },
+    "matches": true
+  },
+  {
+    "name": "the same name asked twice: an event carrying both values matches",
+    "query": [{ "identifiers": [{ "name": "courseId", "value": "foo" }, { "name": "courseId", "value": "bar" }] }],
+    "event": { "type": "enrolled", "identifiers": { "courseId": ["foo", "bar"] } },
+    "matches": true
+  },
+  {
+    "name": "the same name asked twice: an event carrying only one value doesn't match",
+    "query": [{ "identifiers": [{ "name": "courseId", "value": "foo" }, { "name": "courseId", "value": "bar" }] }],
+    "event": { "type": "enrolled", "identifiers": { "courseId": "foo" } },
+    "matches": false
+  },
+  {
+    "name": "separate namespaces: a metadata entry doesn't satisfy an identifier",
+    "query": [{ "identifiers": [{ "name": "userId", "value": "1" }] }],
+    "event": { "type": "user-created", "metadata": { "userId": "1" } },
+    "matches": false
+  },
+  {
+    "name": "separate namespaces: an identifier doesn't satisfy a metadata entry",
+    "query": [{ "metadata": [{ "name": "userId", "value": "1" }] }],
+    "event": { "type": "user-created", "identifiers": { "userId": "1" } },
+    "matches": false
+  },
+  {
+    "name": "exact comparison: case matters in a value",
+    "query": [{ "metadata": [{ "name": "tenantId", "value": "Acme" }] }],
+    "event": { "type": "user-created", "metadata": { "tenantId": "acme" } },
+    "matches": false
+  },
+  {
+    "name": "exact comparison: case matters in a name",
+    "query": [{ "identifiers": [{ "name": "UserId", "value": "1" }] }],
+    "event": { "type": "user-created", "identifiers": { "userId": "1" } },
+    "matches": false
+  },
+  {
+    "name": "exact comparison: case matters in a type",
+    "query": [{ "types": ["User-Created"] }],
+    "event": { "type": "user-created" },
+    "matches": false
+  },
+  {
+    "name": "exact comparison: \"1e3\" is not \"1000\"",
+    "query": [{ "identifiers": [{ "name": "amount", "value": "1e3" }] }],
+    "event": { "type": "paid", "identifiers": { "amount": "1000" } },
+    "matches": false
+  },
+  {
+    "name": "exact comparison: \"01\" is not \"1\"",
+    "query": [{ "identifiers": [{ "name": "userId", "value": "01" }] }],
+    "event": { "type": "user-created", "identifiers": { "userId": "1" } },
+    "matches": false
+  },
+  {
+    "name": "exact comparison: a trailing space counts",
+    "query": [{ "metadata": [{ "name": "tenantId", "value": "acme " }] }],
+    "event": { "type": "user-created", "metadata": { "tenantId": "acme" } },
+    "matches": false
+  },
+  {
+    "name": "exact comparison: no Unicode normalization, a precomposed \"é\" is not \"e\" plus a combining accent",
+    "query": [{ "identifiers": [{ "name": "city", "value": "Québec" }] }],
+    "event": { "type": "moved", "identifiers": { "city": "Québec" } },
+    "matches": false
+  },
+  {
+    "name": "exact comparison: the same precomposed \"é\" matches",
+    "query": [{ "identifiers": [{ "name": "city", "value": "Québec" }] }],
+    "event": { "type": "moved", "identifiers": { "city": "Québec" } },
+    "matches": true
+  }
+]
