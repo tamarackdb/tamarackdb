@@ -355,8 +355,17 @@ the request's context. The client then can't tell whether the write happened.
 happened, and reading the events again doesn't settle it: finding nothing can mean "not written" or "not written yet".
 A client that wants to retry safely sends the same write again, with the same Append Conditions, `afterSequence`
 included. The FIFO serves writes in the order they arrive, so the retry runs after the first attempt. If the first
-attempt went through, its events are past that position and match the condition, so the retry fails with `409
-ConcurrencyException` instead of appending a duplicate event. Otherwise, the retry is written normally.
+attempt didn't go through, the retry is written normally. If it did, the retry fails with `409 ConcurrencyException`
+instead of writing the same events twice, but only if the first attempt left something the retry checks: an event
+that matches one of its conditions, or a projection change, whose version no longer matches. A condition only sees
+the events that match its `failIfEventsMatch`: a write with no condition and no projection change, or whose events
+match none of its conditions, would be written twice.
+
+A write can always be made safe to retry: give it a unique `writeId` in the metadata of each of its events, the same
+for every attempt, and a condition with `failIfEventsMatch` on that `writeId` and no `afterSequence`. The name is up to
+the client: TamarackDB gives it no meaning. A `409` on the retry is settled by reading the events with that `writeId`:
+found means the first attempt went through. None means another write broke one of the conditions, and since the
+first attempt carries the same ones, it can't go through either.
 
 ### Reading events
 

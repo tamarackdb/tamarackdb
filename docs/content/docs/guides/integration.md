@@ -156,10 +156,35 @@ either: finding nothing can mean "not written" or "not written yet".
 
 To retry safely, send the same write again, with the same Append Conditions,
 `afterSequence` included. Writes are served in the order they arrive, so the
-retry comes after the first attempt. If the first one went through, its
-events are now past that position, and the retry fails with `409
-ConcurrencyException` instead of writing the same events twice. If it didn't,
-the retry is written normally.
+retry comes after the first attempt. If the first one didn't go through, the
+retry is written normally. If it did, the retry fails with `409
+ConcurrencyException` instead of writing the same events twice, but only if
+the first attempt left something the retry checks:
+
+- an event that matches one of its conditions (a condition only sees the
+  events that match its `failIfEventsMatch`);
+- or a projection change, whose version no longer matches.
+
+A write with no condition and no projection change, or whose events match
+none of its conditions, would be written twice.
+
+To make any write safe to retry, give it a unique `writeId` in the metadata
+of each of its events, the same for every attempt, and add a condition on it
+with no `afterSequence`:
+
+```json
+{
+  "failIfEventsMatch": [
+    { "metadata": [ { "name": "writeId", "value": "0f8e2d4c-9a1b-4c3d-8e7f-6a5b4c3d2e1f" } ] }
+  ]
+}
+```
+
+The name is up to you: TamarackDB gives it no meaning. A `409` on the retry
+is settled by reading the events with that `writeId`. If you find them, the
+first attempt went through. If not, another write broke one of your
+conditions, and since the first attempt carries the same ones, it can't go
+through either.
 
 ## Reading events
 
