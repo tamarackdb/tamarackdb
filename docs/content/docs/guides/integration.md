@@ -108,6 +108,15 @@ makes reads inside the transaction see them:
 
 A transaction with nothing to write doesn't need to call the server at all.
 
+A transaction doesn't freeze a view of the store. Each read is a separate
+call, and sees what is committed at the moment it runs. Two reads of the same
+transaction can see different states: another client may write between them,
+and reading the same query twice can give two different results. What
+protects a decision is the condition built from each read, with its own
+`afterSequence`: the write is refused if an event that matters arrived after
+that read. Don't combine two reads as if they described the same moment
+without a condition on each one.
+
 ### A lost write response
 
 If the connection drops before the `POST /write` response arrives, you can't
