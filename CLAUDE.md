@@ -45,11 +45,11 @@ Docs are split by audience, not by topic. Paths below are relative to
 - `guides/backup.md`: `tamarackdb-backup` usage, how it works, scheduling
   with cron/systemd. Audience: whoever needs a standing backup copy of an
   instance's events.
-- `README.md`: kept to the strict minimum: logo, one-paragraph intro, and
-  a single link to the documentation site at
-  <https://tamarackdb.github.io/>, without listing its pages. No config
-  tables, no Docker examples, no build instructions live in the README
-  itself.
+- `README.md`: kept short: logo, badges, a one-paragraph intro, a short
+  feature list, a single link to the documentation site at
+  <https://tamarackdb.github.io/> without listing its pages, a contributing
+  note, and a closing "Trivia" section on the name. No config tables, no
+  Docker examples, no build instructions live in the README itself.
 
 When adding new documentation content, place it by asking "who reads this
 to do their job," not by topic proximity.

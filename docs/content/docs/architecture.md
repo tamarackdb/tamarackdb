@@ -10,19 +10,11 @@ TamarackDB is an event store in Go. It follows the [DCB (Dynamic Consistency Bou
 specification](https://dcb.events/specification/), is reachable over HTTP, and uses SQLite as its storage engine. The
 service runs as a single instance ("single brain"), not a multi-instance cluster.
 
-It also stores projections: projections an application writes in the same write as the events that changed them (see
-Projections). An application that keeps its projections elsewhere never has to touch this mechanism.
+It also stores projections, written in the same write as the events that changed them, or later in a write of their
+own (see Projections). An application that keeps its projections elsewhere never has to touch this mechanism.
 
 Applications can share a single TamarackDB instance when they share events. TamarackDB does not track which
 application produced an event.
-
-### Name
-
-TamarackDB takes its name from the tamarack (*Larix laricina*), a conifer native to Quebec's boreal forest. It's one
-of the few conifers used in dendrochronology, because its growth rings are unusually clear and easy to read. Each ring
-records one season, laid down once and never changed. You can read the tree's whole history by reading the rings from
-the center out. This event store works the same way: an ordered, append-only list of facts that never change, from
-which you rebuild current state by replaying them.
 
 ### Scope
 
