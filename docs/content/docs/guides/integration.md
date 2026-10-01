@@ -520,6 +520,13 @@ Read it again and redo the work, in a new transaction. A projection created
 without reading it first goes out as a `create`, and fails if the projection
 already exists: read before you write.
 
+Only the projections a write changes are checked. A projection the
+transaction only read is not: the server never learns what a transaction
+read. So base a decision on events, never on a projection. A projection can
+be stale the moment you read it, and nothing protects a decision made on it.
+A decision that must hold is protected by an Append Condition on the events
+it rests on (see [Append Condition](#append-condition)).
+
 The version is opaque. Compare it only for equality, and never compute it: a
 stale copy never matches again, even after the projection is deleted and
 created anew. To write the same projection again later, use the version from

@@ -659,6 +659,11 @@ The conditions are checked in the same SQLite transaction as the inserts, agains
 write ever runs at a time (see Concurrency handling in Go), and the write holds SQLite's write lock from its first
 statement, so nothing can slip in between the checks and the inserts.
 
+A decision rests on events, never on a projection. A write checks the projections it changes, by their version, and
+nothing else: a projection the transaction only read is not checked, since the server never learns what a
+transaction read. A projection can be stale the moment it's read. A decision that must hold is protected by an Append
+Condition on the events it rests on.
+
 The server checks conditions against committed events only. Inside one transaction of the application, a decision
 can also go stale because of a pending event added after the read it was based on, by another processor of the same
 command for example. Only the client library knows the order of its reads and pending events, so that check is the
