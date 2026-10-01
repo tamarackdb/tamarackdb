@@ -11,7 +11,7 @@ import (
 func TestMetricsOutput(t *testing.T) {
 	srv, tm, _ := newTestServer(t)
 
-	provokeConflict(t, srv) // one committed, one rolled back on error, one failed append
+	provokeConflict(t, srv) // two POST /write: one written, one failed on its Append Condition
 	rolledBack := begin(t, srv)
 	doTicketRequest(t, srv, "POST", "/rollback", rolledBack, "")
 
@@ -35,13 +35,13 @@ func TestMetricsOutput(t *testing.T) {
 	for name, want := range map[string]float64{
 		"tamarackdb_transaction_active":                               1,
 		"tamarackdb_requests_queued":                                  1,
-		"tamarackdb_transactions_started_total":                       4,
-		"tamarackdb_transactions_committed_total":                     1,
+		"tamarackdb_transactions_started_total":                       2,
+		"tamarackdb_transactions_committed_total":                     0,
 		`tamarackdb_transactions_rolled_back_total{reason="client"}`:  1,
-		`tamarackdb_transactions_rolled_back_total{reason="error"}`:   1,
+		`tamarackdb_transactions_rolled_back_total{reason="error"}`:   0,
 		`tamarackdb_transactions_rolled_back_total{reason="expired"}`: 0,
-		`tamarackdb_transaction_duration_seconds_bucket{le="+Inf"}`:   3,
-		"tamarackdb_transaction_duration_seconds_count":               3,
+		`tamarackdb_transaction_duration_seconds_bucket{le="+Inf"}`:   1,
+		"tamarackdb_transaction_duration_seconds_count":               1,
 		"tamarackdb_appends_failed_total":                             1,
 	} {
 		if got, ok := values[name]; !ok || got != want {

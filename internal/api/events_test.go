@@ -11,25 +11,19 @@ import (
 	"github.com/tamarackdb/tamarackdb/internal/dcb"
 )
 
-// seedHTTPEvents appends n events via HTTP, in one transaction, batching
-// by 100 per call to respect dcb.MaxEventsPerWrite.
+// seedHTTPEvents appends n events with POST /write, batching by
+// maxEventsPerWrite.
 func seedHTTPEvents(t *testing.T, srv *Server, n int) {
 	t.Helper()
-	ticket := begin(t, srv)
 	for n > 0 {
-		batch := min(n, 100)
-		var events []string
-		for i := 0; i < batch; i++ {
-			events = append(events, `{"type":"seed","identifiers":{},"metadata":{},"payload":""}`)
+		batch := min(n, srv.opts.MaxEventsPerWrite)
+		events := make([]string, batch)
+		for i := range events {
+			events[i] = `{"type":"seed","identifiers":{},"metadata":{},"payload":""}`
 		}
-		body := fmt.Sprintf(`{"events":[%s]}`, strings.Join(events, ","))
-		rec := doTicketRequest(t, srv, "POST", "/events", ticket, body)
-		if rec.Code != 200 {
-			t.Fatalf("seed append status = %d, body = %s", rec.Code, rec.Body.String())
-		}
+		doWrite(t, srv, fmt.Sprintf(`{"events":[%s]}`, strings.Join(events, ",")))
 		n -= batch
 	}
-	commit(t, srv, ticket)
 }
 
 func TestReadPaginationOverHTTP(t *testing.T) {

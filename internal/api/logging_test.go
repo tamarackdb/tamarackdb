@@ -2,7 +2,6 @@ package api
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 	"log"
 	"net/http/httptest"
@@ -48,15 +47,13 @@ func captureLog(t *testing.T) *logBuffer {
 	return buf
 }
 
-const conflictBody = `{"events":[{"type":"t","identifiers":{"userId":"999"},"metadata":{},"payload":""}],
-	"condition":{"failIfEventsMatch":[{"identifiers":[{"name":"userId","value":"123"}]}],"afterSequence":0}}`
-
-// provokeConflict commits one event, then makes a 409 ConcurrencyException
-// append against it.
+// provokeConflict writes one event, then makes a 409 ConcurrencyException
+// write against it.
 func provokeConflict(t *testing.T, srv *Server) *httptest.ResponseRecorder {
 	t.Helper()
 	appendCommitted(t, srv, `{"events":[{"type":"t","identifiers":{"userId":"123"},"metadata":{},"payload":""}]}`)
-	return doTicketRequest(t, srv, "POST", "/events", begin(t, srv), conflictBody)
+	return doRequest(t, srv, "POST", "/write", `{"events":[{"type":"t","payload":""}],"conditions":[`+
+		userCondition(currentStore(t, srv), 0)+`]}`)
 }
 
 func TestAccessLogLevelPerOutcome(t *testing.T) {
@@ -84,7 +81,7 @@ func TestAccessLogLevelPerOutcome(t *testing.T) {
 		{"PayloadTooLarge", "INFO", func(t *testing.T) *httptest.ResponseRecorder {
 			srv, _, _ := newTestServer(t)
 			body := `{"events":[{"type":"t","identifiers":{},"metadata":{},"payload":"` + strings.Repeat("x", 70000) + `"}]}`
-			return doTicketRequest(t, srv, "POST", "/events", begin(t, srv), body)
+			return doRequest(t, srv, "POST", "/write", body)
 		}},
 		{"Unauthorized", "INFO", func(t *testing.T) *httptest.ResponseRecorder {
 			srv, _, _ := newTestServer(t)
@@ -99,29 +96,24 @@ func TestAccessLogLevelPerOutcome(t *testing.T) {
 		}},
 		{"TransactionQueueFull", "WARNING", func(t *testing.T) *httptest.ResponseRecorder {
 			srv, tm, _ := newTestServerWith(t, testOptions{maxQueued: 1})
-			holder := begin(t, srv)
-			queued := make(chan string, 1)
-			go func() {
-				ticket, _ := tm.Begin(context.Background())
-				queued <- ticket
-			}()
-			time.Sleep(50 * time.Millisecond)
-			rec := doRequest(t, srv, "POST", "/begin", "")
-			commit(t, srv, holder)
-			if ticket := <-queued; ticket != "" {
-				tm.Rollback(ticket)
-			}
+			release := holdTurn(t, tm)
+			queued := make(chan struct{})
+			go func() { doRequest(t, srv, "DELETE", "/projections", ""); close(queued) }()
+			waitQueued(t, tm, 1)
+			rec := doRequest(t, srv, "POST", "/write", `{"events":[{"type":"t","payload":""}]}`)
+			release()
+			<-queued
 			return rec
 		}},
 		{"ShuttingDown", "INFO", func(t *testing.T) *httptest.ResponseRecorder {
 			srv, tm, _ := newTestServer(t)
-			tm.Close() // Begin now fails with a closed FIFO
-			return doRequest(t, srv, "POST", "/begin", "")
+			tm.Close() // the FIFO now turns every write away
+			return doRequest(t, srv, "POST", "/write", `{"events":[{"type":"t","payload":""}]}`)
 		}},
 		{"InternalError", "ERROR", func(t *testing.T) *httptest.ResponseRecorder {
 			srv, _, st := newTestServer(t)
-			st.Close() // Begin gets its turn, then fails to open the SQLite transaction
-			return doRequest(t, srv, "POST", "/begin", "")
+			st.Close() // the write gets its turn, then fails to open the SQLite transaction
+			return doRequest(t, srv, "POST", "/write", `{"events":[{"type":"t","payload":""}]}`)
 		}},
 		{"Unavailable", "ERROR", func(t *testing.T) *httptest.ResponseRecorder {
 			srv, _, st := newTestServer(t)
@@ -168,16 +160,16 @@ func TestAccessLogBelowThresholdIsSuppressed(t *testing.T) {
 
 func TestAccessLogAtOrAboveThresholdIsLogged(t *testing.T) {
 	srv, tm, _ := newTestServerWith(t, testOptions{logLevel: "warning", maxQueued: 1})
-	holder := begin(t, srv)
+	release := holdTurn(t, tm)
 	queued := make(chan int, 1)
 	go func() { queued <- doRequest(t, srv, "DELETE", "/projections", "").Code }()
 	waitQueued(t, tm, 1)
 	buf := captureLog(t)
 
-	doRequest(t, srv, "POST", "/begin", "") // 503 TransactionQueueFull, WARNING
-	commit(t, srv, holder)                  // DEBUG, below "warning"
-	<-queued                                // 204, DEBUG
-	provokeConflict(t, srv)                 // 409, DEBUG
+	doRequest(t, srv, "POST", "/write", `{"events":[{"type":"t","payload":""}]}`) // 503 TransactionQueueFull, WARNING
+	release()
+	<-queued                // 204, DEBUG
+	provokeConflict(t, srv) // 200 then 409, DEBUG
 
 	out := buf.String()
 	if !strings.Contains(out, "[WARNING]") {

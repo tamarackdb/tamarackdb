@@ -42,13 +42,13 @@ func TestRequestBodyWithTrailingDataGets400(t *testing.T) {
 	}
 }
 
-func TestSlowProjectionsBodyDoesNotHoldTheTurn(t *testing.T) {
+func TestSlowWriteBodyDoesNotHoldTheTurn(t *testing.T) {
 	srv, _, _ := newTestServer(t)
 
 	pr, pw := io.Pipe()
 	defer pw.Close()
 	go func() {
-		req := httptest.NewRequest("POST", "/projections", pr)
+		req := httptest.NewRequest("POST", "/write", pr)
 		req.Header.Set("Authorization", "Bearer "+testToken)
 		req.Header.Set("Content-Type", "application/json")
 		srv.ServeHTTP(httptest.NewRecorder(), req)
@@ -56,23 +56,22 @@ func TestSlowProjectionsBodyDoesNotHoldTheTurn(t *testing.T) {
 	time.Sleep(50 * time.Millisecond) // the handler is now waiting for the body
 
 	done := make(chan int, 1)
-	go func() { done <- doRequest(t, srv, "POST", "/begin", "").Code }()
+	go func() { done <- doRequest(t, srv, "POST", "/write", `{"events":[{"type":"t","payload":""}]}`).Code }()
 	select {
 	case code := <-done:
 		if code != 200 {
-			t.Errorf("begin status = %d, want 200", code)
+			t.Errorf("write status = %d, want 200", code)
 		}
 	case <-time.After(2 * time.Second):
-		t.Fatal("POST /begin blocked behind a POST /projections still sending its body")
+		t.Fatal("POST /write blocked behind another POST /write still sending its body")
 	}
 }
 
 func TestProjectionTypeAndIDCountTowardItsSize(t *testing.T) {
 	srv, _, _ := newTestServer(t)
-	ticket := begin(t, srv)
 	id := strings.Repeat("i", srv.opts.MaxProjectionSize) // the payload alone is empty
-	body := `{"create":[{"type":"t","id":"` + id + `","payload":""}]}`
-	if rec := doTicketRequest(t, srv, "POST", "/projections", ticket, body); rec.Code != 413 || errorCode(t, rec) != "PayloadTooLarge" {
+	body := `{"projections":{"create":[{"type":"t","id":"` + id + `","payload":""}]}}`
+	if rec := doRequest(t, srv, "POST", "/write", body); rec.Code != 413 || errorCode(t, rec) != "PayloadTooLarge" {
 		t.Fatalf("status = %d, body = %.200s, want 413 PayloadTooLarge", rec.Code, rec.Body.String())
 	}
 }

@@ -87,8 +87,7 @@ func TestWriteEventsAndProjections(t *testing.T) {
 // succeeds at once, without waiting for a turn, and reports the store.
 func TestWriteEmptyBodyWritesNothing(t *testing.T) {
 	srv, tm, _ := newTestServer(t)
-	ticket := begin(t, srv)
-	defer commit(t, srv, ticket)
+	holdTurn(t, tm)
 
 	resp, rec := doWrite(t, srv, `{}`)
 	storeHeader(t, rec, "POST /write")
@@ -186,7 +185,11 @@ func TestWriteRejectsInvalidRequests(t *testing.T) {
 		wantInMsg  string
 	}{
 		{"unknown key", `{"events":[],"condition":{}}`, 400, "InvalidRequest", "condition"},
+		{"malformed json", `{"events":`, 400, "InvalidRequest", "not valid JSON"},
 		{"invalid event", `{"events":[` + event + `,{"payload":""}]}`, 400, "InvalidRequest", "events[1]: "},
+		{"duplicate identifier", `{"events":[{"type":"t","identifiers":{"a":["1","1"]},"payload":""}]}`, 400, "InvalidRequest", "events[0]: "},
+		{"too many identifiers", `{"events":[{"type":"t","identifiers":{` + repeat(21, func(i int) string { return fmt.Sprintf(`"id%d":"v"`, i) }) +
+			`},"payload":""}]}`, 400, "InvalidRequest", "events[0]: "},
 		{"oversized event", `{"events":[{"type":"t","payload":"` + strings.Repeat("x", 70000) + `"}]}`, 413, "PayloadTooLarge",
 			"events[0] is 70001 bytes, more than maxEventSize (65536)"},
 		{"too many events", `{"events":[` + repeat(101, func(int) string { return event }) + `]}`, 400, "InvalidRequest",
@@ -196,9 +199,22 @@ func TestWriteRejectsInvalidRequests(t *testing.T) {
 		{"afterSequence without store", `{"conditions":[{"afterSequence":0}]}`, 400, "InvalidRequest", "conditions[0]: "},
 		{"store without afterSequence", `{"conditions":[{"store":"x"}]}`, 400, "InvalidRequest", "conditions[0]: "},
 		{"invalid condition query", `{"conditions":[{"failIfEventsMatch":[{}]}]}`, 400, "InvalidRequest", "conditions[0]: "},
+		{"negative afterSequence", `{"conditions":[{"afterSequence":-1,"store":"x"}]}`, 400, "InvalidRequest", "conditions[0]: "},
 		{"too many projections", `{"projections":{"create":[` + repeat(501, projection) + `]}}`, 400, "InvalidRequest",
 			"request carries 501 projections, more than maxProjectionsPerWrite (500)"},
-		{"invalid projection", `{"projections":{"delete":[{"type":"p","id":"1"}]}}`, 400, "InvalidRequest", "projections.delete[0]: "},
+		{"projection missing type", `{"projections":{"create":[{"id":"1","payload":"x"}]}}`, 400, "InvalidRequest", "projections.create[0]: "},
+		{"projection missing id", `{"projections":{"create":[{"type":"p","payload":"x"}]}}`, 400, "InvalidRequest", "projections.create[0]: "},
+		{"unknown projection key", `{"projections":{"delete":[{"type":"p","id":"1","verison":"v"}]}}`, 400, "InvalidRequest", "verison"},
+		{"unknown projections list", `{"projections":{"replce":[]}}`, 400, "InvalidRequest", "replce"},
+		{"create missing payload", `{"projections":{"create":[{"type":"p","id":"1"}]}}`, 400, "InvalidRequest", "projections.create[0]: "},
+		{"create null payload", `{"projections":{"create":[{"type":"p","id":"1","payload":null}]}}`, 400, "InvalidRequest", "projections.create[0]: "},
+		{"create with version", `{"projections":{"create":[{"type":"p","id":"1","version":"v","payload":"x"}]}}`, 400, "InvalidRequest", "version"},
+		{"replace missing version", `{"projections":{"replace":[{"type":"p","id":"1","payload":"x"}]}}`, 400, "InvalidRequest", "projections.replace[0]: "},
+		{"replace missing payload", `{"projections":{"replace":[{"type":"p","id":"1","version":"v"}]}}`, 400, "InvalidRequest", "projections.replace[0]: "},
+		{"delete missing version", `{"projections":{"delete":[{"type":"p","id":"1"}]}}`, 400, "InvalidRequest", "projections.delete[0]: "},
+		{"delete with payload", `{"projections":{"delete":[{"type":"p","id":"1","version":"v","payload":"x"}]}}`, 400, "InvalidRequest", "payload"},
+		{"duplicate projection in one list", `{"projections":{"create":[` + projection(1) + `,` + projection(1) + `]}}`,
+			400, "InvalidRequest", "projections.create[1] has the same type and id as projections.create[0]"},
 		{"duplicate projection", `{"projections":{"create":[` + projection(1) + `],"delete":[{"type":"p","id":"1","version":"v"}]}}`,
 			400, "InvalidRequest", "projections.delete[0] has the same type and id as projections.create[0]"},
 		{"oversized projection", `{"projections":{"create":[{"type":"p","id":"1","payload":"` + strings.Repeat("x", 70000) + `"}]}}`,
@@ -224,8 +240,7 @@ func TestWriteRejectsInvalidRequests(t *testing.T) {
 // before joining the FIFO.
 func TestInvalidWriteGets400WithoutWaiting(t *testing.T) {
 	srv, tm, _ := newTestServer(t)
-	ticket := begin(t, srv)
-	defer commit(t, srv, ticket)
+	holdTurn(t, tm)
 
 	rec := doRequest(t, srv, "POST", "/write", `{"events":[{"payload":""}]}`)
 	if rec.Code != 400 || errorCode(t, rec) != "InvalidRequest" {
@@ -236,9 +251,9 @@ func TestInvalidWriteGets400WithoutWaiting(t *testing.T) {
 	}
 }
 
-func TestWriteWaitsForTheActiveTransaction(t *testing.T) {
+func TestWriteWaitsForItsTurn(t *testing.T) {
 	srv, tm, _ := newTestServer(t)
-	ticket := begin(t, srv)
+	release := holdTurn(t, tm)
 
 	done := make(chan *httptest.ResponseRecorder, 1)
 	go func() { done <- doRequest(t, srv, "POST", "/write", `{"events":[{"type":"t","payload":""}]}`) }()
@@ -248,11 +263,11 @@ func TestWriteWaitsForTheActiveTransaction(t *testing.T) {
 	}
 	select {
 	case rec := <-done:
-		t.Fatalf("returned %d while a transaction was active", rec.Code)
+		t.Fatalf("returned %d while another write held the turn", rec.Code)
 	case <-time.After(50 * time.Millisecond):
 	}
 
-	commit(t, srv, ticket)
+	release()
 	if rec := <-done; rec.Code != 200 {
 		t.Errorf("status = %d, body = %s, want 200", rec.Code, rec.Body.String())
 	}
@@ -260,7 +275,7 @@ func TestWriteWaitsForTheActiveTransaction(t *testing.T) {
 
 func TestWriteReturns503WhenQueueFull(t *testing.T) {
 	srv, tm, _ := newTestServerWith(t, testOptions{maxQueued: 1})
-	holder := begin(t, srv)
+	release := holdTurn(t, tm)
 
 	queued := make(chan int, 1)
 	go func() { queued <- doRequest(t, srv, "POST", "/write", `{"events":[{"type":"t","payload":""}]}`).Code }()
@@ -271,7 +286,7 @@ func TestWriteReturns503WhenQueueFull(t *testing.T) {
 		t.Fatalf("status = %d, body = %s, want 503 TransactionQueueFull", rec.Code, rec.Body.String())
 	}
 
-	commit(t, srv, holder)
+	release()
 	if code := <-queued; code != 200 {
 		t.Errorf("queued POST /write status = %d, want 200", code)
 	}
@@ -281,7 +296,7 @@ func TestWriteReturns503WhenQueueFull(t *testing.T) {
 // before its turn writes nothing.
 func TestWriteLeavesTheFIFOWhenTheClientLeaves(t *testing.T) {
 	srv, tm, _ := newTestServer(t)
-	ticket := begin(t, srv)
+	release := holdTurn(t, tm)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
@@ -295,7 +310,7 @@ func TestWriteLeavesTheFIFOWhenTheClientLeaves(t *testing.T) {
 	cancel()
 	<-done
 
-	commit(t, srv, ticket)
+	release()
 	if n := countEvents(t, srv); n != 0 {
 		t.Errorf("store holds %d events, want 0: the client left before its turn", n)
 	}
@@ -309,4 +324,37 @@ func errorMessage(t *testing.T, rec *httptest.ResponseRecorder) string {
 		t.Fatalf("decode error envelope %q: %v", rec.Body.String(), err)
 	}
 	return env.Message
+}
+
+// TestWriteConditionsAlone checks that a write with conditions and nothing
+// else still checks them: it fails when one doesn't hold, and writes
+// nothing either way.
+func TestWriteConditionsAlone(t *testing.T) {
+	srv, _, _ := newTestServer(t)
+	store := currentStore(t, srv)
+	doWrite(t, srv, `{"events":[{"type":"user-created","identifiers":{"userId":"123"},"payload":""}]}`)
+
+	rec := doRequest(t, srv, "POST", "/write", `{"conditions":[`+userCondition(store, 0)+`]}`)
+	if rec.Code != 409 || errorMessage(t, rec) != "conditions[0] no longer holds" {
+		t.Fatalf("status = %d, body = %s, want 409 naming conditions[0]", rec.Code, rec.Body.String())
+	}
+	if resp, _ := doWrite(t, srv, `{"conditions":[`+userCondition(store, 1)+`]}`); len(resp.Events) != 0 {
+		t.Errorf("events = %+v, want none", resp.Events)
+	}
+	if n := countEvents(t, srv); n != 1 {
+		t.Errorf("store holds %d events, want 1", n)
+	}
+}
+
+func TestWriteProjectionCreateOfExistingGets409(t *testing.T) {
+	srv, _, _ := newTestServer(t)
+	writeProjectionsCommitted(t, srv, `{"create":[{"type":"user-profile","id":"123","payload":"v1"}]}`)
+
+	rec := doRequest(t, srv, "POST", "/write", `{"projections":{"create":[{"type":"user-profile","id":"123","payload":"v2"}]}}`)
+	if rec.Code != 409 || errorMessage(t, rec) != "projections.create[0] already exists" {
+		t.Fatalf("status = %d, body = %s, want 409 naming projections.create[0]", rec.Code, rec.Body.String())
+	}
+	if _, body := getProjection(t, srv, "user-profile", "123", 200); body != "v1" {
+		t.Errorf("GET body = %q, want v1", body)
+	}
 }

@@ -331,52 +331,60 @@ func TestSnapshotDoesNotWaitForARunningCall(t *testing.T) {
 	<-done
 }
 
-func TestRunInTurnWaitsForTheActiveTransaction(t *testing.T) {
+// holdTurn takes the FIFO's turn with a RunInTurn that waits until
+// release is called. release is also called when the test ends.
+func holdTurn(t *testing.T, m *Manager) (release func()) {
+	t.Helper()
+	held := make(chan struct{})
+	free := make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		done <- m.RunInTurn(context.Background(), queue.KindWrite, func(context.Context) error {
+			close(held)
+			<-free
+			return nil
+		})
+	}()
+	select {
+	case <-held:
+	case err := <-done:
+		t.Fatalf("RunInTurn() error = %v, want the turn", err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("holdTurn: no turn after 2s")
+	}
+	var once sync.Once
+	release = func() {
+		once.Do(func() {
+			close(free)
+			if err := <-done; err != nil {
+				t.Errorf("RunInTurn() error = %v", err)
+			}
+		})
+	}
+	t.Cleanup(release)
+	return release
+}
+
+func TestRunInTurnWaitsForTheTurn(t *testing.T) {
 	env := newTestEnv(t, time.Second, 5*time.Second)
-	ticket := mustBegin(t, env.m)
+	release := holdTurn(t, env.m)
 
 	ran := make(chan error, 1)
 	go func() {
-		ran <- env.m.RunInTurn(context.Background(), queue.KindWrite, func(context.Context) error { return nil })
+		ran <- env.m.RunInTurn(context.Background(), queue.KindProjections, func(context.Context) error { return nil })
 	}()
 	select {
 	case <-ran:
-		t.Fatal("RunInTurn() returned while a transaction was active")
+		t.Fatal("RunInTurn() returned while another one held the turn")
 	case <-time.After(50 * time.Millisecond):
 	}
-	if q := env.m.Snapshot().Queue.Queued; len(q) != 1 || q[0].Kind != queue.KindWrite {
-		t.Errorf("Queued = %+v, want one %q", q, queue.KindWrite)
+	if q := env.m.Snapshot().Queue.Queued; len(q) != 1 || q[0].Kind != queue.KindProjections {
+		t.Errorf("Queued = %+v, want one %q", q, queue.KindProjections)
 	}
 
-	if err := env.m.Commit(ticket); err != nil {
-		t.Fatalf("Commit() error = %v", err)
-	}
+	release()
 	if err := <-ran; err != nil {
 		t.Fatalf("RunInTurn() error = %v", err)
-	}
-}
-
-func TestRunInTurnHoldsTheTurnWhileItRuns(t *testing.T) {
-	env := newTestEnv(t, time.Second, 5*time.Second)
-	release := make(chan struct{})
-	started := make(chan struct{})
-	go env.m.RunInTurn(context.Background(), queue.KindWrite, func(context.Context) error {
-		close(started)
-		<-release
-		return nil
-	})
-	<-started
-
-	begun := make(chan string, 1)
-	go func() { ticket, _ := env.m.Begin(context.Background()); begun <- ticket }()
-	select {
-	case <-begun:
-		t.Fatal("Begin() returned while RunInTurn() was running")
-	case <-time.After(50 * time.Millisecond):
-	}
-	close(release)
-	if err := env.m.Commit(<-begun); err != nil {
-		t.Fatalf("Commit() error = %v", err)
 	}
 }
 
@@ -386,12 +394,12 @@ func TestRunInTurnReturnsFnError(t *testing.T) {
 	if err := env.m.RunInTurn(context.Background(), queue.KindWrite, func(context.Context) error { return want }); !errors.Is(err, want) {
 		t.Fatalf("RunInTurn() error = %v, want %v", err, want)
 	}
-	mustBegin(t, env.m) // the turn was given back
+	holdTurn(t, env.m) // the turn was given back
 }
 
 func TestRunInTurnLeavesTheFIFOWhenTheClientLeaves(t *testing.T) {
 	env := newTestEnv(t, time.Second, 5*time.Second)
-	ticket := mustBegin(t, env.m)
+	release := holdTurn(t, env.m)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	ran := false
@@ -407,9 +415,7 @@ func TestRunInTurnLeavesTheFIFOWhenTheClientLeaves(t *testing.T) {
 	if n := len(env.m.Snapshot().Queue.Queued); n != 0 {
 		t.Errorf("Queued = %d, want 0", n)
 	}
-	if err := env.m.Commit(ticket); err != nil {
-		t.Fatalf("Commit() error = %v", err)
-	}
+	release()
 	if ran {
 		t.Error("fn ran after the client left")
 	}

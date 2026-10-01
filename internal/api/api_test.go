@@ -7,10 +7,12 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/tamarackdb/tamarackdb/internal/dcb"
+	"github.com/tamarackdb/tamarackdb/internal/queue"
 	"github.com/tamarackdb/tamarackdb/internal/store"
 	"github.com/tamarackdb/tamarackdb/internal/txn"
 )
@@ -118,21 +120,47 @@ func commit(t *testing.T, srv *Server, ticket string) {
 	}
 }
 
-// appendCommitted appends body's events in a transaction of their own, and
-// returns the POST /events response.
-func appendCommitted(t *testing.T, srv *Server, body string) appendResponse {
+// appendCommitted writes body, a POST /write body, and returns the
+// response.
+func appendCommitted(t *testing.T, srv *Server, body string) writeResponse {
 	t.Helper()
-	ticket := begin(t, srv)
-	rec := doTicketRequest(t, srv, "POST", "/events", ticket, body)
-	if rec.Code != 200 {
-		t.Fatalf("POST /events status = %d, body = %s", rec.Code, rec.Body.String())
-	}
-	var resp appendResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("decode POST /events response: %v", err)
-	}
-	commit(t, srv, ticket)
+	resp, _ := doWrite(t, srv, body)
 	return resp
+}
+
+// holdTurn takes the FIFO's turn with a write that waits until release is
+// called, so a test can queue requests behind it. release is also called
+// when the test ends, before the server closes.
+func holdTurn(t *testing.T, tm *txn.Manager) (release func()) {
+	t.Helper()
+	held := make(chan struct{})
+	free := make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		done <- tm.RunInTurn(context.Background(), queue.KindWrite, func(context.Context) error {
+			close(held)
+			<-free
+			return nil
+		})
+	}()
+	select {
+	case <-held:
+	case err := <-done:
+		t.Fatalf("RunInTurn() error = %v, want the turn", err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("holdTurn: no turn after 2s")
+	}
+	var once sync.Once
+	release = func() {
+		once.Do(func() {
+			close(free)
+			if err := <-done; err != nil {
+				t.Errorf("RunInTurn() error = %v", err)
+			}
+		})
+	}
+	t.Cleanup(release)
+	return release
 }
 
 // errorCode decodes rec's error envelope and returns its code.
