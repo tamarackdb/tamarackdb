@@ -17,10 +17,6 @@ decide who may connect: your application's user must be allowed by the
 server's `socketMode`, which by default lets in the server's own user only. Add `-H "Authorization: Bearer <token>"` to
 every request when `enableAuth` is on (see [Deployment](/docs/guides/deployment/#configure)).
 
-## Client libraries
-
-- PHP: [tamarackdb-php](https://github.com/tamarackdb/tamarackdb-php)
-
 ## Terms
 
 These pieces are code in your application. TamarackDB doesn't run them: it
