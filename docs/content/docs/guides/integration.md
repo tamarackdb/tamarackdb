@@ -98,6 +98,19 @@ makes reads inside the transaction see them:
   that read matches the condition. If one does, the command was built on a
   stale view: close the transaction and report a design error, distinct from
   a `409`, since retrying can't fix it.
+- **A condition needs the whole read.** A condition built from a read
+  carries the read's position: the store ID, and the Sequence Position of the
+  last event the server returned. The library only knows it once the read is
+  paged to the end. If the application stops iterating early and then asks for
+  a condition, read the rest first. If the rest is empty, the application had
+  in fact seen everything, and the condition is right. If events remain, the
+  application decided without seeing events that match its own query: that's a
+  design error. Close the transaction and report it, and don't build the
+  condition. Taking the position after the rest would be wrong: an event
+  written after the decision, and read in that rest, would escape the check.
+  Taking the position of the last event seen would fail every write, because
+  of the older events left unread. An application that only needs to know
+  whether an event exists narrows its query, or uses a condition with no read.
 - **Projection changes.** Keep the projections touched in the transaction by
   `type` + `id`, with the version read from the server, and send only the net
   effect: a `create`, a `replace`, or a `delete` (see
