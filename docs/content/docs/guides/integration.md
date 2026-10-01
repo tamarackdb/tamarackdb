@@ -128,7 +128,11 @@ makes reads inside the transaction see them:
   `type` + `id`, with the version read from the server, and send only the net
   effect: a `create`, a `replace`, or a `delete` (see
   [Writing projections](#writing-projections)). A read in the transaction
-  returns the pending state of a projection it already touched.
+  returns the pending state of a projection it already touched. Deleting a
+  projection the transaction neither read nor created is a design error:
+  a `delete` needs the stored version, and the library doesn't know it.
+  Close the transaction and report the error right away, without waiting for
+  the write. The application reads the projection first.
 - **Positions.** A Sequence Position only means something next to the store
   ID it was read on (see [Store ID](#store-id)). Hand them out together.
 
