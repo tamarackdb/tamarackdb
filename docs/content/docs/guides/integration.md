@@ -127,14 +127,27 @@ makes reads inside the transaction see them:
 - **Projection changes.** Keep the projections touched in the transaction by
   `type` + `id`, with the version read from the server, and send only the net
   effect: a `create`, a `replace`, or a `delete` (see
-  [Writing projections](#writing-projections)). A read in the transaction
-  returns the pending state of a projection it already touched. Deleting a
-  projection the transaction neither read nor created is a design error:
-  a `delete` needs the stored version, and the library doesn't know it.
-  Close the transaction and report the error right away, without waiting for
-  the write. The application reads the projection first.
+  [Writing projections](#writing-projections), and the table below). A read
+  in the transaction returns the pending state of a projection it already
+  touched. Deleting a projection the transaction neither read nor created is
+  a design error: a `delete` needs the stored version, and the library
+  doesn't know it. Close the transaction and report the error right away,
+  without waiting for the write. The application reads the projection first.
 - **Positions.** A Sequence Position only means something next to the store
   ID it was read on (see [Store ID](#store-id)). Hand them out together.
+
+The net effect of the projection changes, for each `type` + `id`:
+
+| At the start | What the application does | Sent with the write |
+|---|---|---|
+| Not on the server | Saves it, once or more | `create`, with the last state |
+| Not on the server | Saves it, then deletes it | Nothing |
+| Read at version v | Saves it, once or more | `replace` v, with the last state |
+| Read at version v | Deletes it | `delete` v |
+| Read at version v | Deletes it, then saves it | `replace` v, with the last state |
+
+A write can't carry the same `type` + `id` twice, so a delete followed by a
+save is one `replace`, never a `delete` and a `create`.
 
 A transaction with nothing to write doesn't need to call the server at all.
 
