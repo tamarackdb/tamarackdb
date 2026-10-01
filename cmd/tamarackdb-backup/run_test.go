@@ -358,6 +358,25 @@ func TestRunBacksUpAnEmptySource(t *testing.T) {
 	}
 }
 
+// TestRunCreatesItsDataDirPrivate checks that a missing dataDir is created
+// readable by its owner only: the backup files in it hold every event.
+func TestRunCreatesItsDataDirPrivate(t *testing.T) {
+	sourceStore := openSource(t)
+	ts := newSourceServer(t, sourceStore)
+	dataDir := filepath.Join(t.TempDir(), "backup")
+
+	if err := run(context.Background(), writeBackupConfig(t, ts.URL, dataDir, 100)); err != nil {
+		t.Fatalf("run() error = %v", err)
+	}
+	info, err := os.Stat(dataDir)
+	if err != nil {
+		t.Fatalf("Stat(dataDir) error = %v", err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o700 {
+		t.Errorf("dataDir permissions = %o, want 700", perm)
+	}
+}
+
 // TestRunStartsANewFileAfterAReset checks that a reset of the source makes
 // the next run copy the new store into a file of its own, from its first
 // event, and leaves the file of the old store as it was.
