@@ -6,21 +6,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/tamarackdb/tamarackdb/internal/dcb"
 )
 
 // ReadFilter holds Read's parameters, already resolved/validated by the
-// caller: default/max limit applied, time range strings parsed.
+// caller: default/max limit applied.
 // Store adds no defaults of its own except AfterSequence's implicit 0:
 // omitting it reads from the beginning of the store.
 type ReadFilter struct {
 	Query         dcb.Query
-	AfterSequence *int64     // nil = from the beginning; sequence > *AfterSequence
-	TimeFrom      *time.Time // nil = unconstrained; inclusive (>=)
-	TimeBefore    *time.Time // nil = unconstrained; exclusive (<)
-	Limit         int        // must be >= 1; Read fetches Limit+1 rows
+	AfterSequence *int64 // nil = from the beginning; sequence > *AfterSequence
+	Limit         int    // must be >= 1; Read fetches Limit+1 rows
 }
 
 // Read runs a paginated DCB read on the read pool, outside any
@@ -63,14 +60,6 @@ WHERE events.sequence > ?`)
 	}
 	args = append(args, after)
 
-	if f.TimeFrom != nil {
-		b.WriteString(" AND events.time >= ?")
-		args = append(args, f.TimeFrom.UTC().Format(dcb.TimeLayout))
-	}
-	if f.TimeBefore != nil {
-		b.WriteString(" AND events.time < ?")
-		args = append(args, f.TimeBefore.UTC().Format(dcb.TimeLayout))
-	}
 	if where, whereArgs := queryToSQL(f.Query); where != "" {
 		b.WriteString(" AND ")
 		b.WriteString(where)

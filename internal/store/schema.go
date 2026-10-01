@@ -18,7 +18,6 @@ CREATE TABLE events (
     metadata    TEXT NOT NULL
 );
 
-CREATE INDEX idx_events_time ON events(time);
 CREATE INDEX idx_events_type ON events(type);
 
 CREATE TABLE identifiers (

@@ -2,7 +2,6 @@ package store
 
 import (
 	"testing"
-	"time"
 
 	"github.com/tamarackdb/tamarackdb/internal/dcb"
 )
@@ -56,44 +55,6 @@ func TestReadAfterSequenceFiltering(t *testing.T) {
 	events, hasMore := mustReadAll(t, s, ReadFilter{Query: dcb.QueryAll(), AfterSequence: &beyond, Limit: 10})
 	if len(events) != 0 || hasMore {
 		t.Fatalf("got %d events (hasMore=%v), want 0 events and hasMore=false for afterSequence beyond the last event", len(events), hasMore)
-	}
-}
-
-// TestReadTimeFiltering imports events whose times are out of sequence
-// order, so a filter that ignored time and relied on sequence would return
-// the wrong events.
-func TestReadTimeFiltering(t *testing.T) {
-	s := openTestStore(t)
-	day := func(d int) *time.Time {
-		tm := time.Date(2020, 1, d, 0, 0, 0, 0, time.UTC)
-		return &tm
-	}
-	mustImport(t, s, []dcb.Event{
-		{Sequence: 1, Time: *day(2), EventData: dcb.EventData{Type: "b"}},
-		{Sequence: 2, Time: *day(1), EventData: dcb.EventData{Type: "a"}},
-		{Sequence: 3, Time: *day(3), EventData: dcb.EventData{Type: "c"}},
-	})
-	types := func(events []dcb.Event) string {
-		var out string
-		for _, e := range events {
-			out += e.Type
-		}
-		return out
-	}
-
-	events, _ := mustReadAll(t, s, ReadFilter{Query: dcb.QueryAll(), TimeFrom: day(2), Limit: 10})
-	if got := types(events); got != "bc" {
-		t.Errorf("TimeFrom: got %q, want %q", got, "bc")
-	}
-
-	events, _ = mustReadAll(t, s, ReadFilter{Query: dcb.QueryAll(), TimeBefore: day(2), Limit: 10})
-	if got := types(events); got != "a" {
-		t.Errorf("TimeBefore: got %q, want %q", got, "a")
-	}
-
-	events, _ = mustReadAll(t, s, ReadFilter{Query: dcb.QueryAll(), TimeFrom: day(1), TimeBefore: day(3), Limit: 10})
-	if got := types(events); got != "ba" {
-		t.Errorf("combined: got %q, want %q (sequence order)", got, "ba")
 	}
 }
 

@@ -245,25 +245,18 @@ A query carries at most 100 query items, and an item at most 100 values across
 its `types`, `identifiers`, and `metadata` combined. A larger query gets `400`.
 The same limits apply to `failIfEventsMatch`.
 
-Two more, optional, top-level keys narrow a query further:
-
-- `afterSequence`: only events with a Sequence Position strictly greater than this
-  value
-- `time: { "from": "...", "before": "..." }`: only events whose `time` falls
-  in this range (`from` inclusive, `before` exclusive). Either key, or `time`
-  itself, can be left out. A bound may use any RFC 3339 offset: it's converted
-  to UTC before comparing.
+One more, optional, top-level key narrows a query further: `afterSequence`,
+only events with a Sequence Position strictly greater than this value.
 
 ```json
-{
-  "query": "*",
-  "afterSequence": 12345,
-  "time": { "from": "2026-01-01T00:00:00.000000Z" }
-}
+{ "query": "*", "afterSequence": 12345 }
 ```
 
-The `time` filter is for search and inspection. Only the Sequence Position
-defines the order of events.
+There is no filter on `time`. To find events by period, tag them when you
+append them (for example a `month` metadata entry) and query that tag.
+
+The body is checked strictly: an unknown key gets `400`, so a misspelled
+`afterSequence` never reads more than you asked for.
 
 ### Pagination
 
@@ -652,7 +645,7 @@ transaction back.
 
 | Status | `error` | Meaning |
 |---|---|---|
-| 400 | `InvalidRequest` | Malformed or invalid request body: bad JSON, trailing text after the JSON value, invalid query shape, more than 100 query items or more than 100 values in one item, `limit` below 1 or over the configured maximum, an invalid `time` bound, a `time.from` not earlier than `time.before`, an event missing `type`, a duplicate identifier or metadata value, a missing `events` field or more than 100 events in one `POST /events`, a `POST /projections` body with none of `create`, `replace`, `delete`, an unknown key in it, a projection missing its `payload` or `version`, too many projections, or a repeated projection `type` + `id`, a call that needs a ticket and carries none, and so on |
+| 400 | `InvalidRequest` | Malformed or invalid request body: bad JSON, trailing text after the JSON value, invalid query shape, more than 100 query items or more than 100 values in one item, `limit` below 1 or over the configured maximum, an unknown key in a `QUERY /events` body, an event missing `type`, a duplicate identifier or metadata value, a missing `events` field or more than 100 events in one `POST /events`, a `POST /projections` body with none of `create`, `replace`, `delete`, an unknown key in it, a projection missing its `payload` or `version`, too many projections, or a repeated projection `type` + `id`, a call that needs a ticket and carries none, and so on |
 | 401 | `Unauthorized` | Missing or invalid Bearer token (only when `enableAuth` is on) |
 | 404 | `ProjectionNotFound` | `GET /projections/{type}/{id}` only: no projection exists at that `type` + `id`. Doesn't end the transaction |
 | 409 | `ConcurrencyException` | The Append Condition of a `POST /events` call failed, or a `POST /projections` entry doesn't match the stored projection (see [Versions](#versions)) |

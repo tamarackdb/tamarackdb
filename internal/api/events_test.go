@@ -66,10 +66,7 @@ func TestReadPaginationOverHTTP(t *testing.T) {
 	}
 }
 
-// TestReadTimeAndAfterSequenceFilteringOverHTTP seeds events through
-// store.Import, since time is set by the server on append and a test needs
-// events a day apart.
-func TestReadTimeAndAfterSequenceFilteringOverHTTP(t *testing.T) {
+func TestReadAfterSequenceFilteringOverHTTP(t *testing.T) {
 	srv, _, st := newTestServer(t)
 	day := func(d int) time.Time { return time.Date(2020, 1, d, 0, 0, 0, 0, time.UTC) }
 	if err := st.Import(context.Background(), []dcb.Event{
@@ -88,22 +85,8 @@ func TestReadTimeAndAfterSequenceFilteringOverHTTP(t *testing.T) {
 
 	rec := doRequest(t, srv, "QUERY", "/events", fmt.Sprintf(`{"query":"*","afterSequence":%d}`, events[0].Sequence))
 	_, filtered := parseNDJSON(t, rec.Body.String())
-	if len(filtered) != 2 {
-		t.Fatalf("afterSequence filter: got %d events, want 2", len(filtered))
-	}
-
-	rec2 := doRequest(t, srv, "QUERY", "/events", `{"query":"*","time":{"from":"2020-01-02T00:00:00.000000Z"}}`)
-	_, filtered2 := parseNDJSON(t, rec2.Body.String())
-	if len(filtered2) != 2 || filtered2[0].Type != "b" || filtered2[1].Type != "c" {
-		t.Fatalf("time.from filter: got %+v, want b, c", filtered2)
-	}
-
-	// A bound with an offset is converted to UTC before comparing:
-	// 2020-01-01T20:00-04:00 is 2020-01-02T00:00Z.
-	rec3 := doRequest(t, srv, "QUERY", "/events", `{"query":"*","time":{"before":"2020-01-01T20:00:00-04:00"}}`)
-	_, filtered3 := parseNDJSON(t, rec3.Body.String())
-	if len(filtered3) != 1 || filtered3[0].Type != "a" {
-		t.Fatalf("time.before filter with offset: got %+v, want a", filtered3)
+	if len(filtered) != 2 || filtered[0].Type != "b" || filtered[1].Type != "c" {
+		t.Fatalf("afterSequence filter: got %+v, want b, c", filtered)
 	}
 }
 
@@ -117,8 +100,10 @@ func TestReadValidationFailures(t *testing.T) {
 		{"limit above max", `{"query":"*","limit":999999}`},
 		{"limit negative", `{"query":"*","limit":-1}`},
 		{"limit zero", `{"query":"*","limit":0}`},
-		{"invalid time.from", `{"query":"*","time":{"from":"not-a-time"}}`},
-		{"time.from after time.before", `{"query":"*","time":{"from":"2026-02-01T00:00:00Z","before":"2026-01-01T00:00:00Z"}}`},
+		// The body is decoded strictly: an unknown key would otherwise
+		// widen the read without a word.
+		{"unknown key", `{"query":"*","time":{"from":"2026-01-01T00:00:00Z"}}`},
+		{"misspelled afterSequence", `{"query":"*","afterSequense":1}`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -272,7 +272,7 @@ Events are read with `QUERY /events`, using the [HTTP QUERY method](https://www.
 can be too large or nested to fit in a query string.
 
 The request body is a JSON object with a `query` key. That key holds either the array of `QueryItem` shown above, or
-the literal string `"*"` for `Query.all()`, plus optional `afterSequence` / `time` keys:
+the literal string `"*"` for `Query.all()`, plus an optional `afterSequence` key:
 
 ```json
 {
@@ -290,11 +290,7 @@ the literal string `"*"` for `Query.all()`, plus optional `afterSequence` / `tim
       "types": ["some-other-event"]
     }
   ],
-  "afterSequence": 12345,
-  "time": {
-    "from": "2026-01-01T00:00:00.000000Z",
-    "before": "2026-02-01T00:00:00.000000Z"
-  }
+  "afterSequence": 12345
 }
 ```
 
@@ -302,12 +298,8 @@ the literal string `"*"` for `Query.all()`, plus optional `afterSequence` / `tim
 `sequence > afterSequence` rule used by the Append Condition's concurrency check. It's optional: leaving it out reads
 from the start of the store.
 
-`time` limits the read to events whose `time` falls in the given range: `time.from` is inclusive (`>=`),
-`time.before` is exclusive (`<`). Both `time` itself, and its `from`/`before` keys, can be left out independently, so
-a query can filter from a point on, up to a point, or between two points. A bound may carry any RFC 3339 offset: it's
-converted to UTC before the comparison. The filter exists for search and inspection (for example "events from last
-January"), and plays no part in the Append Condition: only Sequence Position defines the order of events.
-`afterSequence` and `time` can be combined; an event must match both when both are given.
+The body is decoded strictly: an unknown key, at any level, gets `400 Bad Request`. Every key but `query` is optional,
+so a misspelled one would otherwise widen the read without a word.
 
 **With a ticket**, the read runs inside the transaction, on the write connection. It sees every event appended
 earlier in the same transaction, even though nothing is committed yet. This is how an event handler reads what the
@@ -616,7 +608,7 @@ transaction).
 invalid JSON, anything after the JSON value other than whitespace, a `query` / `condition.failIfEventsMatch` that
 isn't an array of `QueryItem` or `"*"`, an empty array anywhere the Query grammar needs a non-empty one, more than 100
 `QueryItem` or more than 100 values in one `QueryItem` (see Query grammar), a non-integer `afterSequence` or `limit`, a `limit` below 1 or above the configured maximum (see
-Pagination), an invalid `time.from` / `time.before` timestamp, a `time.from` that isn't earlier than `time.before`, an event
+Pagination), an unknown key in a `QUERY /events` body, an event
 missing its `type`, an event carrying a duplicate identifier or metadata value, more than 20 identifiers/metadata
 entries (see Metadata), a `POST /events` call missing its `events` field or carrying more than 100 events (see Appending events), a
 `POST /projections` body with none of `create`, `replace`, `delete` or with an unknown key, a projection missing its `payload` or `version`, a duplicate `type` + `id`, or more than `maxProjectionsPerRequest` projections,
@@ -857,7 +849,6 @@ CREATE TABLE events (
     metadata    TEXT NOT NULL
 );
 
-CREATE INDEX idx_events_time ON events(time);
 CREATE INDEX idx_events_type ON events(type);
 
 CREATE TABLE identifiers (
@@ -891,8 +882,8 @@ CREATE TABLE projections (
 key, with no separate rowid needed. The same key serves `DELETE /projections/{type}`, as a prefix of the primary key.
 
 `time` is stored as `TEXT`, not as an integer timestamp. Its fixed-width UTC format sorts the same way alphabetically
-as it does chronologically, so the `time` index serves the range filter directly, and nothing needs to be converted
-between what's stored and what's returned: a read passes the stored text straight through. This only holds because
+as it does chronologically, and nothing needs to be converted between what's stored and what's returned: a read passes
+the stored text straight through. This only holds because
 the format is strict: an offset, or a different number of fractional digits, would break the ordering (`05.123Z`
 sorts after `05.123456Z`, since `Z` comes after every digit). The server always writes `time` itself, in that exact
 format.

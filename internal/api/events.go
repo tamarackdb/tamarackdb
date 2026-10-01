@@ -15,15 +15,9 @@ import (
 // Query's own UnmarshalJSON (dispatched automatically by encoding/json on
 // this named field) handles "*" vs. an array of QueryItem.
 type readRequest struct {
-	Query         dcb.Query      `json:"query"`
-	AfterSequence *int64         `json:"afterSequence,omitempty"`
-	Time          *readTimeRange `json:"time,omitempty"`
-	Limit         *int           `json:"limit,omitempty"`
-}
-
-type readTimeRange struct {
-	From   *string `json:"from,omitempty"`
-	Before *string `json:"before,omitempty"`
+	Query         dcb.Query `json:"query"`
+	AfterSequence *int64    `json:"afterSequence,omitempty"`
+	Limit         *int      `json:"limit,omitempty"`
 }
 
 // readTrailer is the last NDJSON line of every /events response:
@@ -118,7 +112,7 @@ var readStallTimeout = 30 * time.Second
 // store.ReadFilter.
 func (s *Server) parseReadRequest(r *http.Request) (store.ReadFilter, error) {
 	var req readRequest
-	if err := decodeJSON(r, &req); err != nil {
+	if err := decodeJSONStrict(r, &req); err != nil {
 		return store.ReadFilter{}, err
 	}
 	if err := req.Query.Validate(); err != nil {
@@ -149,14 +143,6 @@ func (s *Server) parseReadRequest(r *http.Request) (store.ReadFilter, error) {
 				"limit %d exceeds the configured maximum of %d", *req.Limit, s.opts.MaxEventsPerPage)}
 		}
 		filter.Limit = *req.Limit
-	}
-
-	if req.Time != nil {
-		from, before, err := parseTimeRange(req.Time)
-		if err != nil {
-			return store.ReadFilter{}, err
-		}
-		filter.TimeFrom, filter.TimeBefore = from, before
 	}
 	return filter, nil
 }
@@ -201,33 +187,6 @@ func streamEvents(w http.ResponseWriter, it *store.EventIterator, beforeWrite fu
 	}
 	beforeWrite()
 	return nw.WriteValue(readTrailer{HasMore: it.HasMore()})
-}
-
-// parseTimeRange parses time.from/time.before (RFC3339Nano, matching
-// dcb.Event's own parsing) and enforces the one additional semantic rule
-// that calls for hand-written validation: a consistent time.from/
-// time.before range: from must be earlier than before when both are
-// present. A bound may carry any offset: it is converted to UTC before
-// being compared against the stored time, which is always UTC.
-func parseTimeRange(tr *readTimeRange) (from, before *time.Time, err error) {
-	if tr.From != nil {
-		t, perr := time.Parse(time.RFC3339Nano, *tr.From)
-		if perr != nil {
-			return nil, nil, &dcb.ValidationError{Err: perr, Message: fmt.Sprintf("time.from is not a valid RFC3339 timestamp: %q", *tr.From)}
-		}
-		from = &t
-	}
-	if tr.Before != nil {
-		t, perr := time.Parse(time.RFC3339Nano, *tr.Before)
-		if perr != nil {
-			return nil, nil, &dcb.ValidationError{Err: perr, Message: fmt.Sprintf("time.before is not a valid RFC3339 timestamp: %q", *tr.Before)}
-		}
-		before = &t
-	}
-	if from != nil && before != nil && !from.Before(*before) {
-		return nil, nil, &dcb.ValidationError{Err: errInvalidTimeRange, Message: "time.from must be earlier than time.before"}
-	}
-	return from, before, nil
 }
 
 type appendRequest struct {
