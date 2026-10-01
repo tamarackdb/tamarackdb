@@ -672,7 +672,8 @@ a production instance.
 `POST /reset` waits for its turn in the same queue as writes. The writes
 queued before it go through, then the reset deletes them. A write queued
 after it goes to the new store: if one of its conditions carries the old
-store ID, it gets `409`.
+store ID, it gets `409`. So does a `replace` or `delete` of a projection,
+since the version it carries no longer exists.
 
 ## Generating test data
 
