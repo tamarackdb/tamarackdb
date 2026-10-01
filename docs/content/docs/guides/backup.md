@@ -9,7 +9,8 @@ off-site copy, a warm standby, or a database to test against without touching
 production. For how to run the server itself, see [Deployment](/docs/guides/deployment/).
 
 `tamarackdb-backup` copies new events from a remote TamarackDB instance into a
-local SQLite file. It does one catch-up run and exits: schedule it with cron
+local SQLite file, named after the store ID of the instance. It does one
+catch-up run and exits: schedule it with cron
 or a systemd timer, don't run it as a long-running process. A run that's
 missed or late isn't a problem: the next one picks up from where the last one
 stopped.
@@ -61,6 +62,30 @@ neither, stops with an error. When the file sets one of them, the
 `TAMARACKDB_BACKUP_SOURCE_*` variables are ignored, so a variable left in the
 environment can't clash with the file's choice.
 
+## How it works
+
+Every TamarackDB instance names the history it holds with a store ID (see
+[Integration](/docs/guides/integration/#store-id)). A backup file is named
+after it, `<store ID>.sqlite`, in `dataDir`, so the events of one store never
+land in the file of another. Each run:
+
+1. Asks the source for its first event, only for the store ID its response
+   carries. The event itself is dropped.
+2. Opens the file named after that store ID, or creates it, and resumes after
+   the last event it holds.
+3. Reads the new events page by page. Every page must carry the same store
+   ID. If it changes during the run, the source was reset in the meantime:
+   the run stops with an error, without importing that page, and the next run
+   starts the new file.
+
+The store ID comes from the network, so a run checks that it's a UUID before
+using it as a file name.
+
+The store ID only changes when the source is reset with `POST /reset`, which
+exists in developer mode only. Each reset starts a new file, and the files of
+earlier store IDs stay as they are. On a development instance, they pile up:
+delete the ones you no longer need.
+
 ## A source on the same host
 
 For an instance on the same host, listening on its unix socket, read straight
@@ -97,8 +122,9 @@ Two things to get right:
 
 ## What the backup holds
 
-The backup file is a regular TamarackDB database. If the source is ever lost,
-serve it as the new instance:
+A backup file is a regular TamarackDB database. If the source is ever lost,
+serve the file of its current store ID as the new instance. That's the file
+the last run wrote to: each run logs its path.
 
 1. Wait for any `tamarackdb-backup` run to finish, and stop scheduling new ones.
 2. Create a new data directory, owned by the user the server runs as (here
@@ -108,7 +134,7 @@ serve it as the new instance:
 
    ```sh
    sudo install -d -o tamarackdb -g tamarackdb -m 700 /path/to/new-data
-   sudo install -o tamarackdb -g tamarackdb -m 600 /path/to/tamarackdb-backup.sqlite /path/to/new-data/tamarackdb.sqlite
+   sudo install -o tamarackdb -g tamarackdb -m 600 /path/to/backup/<store ID>.sqlite /path/to/new-data/tamarackdb.sqlite
    ```
 
    A directory made with a plain `mkdir`, or a file copied with a plain `cp`,
@@ -120,6 +146,11 @@ serve it as the new instance:
 It holds events only, not projections. Before an application uses a restored
 backup, it must rebuild its projections (see
 [Integration](/docs/guides/integration/#projection-rebuilds)).
+
+A backup file has a store ID of its own, drawn when the run created it, not
+the source's. Served as an instance, it's seen as another store: anything
+that kept a position on the source starts over. That's right, since the
+backup can be behind the source.
 
 Don't serve the backup file while `tamarackdb-backup` still writes to it: the
 two can't hold the file at the same time.
