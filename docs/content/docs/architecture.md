@@ -46,6 +46,10 @@ The server checks the write and applies it in one SQLite transaction of its own:
 every projection must still be at the version read. Then it appends the events and writes the projections, or writes
 nothing at all. The server keeps nothing between two requests: no open transaction, no pending write, no timer.
 
+The transaction lives in the client library on purpose. On the server, transactions alive at the same time would
+have to be kept apart while they run, which is hard to test and to reason about. In the library, a transaction
+belongs to one thread or request, and the server only ever handles complete writes, one at a time.
+
 Many transactions run at the same time, one per thread or request of the application. None of them holds anything on
 the server while it runs: reads never wait, and a slow client blocks no one. Conflicts between transactions are found
 when each write arrives, one write at a time, by its Append Conditions and projection versions. A transaction that
