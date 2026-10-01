@@ -51,7 +51,7 @@ func (s *Server) handleErr(w http.ResponseWriter, r *http.Request, err error) {
 
 	// If the request's own context is already Done, the connection may
 	// already be gone, and any response now is best-effort at best.
-	// Checking r.Context().Err() directly is more robust than
+	// Checking r.Context().Err() directly is more reliable than
 	// pattern-matching on err's exact shape, since err may have been
 	// wrapped by database/sql or the SQLite driver in ways that don't
 	// necessarily preserve %w all the way through.

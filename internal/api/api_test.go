@@ -129,7 +129,7 @@ func errorCode(t *testing.T, rec *httptest.ResponseRecorder) string {
 }
 
 // parseNDJSON parses a QUERY /events response body: the trailer line (identified by
-// shape, a "hasMore" key, not by position, since it's now the last line)
+// shape, a "hasMore" key, not by position, since it's the last line)
 // as readTrailer, every other line as a dcb.Event.
 func parseNDJSON(t *testing.T, body string) (readTrailer, []dcb.Event) {
 	t.Helper()
