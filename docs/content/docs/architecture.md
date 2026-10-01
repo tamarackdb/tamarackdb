@@ -698,7 +698,10 @@ of requests join its FIFO: `POST /write`, the bulk deletes of projections (`DELE
 /projections/{type}`), `POST /reset`, and the hourly `PRAGMA optimize` (see Storage: SQLite). It knows nothing about
 what a request will read or write. Only two states exist: **Active** (at most one request at a time, the only one
 allowed to touch the write connection) and **Queued** (every other request, waiting its turn in line). There is no
-priority: every kind waits its turn the same way.
+priority: every kind waits its turn the same way. Letting a bulk delete of projections go first would gain nothing,
+since the events of the writes waiting ahead of it must be written anyway. It would also do harm: a waiting write that
+replaces or deletes a projection the bulk delete removed would then get `409`, and be refused whole, its events
+included.
 
 **Flow for a request in the FIFO:**
 1. The HTTP handler reads and checks the request body first, outside the FIFO.
