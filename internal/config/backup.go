@@ -10,12 +10,13 @@ import (
 // (such as a -default-config flag) can print them without duplicating the
 // values.
 const (
-	DefaultBackupDatabasePath = "data/tamarackdb-backup.sqlite"
-	DefaultBackupPageLimit    = 1000
+	DefaultBackupDataDir   = "backup"
+	DefaultBackupPageLimit = 1000
 )
 
 // BackupConfig is tamarackdb-backup's startup configuration: which source
-// instance to copy events from, and where to write the local backup file.
+// instance to copy events from, and the directory holding the backup
+// files, one per store ID of the source.
 // Resolved the same way Config is: the [backup] section of a TOML file,
 // then TAMARACKDB_BACKUP_* environment variables, then defaults. The file
 // may also hold a [server] section (see Config); LoadBackup reads only
@@ -28,16 +29,19 @@ type BackupConfig struct {
 	SourceSocket string `toml:"sourceSocket"`
 	SourceToken  string `toml:"sourceToken"`
 
-	// DatabasePath and PageLimit are optional; defaulted by LoadBackup when
+	// DataDir is the directory holding the backup files, each named after
+	// the store ID it copies: <store ID>.sqlite. Its default isn't the
+	// server's "data", so the two never share a directory by accident.
+	// DataDir and PageLimit are optional; defaulted by LoadBackup when
 	// omitted.
-	DatabasePath string `toml:"databasePath"` // default: data/tamarackdb-backup.sqlite
-	PageLimit    int    `toml:"pageLimit"`    // default: 1000
+	DataDir   string `toml:"dataDir"`   // default: backup
+	PageLimit int    `toml:"pageLimit"` // default: 1000
 }
 
 // LoadBackup reads and parses the [backup] section of the TOML configuration
 // file at path if it exists (rejecting any unknown key, see readFile), fills in any field left at its zero value from
 // the matching TAMARACKDB_BACKUP_* environment variable, applies the
-// documented default for pageLimit if still unset, and validates the
+// documented defaults for dataDir and pageLimit if still unset, and validates the
 // result. Any non-nil error is fatal at startup: the caller should log it
 // and exit rather than retry.
 func LoadBackup(path string) (*BackupConfig, error) {
@@ -51,8 +55,8 @@ func LoadBackup(path string) (*BackupConfig, error) {
 		return nil, fmt.Errorf("config: %w", err)
 	}
 
-	if cfg.DatabasePath == "" {
-		cfg.DatabasePath = DefaultBackupDatabasePath
+	if cfg.DataDir == "" {
+		cfg.DataDir = DefaultBackupDataDir
 	}
 	if cfg.PageLimit == 0 {
 		cfg.PageLimit = DefaultBackupPageLimit
@@ -79,7 +83,7 @@ func applyBackupEnv(cfg *BackupConfig, sourceInFile bool) error {
 		}
 	}
 	envString(&cfg.SourceToken, "TAMARACKDB_BACKUP_SOURCE_TOKEN")
-	envString(&cfg.DatabasePath, "TAMARACKDB_BACKUP_DATABASE_PATH")
+	envString(&cfg.DataDir, "TAMARACKDB_BACKUP_DATA_DIR")
 	return envInt(&cfg.PageLimit, "TAMARACKDB_BACKUP_PAGE_LIMIT")
 }
 
@@ -95,8 +99,8 @@ func (c *BackupConfig) Validate() error {
 		return fmt.Errorf("sourceUrl must be an http:// or https:// URL, got %q", c.SourceURL)
 	case len(c.SourceSocket) > maxSocketPathLen:
 		return fmt.Errorf("sourceSocket must be at most %d bytes, the limit for a unix socket path, got %d: %s", maxSocketPathLen, len(c.SourceSocket), c.SourceSocket)
-	case c.DatabasePath == "":
-		return fmt.Errorf("databasePath must not be empty")
+	case c.DataDir == "":
+		return fmt.Errorf("dataDir must not be empty")
 	case c.PageLimit <= 0:
 		return fmt.Errorf("pageLimit must be positive, got %d", c.PageLimit)
 	}

@@ -39,10 +39,10 @@ Generate a starter config and adjust it as needed:
 : Env: `TAMARACKDB_BACKUP_SOURCE_TOKEN`
 : Default: none
 
-`databasePath`
-: Path to the local SQLite file the backup is written to. It holds every event, readable by anyone with access to the file, so a missing directory is created as `0700` and a new backup file as `0600`. A directory that already exists keeps its permissions: give it `0700` if other users can reach it.
-: Env: `TAMARACKDB_BACKUP_DATABASE_PATH`
-: Default: `data/tamarackdb-backup.sqlite`
+`dataDir`
+: Directory the backup files are written to. Each file is named after the store ID of the source, `<store ID>.sqlite`, so a reset of the source starts a new file and leaves the old one as it is. A file holds every event, readable by anyone with access to it, so a missing directory is created as `0700` and a new backup file as `0600`. A directory that already exists keeps its permissions: give it `0700` if other users can reach it. Don't point it at the server's own `dataDir`.
+: Env: `TAMARACKDB_BACKUP_DATA_DIR`
+: Default: `backup`
 
 `pageLimit`
 : Page size used when reading from the source. It must not exceed the source's `maxEventsPerPage`, or every run fails with `400 Bad Request`.

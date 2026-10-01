@@ -1,5 +1,6 @@
 // Command tamarackdb-backup performs one catch-up copy of new events from a
-// remote TamarackDB instance into a local SQLite file, then exits. It is
+// remote TamarackDB instance into a local SQLite file named after the
+// source's store ID, then exits. It is
 // meant to be invoked by cron or a systemd timer, not run continuously:
 // there is no HTTP server, no poll loop, and no in-process retry. If a run
 // fails partway, the next scheduled run resumes from the last successfully
@@ -52,12 +53,12 @@ const defaultConfigTemplate = `[backup]
 # sourceUrl = "https://tamarackdb.example.com"
 # sourceSocket = "/run/tamarackdb/tamarackdb.sock"
 # sourceToken = "changeme"
-# databasePath = "%s"
+# dataDir = "%s"
 # pageLimit = %d
 `
 
 // printDefaultConfig writes defaultConfigTemplate to stdout, with its
 // defaults filled in from the config package's exported constants.
 func printDefaultConfig() {
-	fmt.Printf(defaultConfigTemplate, config.DefaultBackupDatabasePath, config.DefaultBackupPageLimit)
+	fmt.Printf(defaultConfigTemplate, config.DefaultBackupDataDir, config.DefaultBackupPageLimit)
 }

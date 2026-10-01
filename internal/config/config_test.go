@@ -68,7 +68,7 @@ func TestLoadIgnoresBackupSection(t *testing.T) {
 
 		[backup]
 		sourceUrl = "https://example.com"
-		databasePath = "backup.sqlite"
+		dataDir = "backup"
 	`)
 
 	cfg, err := Load(path)
