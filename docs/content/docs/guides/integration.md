@@ -28,129 +28,103 @@ stores what they read and write.
 
 - **Decision model**: reads the events a command needs, decides, and appends
   new events.
-- **Event handler**: code that reacts to the events a command just appended.
-  It runs inside the same transaction, before the commit. There are two kinds:
+- **Event handler**: code that reacts to events. There are two kinds:
   - **Projector**: computes projections from events and writes them.
   - **Processor**: reads events and may append more events in response.
 - **Projection**: the current state a projector computes from events,
   identified by `type` + `id` (see [Projections](#projections)). The `type` is
   like a class, and each projection is one instance of it. Every projection
   can be rebuilt from events.
+- **Write**: everything one transaction of your application sends to the
+  server at once: events, Append Conditions, and projection changes (see
+  [Writing](#writing)).
 
 ## Transactions
 
-TamarackDB is built for applications that handle a command in one go, inside
-one request of the application:
+The server has no transaction that spans several requests. A transaction
+lives in your client library: it collects what the command wants to write,
+and sends it all in one `POST /write` at the end. The server checks it and
+writes it in one SQLite transaction of its own, or writes nothing.
 
-1. Open a transaction.
-2. Let your decision models read, decide, and append new events.
-3. Let your event handlers react.
-4. Write every changed projection.
-5. Commit.
+Many transactions can run at the same time, one per thread or request of your
+application. None of them holds anything on the server while it runs: reads
+never wait, and a slow client blocks no one. Conflicts between transactions
+are found when each write arrives, by its Append Conditions and projection
+versions (see [Append Condition](#append-condition) and
+[Versions](#versions)). A transaction that became stale learns it then, with
+`409 ConcurrencyException`.
 
-Everything lands together, or nothing does. Every call in steps 2 to 5 runs
-inside one SQLite transaction on the server, so each call sees what earlier
-calls of the same transaction wrote, even though nothing is committed yet.
+The guarantee is exactly the one of the
+[DCB specification](https://dcb.events/specification/): only what an Append
+Condition or a projection version expresses is protected. A broader guarantee
+is a business rule of your application, not something the server enforces.
 
-Only one transaction exists at a time. It holds the store's write lock from
-the moment it opens until it ends. Other clients wait their turn. Keep a
-transaction inside one request of your application, and keep it short: open
-it when the command starts, and end it before you send anything back to the
-end user.
+### Where to commit
 
-### Opening a transaction
+Your application decides where a transaction ends. TamarackDB doesn't know,
+and supports both ways:
 
-```sh
-curl -X POST http://127.0.0.1:8085/begin
-```
+- **Atomic**: one transaction per command. The decision models, the
+  processors, and the projectors all run, then one write carries every new
+  event and every changed projection. Everything lands together, or nothing
+  does. After a `409`, run the whole command again.
+- **Eventually consistent**: the command writes its own events alone.
+  Processors and projectors then run later, each in its own transaction.
+  Each projector keeps the position it has processed up to (see
+  [Store ID](#store-id)) in the same write as its projections, and catches up
+  from there. A processor that gets a `409` reads again and retries.
 
-```json
-{ "ticket": "a045ad63-5d4b-4847-8eb9-fbddb4e2d65b" }
-```
+In the eventually consistent way, give each projector its own projection
+types, plus its own position, and run one instance of it. TamarackDB can't
+check this: it doesn't know which projector wrote a projection. A `409` on a
+projector's write then has an operational cause, such as two instances
+running at once.
 
-Every call that belongs to the transaction carries this ticket in the
-`X-Tamarackdb-Ticket` header.
+### What a client library does
 
-Log the ticket along with the command it belongs to. If the transaction
-expires (see [Deadline](#deadline)), the server logs a warning with that
-ticket, and your own log tells you which command it was.
+A client library keeps the transaction's pending writes in memory, and
+makes reads inside the transaction see them:
 
-If another transaction is active, the request waits, with its connection held
-open, until its turn comes. Requests are served in the order they arrive. A
-waiting request can fail with:
+- **Pending events.** A read in a transaction returns the server's matching
+  events, then the transaction's own pending events that match the query, at
+  the end. A pending event has no `sequence` or `time` yet. Matching them
+  takes a matcher in the library that follows the [query grammar](#query-grammar)
+  exactly. The repository publishes shared test cases for it,
+  [`testdata/query-cases.json`](https://github.com/tamarackdb/tamarackdb/blob/main/testdata/query-cases.json):
+  each one is a query, an event, and whether it matches. The server checks
+  them against its own SQL; replay them against your matcher.
+- **Conditions against pending events.** The server checks an Append
+  Condition against committed events only. Inside one transaction, a
+  decision can also go stale because of a pending event added after the read
+  it was based on, for example by another processor of the same command.
+  Only the library knows the order of reads and pending events: when an
+  event is added with a condition, check that no pending event added after
+  that read matches the condition. If one does, the command was built on a
+  stale view: close the transaction and report a design error, distinct from
+  a `409`, since retrying can't fix it.
+- **Projection changes.** Keep the projections touched in the transaction by
+  `type` + `id`, with the version read from the server, and send only the net
+  effect: a `create`, a `replace`, or a `delete` (see
+  [Writing projections](#writing-projections)). A read in the transaction
+  returns the pending state of a projection it already touched.
+- **Positions.** A Sequence Position only means something next to the store
+  ID it was read on (see [Store ID](#store-id)). Hand them out together.
 
-- `503 TransactionQueueFull`: too many requests are already waiting. The
-  request never joined the queue.
+A transaction with nothing to write doesn't need to call the server at all.
 
-The server puts no limit on how long a request waits. Your client sets its
-own: when it no longer wants to wait, it closes the connection, and the
-request leaves the queue. Pick that limit from how long your end user can
-wait. A request never loses its place in the queue unless its client gives up.
+### A lost write response
 
-### Deadline
+If the connection drops before the `POST /write` response arrives, you can't
+tell whether the write happened: once a write has started, it goes to the
+end, even if the client is gone. Reading the events again doesn't settle it
+either: finding nothing can mean "not written" or "not written yet".
 
-The server rolls a transaction back when either limit is reached:
-
-- **Idle timeout** (5 seconds out of the box): time without any call made
-  with the ticket. Each call renews it when it ends.
-- **Total ceiling** (15 seconds out of the box): time since the ticket was
-  given out, however many calls you make.
-
-Both are set by the operator. A client can't ask for more. They are there to
-recover from a client that crashed or hangs, not to time a normal command: a
-normal command ends with its own commit or rollback well before either limit.
-See [Architecture](/docs/architecture/#deadline-and-ceiling) for the details.
-
-### Ending a transaction
-
-Commit with `POST /commit`:
-
-```sh
-curl -X POST http://127.0.0.1:8085/commit \
-  -H "X-Tamarackdb-Ticket: a045ad63-5d4b-4847-8eb9-fbddb4e2d65b"
-```
-
-Roll back with `POST /rollback` as soon as the command fails, for example when
-one of your event handlers throws. The server would roll the transaction back
-on its own once the idle timeout is reached (see [Deadline](#deadline)), but
-until then it keeps the write lock, and every other client waits. Rolling back
-yourself frees it right away:
-
-```sh
-curl -X POST http://127.0.0.1:8085/rollback \
-  -H "X-Tamarackdb-Ticket: a045ad63-5d4b-4847-8eb9-fbddb4e2d65b"
-```
-
-Both respond `204 No Content`. A commit never fails with `409`: every Append
-Condition was already checked when its events were appended.
-
-A transaction also ends, rolled back, when:
-
-- any call made with its ticket returns an error, except `404
-  ProjectionNotFound` (see [Projections](#projections));
-- the client closes the connection while a call with its ticket is running,
-  and the call fails because of it (a call that already finished its work
-  still succeeds, and a `POST /commit` may still commit);
-- the idle timeout or the total ceiling is reached (see [Deadline](#deadline)).
-
-Once a transaction has ended, its ticket is no longer active: any call with it
-gets `410 TicketNotActive`. After an error, don't try to continue: open a new
-transaction and run the whole command again.
-
-### A lost commit response
-
-If the connection drops before the `POST /commit` response arrives, you can't
-tell whether the commit happened. This is rare. Most applications can leave it
-to the user: reloading the page shows whether the change was applied.
-
-To retry a command safely instead, append its events with an Append Condition
-(see [Append Condition](#append-condition)). The retry is not a second
-`POST /commit`: the ticket is no longer active either way, so that call gets
-`410 TicketNotActive` whether the commit happened or not. Run the command again
-in a new transaction, and append with the same condition as the first attempt,
-including its `afterSequence`. If the first commit went through, its events are
-now past that position, and the retry fails with `409 ConcurrencyException`
-instead of appending the same events twice.
+To retry safely, send the same write again, with the same Append Conditions,
+`afterSequence` included. Writes are served in the order they arrive, so the
+retry comes after the first attempt. If the first one went through, its
+events are now past that position, and the retry fails with `409
+ConcurrencyException` instead of writing the same events twice. If it didn't,
+the retry is written normally.
 
 ## Reading events
 
@@ -159,7 +133,6 @@ Read events with the HTTP `QUERY` method:
 ```sh
 curl -X QUERY http://127.0.0.1:8085/events \
   -H "Content-Type: application/json" \
-  -H "X-Tamarackdb-Ticket: a045ad63-5d4b-4847-8eb9-fbddb4e2d65b" \
   -d '{
     "query": [
       {
@@ -171,16 +144,8 @@ curl -X QUERY http://127.0.0.1:8085/events \
   }'
 ```
 
-The ticket is optional:
-
-- **With a ticket**, the read runs inside the transaction. It sees every
-  committed event, plus the events appended earlier in the same transaction.
-  Use this to make a decision, or in an event handler that needs the events
-  the command just appended.
-- **Without a ticket**, the read sees committed events only. It never waits
-  for the active transaction. Use this to display data, for a projection
-  rebuild, or for the optimistic flow (see [Append Condition](#append-condition)).
-  The response carries the store ID (see [Store ID](#store-id)).
+A read sees committed events only. It never waits for a write. The response
+carries the store ID (see [Store ID](#store-id)).
 
 Use the literal string `"*"` in place of `query` to read every event:
 
@@ -200,9 +165,11 @@ last line is always a trailer with `hasMore`:
 {"hasMore":false}
 ```
 
-`time` is when TamarackDB appended the event, in UTC, with exactly 6
+`time` is when TamarackDB wrote the event, in UTC, with exactly 6
 fractional digits. Convert it to local time in your application if you need
-to display it.
+to display it. It comes from the server's clock, which can jump back: `time`
+usually follows `sequence` order, but nothing guarantees it. Order events by
+`sequence`, never by `time`.
 
 Parse the response line by line, not as one JSON document. That way, a response can safely
 resume if the connection drops mid-transfer (see Pagination below). Tell the
@@ -242,6 +209,11 @@ when present: send `"*"`, or leave the key out, rather than `[]`. There is no
 way to say "not X": a query only ever describes a set of matching events,
 never an exclusion.
 
+Values are compared exactly: case counts, and no Unicode normalization
+happens. An identifier and a metadata entry with the same name are different
+things: a `userId` in `metadata` doesn't match a `userId` asked for in
+`identifiers`.
+
 A query carries at most 100 query items, and an item at most 100 values across
 its `types`, `identifiers`, and `metadata` combined. A larger query gets `400`.
 The same limits apply to `failIfEventsMatch`.
@@ -254,7 +226,7 @@ only events with a Sequence Position strictly greater than this value.
 ```
 
 There is no filter on `time`. To find events by period, tag them when you
-append them (for example a `month` metadata entry) and query that tag.
+write them (for example a `month` metadata entry) and query that tag.
 
 The body is checked strictly: an unknown key gets `400`, so a misspelled
 `afterSequence` never reads more than you asked for.
@@ -273,15 +245,15 @@ Sequence Position of the last event you got. Do this on every call, not just the
 first one: it also lets you resume a response that was cut off mid-transfer, from
 the last full line you received, with no events skipped or repeated.
 
-Read each page as it arrives. Without a ticket, the server gives each line of a
-page 30 seconds to go out: a client that stops reading for longer gets its
+Read each page as it arrives. The server gives each line of a page 30
+seconds to go out: a client that stops reading for longer gets its
 connection closed, and sees a page with no trailer. Resume it the same way,
 from the last full line.
 
 The same loop that pages through history can also follow new events live: keep
-polling without a ticket, with `afterSequence` set to the last Sequence
-Position you saw. Once `hasMore` reads `false`, you have caught up, and further
-polling picks up new events as they are committed. `tamarackdb-backup` (see
+polling with `afterSequence` set to the last Sequence Position you saw. Once
+`hasMore` reads `false`, you have caught up, and further polling picks up new
+events as they are written. `tamarackdb-backup` (see
 [Backup](/docs/guides/backup/)) is a real example of this loop: it pages through
 `/events` with `afterSequence` set to the last sequence it saved locally, and
 stops once `hasMore` reads `false`.
@@ -292,36 +264,105 @@ box). Asking for more than that gets you `400 Bad Request`.
 
 ### Store ID
 
-A read without a ticket returns the store ID in the `X-Tamarackdb-Store`
-header: a UUID that names the history you read. `QUERY /events` sends it on
-every page, empty ones included, and `GET /projections/{type}/{id}` sends it on
-both `200` and `404`.
+Every response that depends on the store carries the store ID in the
+`X-Tamarackdb-Store` header: a UUID that names the history you read or wrote.
+`QUERY /events` sends it on every page, empty ones included,
+`GET /projections/{type}/{id}` on both `200` and `404`, and `POST /write` on
+`200`. A read takes it in the same snapshot as the data it returns, and a
+write in the same SQLite transaction as what it wrote.
 
 The store ID only changes when the store is emptied with `POST /reset` (dev
 mode only). After that, Sequence Positions start over at 1, and a position you
-kept from before names a different event. Keep the store ID next to any
-Sequence Position you keep: if a later read returns a different store ID,
-start over from the beginning.
+kept from before names a different event. A position is therefore a pair:
+the store ID and the Sequence Position. Keep them together. If a later read
+returns a different store ID, start over from the beginning.
 
-## Appending events
+## Writing
 
-`POST /events` appends events inside a transaction. The ticket is required.
+`POST /write` sends one write: events to append, the Append Conditions they
+depend on, and projection changes.
 
 ```sh
-curl -X POST http://127.0.0.1:8085/events \
+curl -X POST http://127.0.0.1:8085/write \
   -H "Content-Type: application/json" \
-  -H "X-Tamarackdb-Ticket: a045ad63-5d4b-4847-8eb9-fbddb4e2d65b" \
   -d '{
     "events": [
       {
-        "type": "user-created",
+        "type": "user-renamed",
         "identifiers": { "userId": "123" },
         "metadata": { "tenantId": "acme" },
-        "payload": "{\"name\":\"Ada\"}"
+        "payload": "{\"name\":\"Ada Lovelace\"}"
       }
-    ]
+    ],
+    "conditions": [
+      {
+        "failIfEventsMatch": [
+          { "identifiers": [ { "name": "userId", "value": "123" } ] }
+        ],
+        "afterSequence": 12345,
+        "store": "5b0c7e2a-1f4d-4a9b-8c3e-6d2f1a0b9e47"
+      }
+    ],
+    "projections": {
+      "replace": [
+        {
+          "type": "user-profile",
+          "id": "123",
+          "version": "9f3c2a1e-7b4d-4c8e-a5f6-0d1e2f3a4b5c",
+          "payload": "{\"name\":\"Ada Lovelace\"}"
+        }
+      ]
+    }
   }'
 ```
+
+The server checks every condition first, against the events committed
+before this write. If every one holds, it writes the projections and appends
+the events, all in one SQLite transaction. Either everything is written, or
+nothing is.
+
+Every key is optional, and a missing one is an empty list. The body is
+checked strictly: an unknown key gets `400`, so a misspelled key never drops
+data without a word. A write with nothing at all responds `200` right away.
+Conditions are checked even when the write carries nothing else.
+
+On success (`200 OK`), the response carries the store ID in the
+`X-Tamarackdb-Store` header, the Sequence Position and `time` of each event in
+the order you sent them, and the new version of each created and replaced
+projection:
+
+```json
+{
+  "events": [
+    { "sequence": 12348, "time": "2026-09-01T14:25:00.000000Z" }
+  ],
+  "projections": {
+    "create": [],
+    "replace": [ { "version": "d4c3b2a1-0f9e-4d8c-b7a6-5f4e3d2c1b0a" } ]
+  }
+}
+```
+
+Every event of one write shares the same `time`; order within a write comes
+from `sequence`.
+
+### Waiting for a turn
+
+Writes go through one at a time. A write waits for its turn, with its
+connection held open, behind the writes that arrived before it. Each one
+holds the turn only for the time of its own SQLite transaction, usually a few
+milliseconds. The body is read and checked before the write joins the queue,
+so an invalid one gets `400` right away, and a client sending its body slowly
+holds up no one.
+
+A waiting write can fail with `503 WriteQueueFull`: too many requests are
+already waiting, and this one never joined the queue. The server puts no
+limit on how long a write waits. Your client sets its own: when it no longer
+wants to wait, it closes the connection, and the write leaves the queue with
+nothing written. Once a write has started, it goes to the end, even if the
+client is gone (see [A lost write response](#a-lost-write-response)).
+
+### Events
 
 `identifiers` and `metadata` are objects whose values are a string, or an array of
 strings: an array gives one tag per value, all on the same event. An event
@@ -330,98 +371,108 @@ carries at most 20 identifiers and 20 metadata values, and never the same
 parses it, so its format (JSON, XML, or anything else) is entirely up to the
 calling application.
 
-On success (`200 OK`), the response gives the Sequence Position and `time`
-assigned to each event, in the order you sent them:
+A write carries at most `maxEventsPerWrite` events (100 out of the box), each
+at most `maxEventSize` bytes (64 KiB out of the box): the combined size of its
+`type`, `identifiers`, `metadata`, and `payload`. The limit counts every event
+of the transaction, since they all go out in one write. Put larger content
+(files, images) in external storage, and reference it from the event instead
+of embedding it.
+
+### Append Condition
+
+An Append Condition makes the write fail if something relevant happened
+since you last read:
 
 ```json
 {
-  "events": [
-    { "sequence": 12348, "time": "2026-09-01T14:25:00.000000Z" }
+  "failIfEventsMatch": [
+    { "identifiers": [ { "name": "userId", "value": "123" } ] }
+  ],
+  "afterSequence": 12345,
+  "store": "5b0c7e2a-1f4d-4a9b-8c3e-6d2f1a0b9e47"
+}
+```
+
+`afterSequence` is the Sequence Position you read up to (see Pagination
+above), and `store` the store ID that read returned. `failIfEventsMatch` is a
+query, using the same grammar as a read. The condition fails if any event
+matching it exists after `afterSequence`, or if the store ID is no longer
+`store`.
+
+A condition with `afterSequence` must carry `store`, and a condition without
+it must not: it read nothing, so it holds on any store. `failIfEventsMatch`
+is optional too: an `afterSequence` alone fails if any event at all exists
+after it.
+
+A write carries a list of conditions, at most `maxEventsPerWrite` of them,
+and every one must hold. A transaction usually has one per decision: each
+decision model or processor adds the condition its own read supports. This
+is more precise than one merged condition, and never a partial success.
+
+The flow is optimistic: read, decide, then write with the condition that
+describes what the decision depends on. If another client wrote a matching
+event in between, the write gets `409 ConcurrencyException`, with a
+`message` naming the condition, for example `conditions[1] no longer holds`
+or `conditions[0] was read on another store`. Nothing is written: read
+again, decide again, and send a new write.
+
+### Writing projections
+
+`projections` creates, replaces, and deletes projections in the same write as
+the events:
+
+```json
+{
+  "create": [
+    { "type": "user-list-entry", "id": "789", "payload": "{\"name\":\"Grace\"}" }
+  ],
+  "replace": [
+    {
+      "type": "user-profile",
+      "id": "123",
+      "version": "9f3c2a1e-7b4d-4c8e-a5f6-0d1e2f3a4b5c",
+      "payload": "{\"name\":\"Ada Lovelace\"}"
+    }
+  ],
+  "delete": [
+    { "type": "user-list-entry", "id": "456", "version": "1b2c3d4e-5f60-4718-9a0b-c1d2e3f4a5b6" }
   ]
 }
 ```
 
-These values are final as soon as the call returns, even before the commit:
-the transaction either commits them as they are, or rolls them back entirely.
-Your event handlers can use them right away. Every event of one call shares the
-same `time`; order within a call comes from `sequence`.
+- `create` takes `type`, `id`, and `payload`. The projection must not exist
+  yet.
+- `replace` takes `type`, `id`, `version`, and `payload`. The whole payload is
+  replaced; there is no partial update.
+- `delete` takes `type`, `id`, and `version`.
+- A payload is a string; an empty string is a valid payload. A missing or
+  `null` payload gets `400`.
+- Each list is optional.
+- The same `type` + `id` can't appear twice in one write, across all three
+  lists.
+- A write carries at most `maxProjectionsPerWrite` projections in total (500
+  out of the box), each at most `maxProjectionSize` bytes (64 KiB out of the
+  box), counting its `type`, `id`, and `payload` together.
 
-A single call carries at most 100 events, each up to 64 KiB (the combined size
-of its `type`, `identifiers`, `metadata`, and `payload`). A transaction may make
-several `POST /events` calls: the limit applies to each call. An empty `events`
-array appends nothing, skips the condition, and returns `{ "events": [] }`. A
-missing `events` field gets `400`: it's most likely a misspelled key. Put larger
-content (files, images) in external storage, and reference it from the event
-instead of embedding it.
+### Limits
 
-### Append Condition
-
-Pass a `condition` to make the append fail if something relevant happened since
-you last read:
-
-```sh
-curl -X POST http://127.0.0.1:8085/events \
-  -H "Content-Type: application/json" \
-  -H "X-Tamarackdb-Ticket: a045ad63-5d4b-4847-8eb9-fbddb4e2d65b" \
-  -d '{
-    "events": [
-      {
-        "type": "user-renamed",
-        "identifiers": { "userId": "123" },
-        "payload": "..."
-      }
-    ],
-    "condition": {
-      "failIfEventsMatch": [
-        {
-          "identifiers": [
-            { "name": "userId", "value": "123" }
-          ]
-        }
-      ],
-      "afterSequence": 12345
-    }
-  }'
-```
-
-`afterSequence` is the Sequence Position you last read up to (see Pagination
-above). `failIfEventsMatch` is a query, using the same grammar as a read (see
-above). The append fails if any event matching it exists after `afterSequence`.
-Both are optional and independent: an event with nothing to protect can be
-appended with no `condition` at all.
-
-A failed condition gets `409 Conflict`, and rolls the transaction back:
-
-```json
-{ "error": "ConcurrencyException" }
-```
-
-There are two ways to use it.
-
-**Inside a transaction.** Read with the ticket, decide, append with the ticket.
-The transaction holds the write lock the whole time, so no other client can
-append in between. The condition can only fail if your own application
-appended a matching event in the same transaction after the read the decision
-was based on, for example when two models both read before either appends. That
-means the decision was made on stale data: read again before deciding. Each
-model can send its own `POST /events` with its own condition.
-
-**Optimistic.** Read without a ticket and decide, then open a transaction,
-append with `afterSequence` set to the last Sequence Position you read and the
-same query as `failIfEventsMatch`, run your event handlers, and commit. Only
-the command's own read and decision happen outside the write lock; event
-handlers still run inside the transaction and read with the ticket. If another
-client appended a matching event in between, you get `409
-ConcurrencyException`: read again, decide again, and retry in a new
-transaction.
+Every request body is capped at `maxRequestBodySize` (8 MiB out of the box).
+That cap isn't checked against the other limits: a write can reach it before
+each of its items reaches its own. Every error from a limit names the setting
+to raise, for example `request carries 612 projections, more than
+maxProjectionsPerWrite (500)`. The defaults are a cautious starting point:
+find your real limits in development, with your application's data, and
+have the operator set them for production (see
+[Deployment](/docs/guides/deployment/#configure)).
 
 ## Projections
 
 A projection is an opaque payload identified by `type` + `id`, with no history
 (see [Terms](#terms)). It can be overwritten or deleted; the store only holds
 its current state. Since every projection can be rebuilt from events (see
-[Projection rebuilds](#projection-rebuilds)), backups leave projections out. Projections are written in the same transaction as events, so
-a commit makes both durable together, and a rollback discards both.
+[Projection rebuilds](#projection-rebuilds)), backups leave projections out.
+Projections are written in the same write as events, so both become durable
+together, or neither does.
 
 Storing projections in TamarackDB is optional. An application that keeps its projections
 elsewhere never has to touch it.
@@ -445,19 +496,12 @@ The response body is the payload exactly as written, not wrapped in a JSON
 envelope: its own format (JSON, XML, plain text) is up to the writing
 application. The `X-Tamarackdb-Version` header carries the projection's
 version: keep it to replace or delete the projection later (see
-[Versions](#versions)).
+[Versions](#versions)). The read sees committed projections only, and the
+response carries the store ID (see [Store ID](#store-id)).
 
-The ticket is optional, as for events:
-
-- **With a ticket**, the read sees projections written earlier in the same
-  transaction. A projector uses it to read a projection before changing it.
-- **Without a ticket**, the read sees committed projections only. This is how you
-  read a projection to display a page. The response carries the store ID (see
-  [Store ID](#store-id)).
-
-A projection that doesn't exist gets `404 ProjectionNotFound`. Inside a
-transaction, this is an ordinary answer, not an error: the transaction goes on.
-A projector that gets a `404` usually creates the projection.
+A projection that doesn't exist gets `404 ProjectionNotFound`. This is an
+ordinary answer, not a failure: a projector that gets a `404` usually creates
+the projection.
 
 A projection is always read by `type` and `id`. There is no query over projections.
 
@@ -465,104 +509,45 @@ A projection is always read by `type` and `id`. There is no query over projectio
 `id` of `a/b` is `/projections/user-profile/a%2Fb`, and a space is `%20`. The
 same goes for `DELETE /projections/{type}`.
 
-### Writing projections
-
-`POST /projections` creates, replaces, and deletes several projections at
-once. Send it with the ticket. Without a ticket, the call commits on its own:
-that's only meant for projection rebuilds (see
-[Projection rebuilds](#projection-rebuilds)).
-
-```sh
-curl -X POST http://127.0.0.1:8085/projections \
-  -H "Content-Type: application/json" \
-  -H "X-Tamarackdb-Ticket: a045ad63-5d4b-4847-8eb9-fbddb4e2d65b" \
-  -d '{
-    "create": [
-      { "type": "user-list-entry", "id": "789", "payload": "{\"name\":\"Grace\"}" }
-    ],
-    "replace": [
-      {
-        "type": "user-profile",
-        "id": "123",
-        "version": "9f3c2a1e-7b4d-4c8e-a5f6-0d1e2f3a4b5c",
-        "payload": "{\"name\":\"Ada Lovelace\"}"
-      }
-    ],
-    "delete": [
-      { "type": "user-list-entry", "id": "456", "version": "1b2c3d4e-5f60-4718-9a0b-c1d2e3f4a5b6" }
-    ]
-  }'
-```
-
-- `create` takes `type`, `id`, and `payload`. The projection must not exist
-  yet.
-- `replace` takes `type`, `id`, `version`, and `payload`. The whole payload is
-  replaced; there is no partial update.
-- `delete` takes `type`, `id`, and `version`.
-- A payload is a string; an empty string is a valid payload. A missing or
-  `null` payload gets `400`.
-- Each key is optional, and an empty list is fine: your application can send
-  its usual call even when its event handlers changed nothing. A body with
-  none of the three keys gets `400`.
-- Unknown keys get `400`, so a misspelled key can't silently drop writes.
-- The same `type` + `id` can't appear twice in one call, across all three
-  lists.
-- A call carries at most `maxProjectionsPerRequest` projections in total (100
-  out of the box), each at most `maxProjectionSize` bytes (64 KiB out of the
-  box), counting its `type`, `id`, and `payload` together.
-
-On success (`200 OK`), the response gives the new version of each created and
-replaced projection, in the order you sent them:
-
-```json
-{
-  "create": [ { "version": "5a6b7c8d-9e0f-4a1b-8c2d-3e4f5a6b7c8d" } ],
-  "replace": [ { "version": "d4c3b2a1-0f9e-4d8c-b7a6-5f4e3d2c1b0a" } ]
-}
-```
-
 ### Versions
 
 Every projection has a version, a random UUID that changes on every write.
 A `replace` or a `delete` carries the version you read. If the stored
-projection has a different version, or no longer exists, the call gets `409
-ConcurrencyException`, and the transaction rolls back. A `create` gets the
-same `409` if the projection already exists. The `message` names the entry,
-for example `replace[0]`.
+projection has a different version, or no longer exists, the write gets `409
+ConcurrencyException`, and nothing is written. A `create` gets the same `409`
+if the projection already exists. The `message` names the entry by its place
+in the body, for example `projections.replace[0] no longer has the given
+version`.
 
-In the usual flow, this never happens: your projector reads the projection
-with the ticket, inside the transaction, and the transaction holds the write
-lock until the commit. A `409` means the version came from somewhere else: a
-read without a ticket, a cache, or a copy kept from an earlier request. Read
-the projection again with the ticket, or run the whole command again.
+A `409` on a projection means another write changed it since you read it.
+Read it again and redo the work, in a new transaction. A projection created
+without reading it first goes out as a `create`, and fails if the projection
+already exists: read before you write.
 
 The version is opaque. Compare it only for equality, and never compute it: a
 stale copy never matches again, even after the projection is deleted and
-created anew. To write the same projection again later, in the same
-transaction or in a later call of a rebuild, use the version from the last
-response.
-
-The recommended use is one `POST /projections` call per transaction, right
-before `POST /commit`, carrying every projection your event handlers changed.
-Collect the changes in memory while the handlers run, instead of sending each
-small change as it happens. Several calls in one transaction still work.
+created anew. To write the same projection again later, use the version from
+the last response.
 
 ### What a projection may depend on
 
-Events are appended before your event handlers run, and `POST /events` returns
-each event's `sequence` and `time`. A projection can use anything in an event,
-those two values included. A rebuild reads the same events back from `QUERY
-/events`, with the same values, so it produces the same projections.
+A projection can depend on anything in an event. What it may use depends on
+where your application commits (see [Where to commit](#where-to-commit)):
+
+- **Atomic**: projectors run before the write, so the events have no
+  `sequence` or `time` yet. A projection can't use them. Put a business date
+  in the payload or the metadata instead.
+- **Eventually consistent**: projectors read events that are already
+  written, so a projection may use `sequence` and `time` too.
+
+Either way, a rebuild reads the same events back from `QUERY /events`, so it
+produces the same projections.
 
 ## Projection rebuilds
 
-A projection rebuild runs outside any transaction. Your application must be
-fully down while it runs: no reads, no writes. The server doesn't check this;
-keeping other requests away is up to you.
-
-How you organize the rebuild is up to you: one thread replaying every event in
-order, several projectors in parallel, or anything else. These calls are what
-it's built from:
+A rebuild replays events to write projections again. How you organize it is
+up to you: one thread replaying every event in order, several projectors in
+parallel, or anything else. These calls are what it's built from:
 
 - Delete the projections to rebuild, one type at a time, or all of them:
 
@@ -571,43 +556,34 @@ it's built from:
   curl -X DELETE http://127.0.0.1:8085/projections
   ```
 
-- Page through `QUERY /events` without a ticket to read the events to replay.
+- Page through `QUERY /events` to read the events to replay.
 
-- Write the rebuilt projections with `POST /projections` without a ticket, in
-  as many calls as you need. Each call commits on its own. A projection is a
-  `create` the first time, then a `replace` with the version the previous call
-  returned.
+- Write the rebuilt projections with `POST /write`, in one write or several.
+  A projection is a `create` the first time, then a `replace` with the version
+  the previous write returned.
 
-- Read a projection back with `GET /projections/{type}/{id}` without a ticket:
-  the response carries its payload and its version.
+- Read a projection back with `GET /projections/{type}/{id}`: the response
+  carries its payload and its version.
 
-For example, a single thread can rebuild everything this way:
+One write keeps the rebuild atomic, but it must fit under
+`maxProjectionsPerWrite` and `maxRequestBodySize`, and it holds the turn for
+as long as the insert takes. Several writes each fit the limits; write the
+projector's position (see [Store ID](#store-id)) with each one, so a rebuild
+that stops halfway resumes from there. The choice is your application's.
 
-1. `DELETE /projections`.
-2. Page through `QUERY /events`, and apply each event to projections kept in
-   memory.
-3. Send them all with `POST /projections`, as `create`, in chunks that fit
-   the request limits.
-
-`DELETE /projections/{type}`, `DELETE /projections`, and `POST /projections`
-without a ticket each wait for their turn in the same queue as `POST /begin`,
-run, then let the next request through. Like `POST /begin`, they can get `503
-TransactionQueueFull`, and closing the connection while waiting takes them out
-of the queue, with nothing written. A `POST /projections` body is checked
-before the call joins the queue, so an invalid one gets `400` right away.
-
-Reads without a ticket run side by side. Writes from several threads take
-turns, one call at a time. With many writers at once, retry a `503
-TransactionQueueFull`.
-
-A rebuild is not atomic as a whole. If it fails partway, run it again from
-the start.
+`DELETE /projections/{type}` and `DELETE /projections` wait for their turn in
+the same queue as `POST /write`, run, then let the next request through. A
+write queued before a delete goes through first, and the delete then removes
+what it wrote. Like `POST /write`, a delete can get `503 WriteQueueFull`, and
+closing the connection while waiting takes it out of the queue, with nothing
+deleted. A write that replaces or deletes a projection a bulk delete already
+removed gets `409`.
 
 ## Resetting between test runs
 
 If the server has `devMode` on, `POST /reset` deletes every event and every
 projection, and gives the store a new store ID (see [Store ID](#store-id)).
-The next event appended gets sequence 1:
+The next event written gets sequence 1:
 
 ```sh
 curl -X POST http://127.0.0.1:8085/reset
@@ -619,9 +595,10 @@ behind. It responds `204 No Content` and only exists when `devMode` is on; see
 [Deployment](/docs/guides/deployment/#developer-mode). Never rely on it against
 a production instance.
 
-`POST /reset` doesn't wait for its turn. If a transaction is active, it's
-rolled back, and the next call with its ticket gets `410 TicketNotActive`. Requests
-waiting for a ticket keep waiting, and get their ticket on the empty store.
+`POST /reset` waits for its turn in the same queue as writes. The writes
+queued before it go through, then the reset deletes them. A write queued
+after it goes to the new store: if one of its conditions carries the old
+store ID, it gets `409`.
 
 ## Generating test data
 
@@ -657,18 +634,14 @@ A few responses carry plain text instead, since they come from Go's HTTP server
 before any endpoint runs: `404` for an unknown path, `405` for a known path with
 the wrong method, and errors for a malformed HTTP request.
 
-Inside a transaction, every error except `404 ProjectionNotFound` rolls the
-transaction back.
-
 | Status | `error` | Meaning |
 |---|---|---|
-| 400 | `InvalidRequest` | Malformed or invalid request body: bad JSON, trailing text after the JSON value, invalid query shape, more than 100 query items or more than 100 values in one item, `limit` below 1 or over the configured maximum, an unknown key in a `QUERY /events` body, an event missing `type`, a duplicate identifier or metadata value, a missing `events` field or more than 100 events in one `POST /events`, a `POST /projections` body with none of `create`, `replace`, `delete`, an unknown key in it, a projection missing its `payload` or `version`, too many projections, or a repeated projection `type` + `id`, a call that needs a ticket and carries none, and so on |
+| 400 | `InvalidRequest` | Malformed or invalid request body: bad JSON, trailing text after the JSON value, an unknown key, invalid query shape, more than 100 query items or more than 100 values in one item, `limit` below 1 or over `maxEventsPerPage`, an event missing `type`, a duplicate identifier or metadata value, a condition with `afterSequence` and no `store` or the other way around, a projection missing its `payload` or `version`, a repeated projection `type` + `id`, more events, conditions, or projections than one write allows, and so on. The `message` names the item at fault, for example `events[3]`, and the setting behind a limit |
 | 401 | `Unauthorized` | Missing or invalid Bearer token (only when `enableAuth` is on) |
-| 404 | `ProjectionNotFound` | `GET /projections/{type}/{id}` only: no projection exists at that `type` + `id`. Doesn't end the transaction |
-| 409 | `ConcurrencyException` | The Append Condition of a `POST /events` call failed, or a `POST /projections` entry doesn't match the stored projection (see [Versions](#versions)) |
-| 410 | `TicketNotActive` | The ticket isn't the active one: it's unknown, or its transaction has already ended |
-| 413 | `PayloadTooLarge` | An event, or a projection (its `type`, `id`, and `payload` together), is bigger than the configured maximum size, or the request body is over `maxRequestBodySize` (8 MiB by default) |
+| 404 | `ProjectionNotFound` | `GET /projections/{type}/{id}` only: no projection exists at that `type` + `id` |
+| 409 | `ConcurrencyException` | `POST /write` only: an Append Condition doesn't hold, or was read on another store, or a projection doesn't match the stored one (see [Versions](#versions)). The `message` names the item, for example `conditions[1]` or `projections.replace[0]`. Nothing was written |
+| 413 | `PayloadTooLarge` | An event, or a projection (its `type`, `id`, and `payload` together), is bigger than its configured maximum size, or the request body is over `maxRequestBodySize`. The `message` names the setting |
 | 500 | `InternalError` | Unexpected server-side failure |
-| 503 | `TransactionQueueFull` | `POST /begin`, or a projection write without a ticket: too many requests are already waiting |
-| 503 | `ShuttingDown` | `POST /begin`, or a projection write without a ticket, while the server shuts down |
+| 503 | `WriteQueueFull` | `POST /write`, a bulk delete, or `POST /reset`: too many requests are already waiting. Nothing was written |
+| 503 | `ShuttingDown` | `POST /write`, a bulk delete, or `POST /reset`, while the server shuts down. Nothing was written |
 | 503 | `Unavailable` | `GET /health` only: storage is unreachable |
