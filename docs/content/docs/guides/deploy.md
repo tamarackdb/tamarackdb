@@ -59,9 +59,9 @@ Check each point before an instance holds real data:
    is readable by the server's user only (`chmod 600`).
 6. **No developer mode.** `devMode` stays off: it exposes `POST /reset`,
    which deletes every event (see [Developer mode](#developer-mode)).
-7. **A sized queue.** Set `maxQueuedTransactions` from how many users the
-   application serves at once (see
-   [Sizing the transaction queue](#sizing-the-transaction-queue)).
+7. **A sized queue.** Set `maxQueuedWrites` from how many writes the
+   application sends at once (see
+   [Sizing the write queue](#sizing-the-write-queue)).
 8. **Monitoring.** Point a supervisor at `/health`, scrape `/metrics`, and
    keep `logLevel` at `warning` (see [Health check](#health-check),
    [Observability](#observability), and [Logs](#logs)).
@@ -112,8 +112,8 @@ sudo systemctl enable --now tamarackdb
 ```
 
 On `systemctl stop`, systemd sends `SIGTERM`, and the server shuts down in
-order: it rolls back the active transaction, if any, and never commits one on
-its own.
+order: it turns away the requests waiting for their turn, with `503
+ShuttingDown`, and lets a write already running finish.
 
 ## Configure
 
@@ -184,8 +184,9 @@ file works whether you run one binary or both.
 : Env: `TAMARACKDB_MAX_REQUEST_BODY_SIZE`
 : Default: `8388608` (8 MiB)
 
-The size and count defaults are a cautious starting point. Find your real limits in development, with your
-application's data, then set the same values in production. Every error from a limit names the setting to raise.
+The size and count defaults are a cautious starting point. Find your real
+limits in development, with your application's data, then set the same values
+in production. Every error from a limit names the setting to raise.
 
 `maxQueuedWrites`
 : Maximum requests waiting for their turn at once: `POST /write`, the bulk deletes of projections, and `POST /reset`. One more gets `503 WriteQueueFull`.
@@ -214,8 +215,9 @@ default socket does. Set `bindAddress` or `port` to switch to TCP instead;
 Either way, the server speaks plain HTTP: TLS is a reverse proxy's job (see
 below).
 
-Run TamarackDB on the same host as the application, and keep the unix socket.
-Every transaction makes several calls, and a unix socket keeps each one short.
+Run TamarackDB on the same host as the application, and keep the unix socket:
+nothing goes over the network, and the socket's permissions decide who may
+connect.
 
 Connecting to a unix socket takes write permission on it. With the default
 `socketMode` of `"0600"`, only the user the server runs as can connect. If the
@@ -261,21 +263,22 @@ variables cover a deployment with no file at all. A `config.toml` that holds
 chmod 600 /path/to/config.toml
 ```
 
-### Sizing the transaction queue
+### Sizing the write queue
 
-Only one transaction runs at a time. The others wait their turn, in the order
-they arrived. A healthy transaction ends in well under a second, so the queue
-is usually empty or short.
+Writes go through one at a time: `POST /write`, the bulk deletes of
+projections, and `POST /reset`. The others wait their turn, in the order they
+arrived, each with its connection open. A write holds the turn only while its
+own SQLite transaction runs, usually a few milliseconds, so the queue is
+usually empty or short. Reads never wait in it.
 
-The limits matter when a client fails. A client that crashed holds its
-transaction until `transactionTimeout`. A client that keeps calling but never
-ends its transaction holds it until `maxTransactionDuration`. A request waiting
-behind `N` such transactions may wait up to `N` times `maxTransactionDuration`.
+A large write holds the turn longer: a projection rebuild sent in one write,
+for example, holds it for as long as its inserts take. The writes behind it
+wait that long.
 
-Size `maxQueuedTransactions` against how many users the application serves
-at once. There's no "no limit" value: every deployment gets a bound. The
-server doesn't cap how long a request waits for its turn: each client sets its
-own limit and closes the connection when it's reached.
+Size `maxQueuedWrites` against how many writes the application sends at once.
+There's no "no limit" value: every deployment gets a bound. The server doesn't
+cap how long a request waits for its turn: each client sets its own limit and
+closes the connection when it's reached.
 
 ## Run
 
@@ -414,7 +417,7 @@ endpoint below, not just `/health`.
 
 ## Projection rebuilds
 
-The application rebuilds its projections while it's fully down (see
+The application rebuilds its projections with ordinary requests (see
 [Integration](/docs/guides/integration/#projection-rebuilds)). The server needs
 nothing special for it: it keeps running as usual.
 
@@ -425,7 +428,7 @@ doesn't keep growing after a rebuild. To give that space back to the
 operating system, run a `VACUUM` by hand. The server must be stopped: it never
 runs one itself.
 
-Do it at the end of a rebuild, while the application is already down:
+Do it while the application can be down, for example at the end of a rebuild:
 
 1. Stop `tamarackdb-server`.
 2. Run the `VACUUM`, as the server's user (see [Run](#run)):
@@ -441,28 +444,27 @@ about the size of the database while it runs.
 
 ## Observability
 
-Two more endpoints show the server's own in-memory state: the active
-transaction, the requests waiting for their turn, and the SQLite
-connection pools. They matter when you are chasing a slow or stuck
-transaction, a queue that keeps growing, or a read pool that looks saturated.
+Two more endpoints show the server's own in-memory state: the request
+holding the write turn, the requests waiting for theirs, the writes so far,
+and the SQLite connection pools. They matter when you are chasing slow
+writes, a queue that keeps growing, or a read pool that looks saturated.
 
-- `GET /metrics`: Prometheus text format. Shows whether a transaction is
-  active, how many requests are waiting and the longest current wait,
-  transactions started, committed, and rolled back (by reason: client, error,
-  expired, shutdown, reset), how long transactions last, and how many appends
-  failed their Append Condition.
-- `GET /debug`: a JSON snapshot with a `write` object (the active transaction,
-  if any, with its deadline, ceiling, and call count; every waiting request with its wait time; the write SQLite pool's usage)
-  and a `read` object (reads without a ticket in flight, and the read SQLite
+- `GET /metrics`: Prometheus text format. Shows whether a request holds the
+  write turn, how many requests are waiting and the longest current wait, the
+  writes committed, the writes refused with `409` (by reason: an Append
+  Condition, or a projection version), and how long each write held the turn.
+- `GET /debug`: a JSON snapshot with a `write` object (what holds the turn
+  and since when; every waiting request with its wait time; the write SQLite
+  pool's usage) and a `read` object (reads in flight, and the read SQLite
   pool's usage, sized by `readPoolSize`).
 
-Neither ever shows a ticket. See
-[Architecture](/docs/architecture/#queue-and-connection-pool-observability) for the exact
-metric names and JSON shape.
+See [Architecture](/docs/architecture/#queue-and-connection-pool-observability)
+for the exact metric names and JSON shape.
 
-A rising count of `expired` rollbacks means a client is crashing or hanging
-in the middle of its transactions. A queue that keeps growing means
-transactions take longer than they should, or arrive faster than they end.
+A queue that keeps growing means writes take longer than they should, or
+arrive faster than they end: look at how long writes hold the turn. A rising
+count of writes refused on a projection version often means two instances of
+one projector run at once.
 
 ## Developer mode
 
@@ -470,8 +472,10 @@ transactions take longer than they should, or arrive faster than they end.
 local instance or a controlled troubleshooting session, never a production
 deployment:
 
-- `POST /reset`, which deletes every event and every projection, and cuts off
-  the active transaction, if any.
+- `POST /reset`, which deletes every event and every projection, and gives the
+  store a new store ID: for the application, it's like a restart on a brand new
+  database. It waits for its turn like a write: the writes queued before it go
+  through, then it deletes them.
 - `/debug/pprof/*`, Go's standard profiling endpoints (CPU, heap, goroutine,
   and so on).
 
@@ -496,7 +500,7 @@ an aggregate, use `/debug/pprof/trace?seconds=30` with `go tool trace`.
 
 The server logs one line per request to stdout, tagged with a severity level:
 method, path, status code, response size, and time taken, e.g.
-`tamarackdb-server: [WARNING] POST /begin 503 35B 30001.52ms`. By default only
+`tamarackdb-server: [WARNING] POST /write 503 27B 0.07ms`. By default only
 `warning` and `error` lines print; set `logLevel` to `debug` to see every
 request, including successful ones, while testing an integration.
 
@@ -510,34 +514,20 @@ Each outcome carries a fixed level, not derived from the status code alone:
 | Invalid request | 400 | `info` |
 | Payload too large | 413 | `info` |
 | Missing or invalid bearer token | 401 | `info` |
-| Transaction no longer active | 410 | `info` |
 | Server shutting down | 503 | `info` |
-| Transaction queue full | 503 | `warning` |
-| Transaction expired | none | `warning` |
+| Write queue full | 503 | `warning` |
 | Internal error | 500 | `error` |
 | Storage unreachable | 503 | `error` |
 
 A successful request and an expected rejection, such as a concurrency
 conflict or a projection that doesn't exist, are both `debug`: the server did
-exactly what it was supposed to do. A malformed or oversized request, a bad
-token, or a call on a transaction that already ended is `info`: not the
-server's fault, but worth knowing about. So is a request turned away because
-the server is shutting down. A full or slow transaction queue is `warning`: a real signal of capacity or contention.
-
-A transaction that reaches its idle timeout or its ceiling is rolled back by
-the server itself, with no request to log. It gets its own `warning` line
-instead, with the transaction's ticket, which limit was reached, and how long
-the transaction lasted:
-
-```
-tamarackdb-server: [WARNING] transaction a045ad63-5d4b-4847-8eb9-fbddb4e2d65b expired: idle timeout reached after 5.00s
-```
-
-If the application logs the ticket it gets for each command, this line tells
-you which command it was.
+exactly what it was supposed to do. A malformed or oversized request, or a bad
+token, is `info`: not the server's fault, but worth knowing about. So is a
+request turned away because the server is shutting down. A full write queue is
+`warning`: a real signal of capacity or contention.
 
 An internal error or an unreachable store is `error`: a real failure.
 
 At startup, the server also prints a banner and its resolved configuration
-(bind address, port, data directory, transaction limits, and so on), so you
+(bind address, port, data directory, limits, and so on), so you
 can confirm what a given instance is actually running with.
