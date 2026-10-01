@@ -648,8 +648,12 @@ decides again, and retries.
 A condition also carries `store`, the store ID its `afterSequence` was read with (see Store ID). A condition read on
 another store ID than the current one fails without any SQL: its `afterSequence` names a position in a different
 history. A condition with `afterSequence` must carry `store`, and a condition without it must not: it read nothing,
-so it holds on any store. `failIfEventsMatch` is optional too: an `afterSequence` alone fails if any event at all
-exists after it.
+so it holds on any store.
+
+Both `failIfEventsMatch` and `afterSequence` are optional. `failIfEventsMatch` alone fails if any matching event exists
+at all, from Sequence Position 1. `afterSequence` alone fails if any event at all exists after it. A condition with
+neither field always holds: it says nothing, so it protects nothing. A rewrite must not read an empty condition as
+`afterSequence: 0`, which would fail as soon as the store holds one event.
 
 A write carries a list of conditions, and every one must hold. A transaction usually has one per decision: each
 decision model or processor adds the condition its own read supports. This is more precise than one condition merged

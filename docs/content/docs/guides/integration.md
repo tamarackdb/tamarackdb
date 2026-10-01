@@ -431,9 +431,16 @@ matching it exists after `afterSequence`, or if the store ID is no longer
 `store`.
 
 A condition with `afterSequence` must carry `store`, and a condition without
-it must not: it read nothing, so it holds on any store. `failIfEventsMatch`
-is optional too: an `afterSequence` alone fails if any event at all exists
-after it.
+it must not: it read nothing, so it holds on any store.
+
+Both `failIfEventsMatch` and `afterSequence` are optional:
+
+- `failIfEventsMatch` alone fails if any matching event exists at all. It
+  suits a decision that rests on no read, for example "fail if a
+  `user-registered` event with this email exists".
+- `afterSequence` alone fails if any event at all exists after it.
+- A condition with neither field always holds: it says nothing, so it
+  protects nothing.
 
 A write carries a list of conditions, at most `maxEventsPerWrite` of them,
 and every one must hold. A transaction usually has one per decision: each
