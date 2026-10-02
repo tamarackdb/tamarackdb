@@ -1,17 +1,22 @@
 [[main]]
-  name = "Guides"
-  url = "/docs/guides/deployment/"
+  name = "Concepts"
+  url = "/docs/concepts/overview/"
   weight = 10
 
 [[main]]
-  name = "Architecture"
-  url = "/docs/architecture/"
+  name = "HTTP API"
+  url = "/docs/http-api/conventions/"
   weight = 20
+
+[[main]]
+  name = "Operations"
+  url = "/docs/operations/install/"
+  weight = 30
 
 [[main]]
   name = "Contributing"
   url = "/docs/contributing/building-from-source/"
-  weight = 30
+  weight = 40
 
 [[social]]
   name = "GitHub"
@@ -19,8 +24,8 @@
   url = "https://github.com/tamarackdb/tamarackdb"
   weight = 10
 
-# Explicit sidebar: Doks only lists sections on its own, and a single
-# page (Architecture) has to be listed by hand.
+# Explicit sidebar: Doks only lists sections on its own, so a single page
+# (Client libraries, Backup) has to be listed by hand.
 [[sidebar_docs]]
   pageRef = "/docs/concepts"
   weight = 10
@@ -28,6 +33,10 @@
 [[sidebar_docs]]
   pageRef = "/docs/http-api"
   weight = 20
+
+[[sidebar_docs]]
+  pageRef = "/docs/client-libraries"
+  weight = 30
 
 [[sidebar_docs]]
   pageRef = "/docs/server-internals"
@@ -38,13 +47,9 @@
   weight = 50
 
 [[sidebar_docs]]
+  pageRef = "/docs/backup"
+  weight = 60
+
+[[sidebar_docs]]
   pageRef = "/docs/contributing"
   weight = 70
-
-[[sidebar_docs]]
-  pageRef = "/docs/guides"
-  weight = 80
-
-[[sidebar_docs]]
-  pageRef = "/docs/architecture"
-  weight = 90

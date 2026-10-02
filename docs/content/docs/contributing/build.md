@@ -5,8 +5,8 @@ weight: 1
 ---
 
 This is for anyone building TamarackDB from source: contributors and packagers.
-For how to run it, see [Deployment](/docs/guides/deployment/). For how it works inside, see
-[Architecture](/docs/architecture/).
+For how to run it, see [Install](/docs/operations/install/). For how it works inside, see
+[Server internals](/docs/server-internals/write-fifo/).
 
 ## Build
 
@@ -56,8 +56,14 @@ make tamarackdb-demo
 how many projections to create (default 0). Set one of them to 0 to seed only the
 other. `--seed` makes the run repeatable.
 
-Projection ids always run from 1 to `--projections`. A second run on the same data
-directory replaces the projections of the first one.
+Projections have types `ProjectionType1` to `ProjectionType5`, and ids always run
+from 1 to `--projections`. Each id exists under only one of those types, picked at
+random. A second run on the same data directory replaces the projections of the
+first one.
+
+The tool writes straight to the database file, so run it before starting
+`tamarackdb-server`, or against a separate data directory. It's also useful to test
+a client library against realistic volume.
 
 ## Other Makefile targets
 

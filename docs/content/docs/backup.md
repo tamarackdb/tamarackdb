@@ -1,27 +1,24 @@
 ---
 title: "Backup"
 slug: "backup"
-weight: 3
+weight: 60
+aliases:
+  - /docs/guides/backup/
 ---
 
-This is for whoever needs a standing backup copy of an instance's events: an
-off-site copy, a warm standby, or a database to test against without touching
-production. For how to run the server itself, see [Deployment](/docs/guides/deployment/).
+`tamarackdb-backup` keeps a standing copy of an instance's events: an off-site copy, a warm standby, or a database to
+test against without touching production. It does one catch-up run and exits. Schedule it with cron or a systemd
+timer; don't run it as a long-running process. A missed or late run isn't a problem: the next one picks up where the
+last one stopped.
 
-`tamarackdb-backup` copies new events from a remote TamarackDB instance into a
-local SQLite file, named after the store ID of the instance. It does one
-catch-up run and exits: schedule it with cron
-or a systemd timer, don't run it as a long-running process. A run that's
-missed or late isn't a problem: the next one picks up from where the last one
-stopped.
+Key words in capitals follow [RFC 2119](/docs/concepts/overview/#key-words).
 
-Generate a starter config and adjust it as needed:
+## Configuration
+
+Generate a starter config and adjust it:
 
 ```sh
 ./bin/tamarackdb-backup --default-config > backup-config.toml
-```
-
-```sh
 ./bin/tamarackdb-backup --config /path/to/backup-config.toml
 ```
 
@@ -54,7 +51,7 @@ The config file is TOML, with these keys under a `[backup]` section. An
 unknown key in it stops the run with an error naming the key. If it holds
 `sourceToken`, make it readable by the backup's user only (`chmod 600`). That
 section can live in its own file, as shown above, or share one file with the
-server's `[server]` section (see [Deployment](/docs/guides/deployment/#configure)); either
+server's `[server]` section (see [Configuration](/docs/operations/configuration/#sources)); either
 way `tamarackdb-backup` reads only `[backup]`.
 
 Set exactly one of `sourceUrl` and `sourceSocket`: a run with both, or
@@ -62,29 +59,39 @@ neither, stops with an error. When the file sets one of them, the
 `TAMARACKDB_BACKUP_SOURCE_*` variables are ignored, so a variable left in the
 environment can't clash with the file's choice.
 
-## How it works
+## How a run works
 
-Every TamarackDB instance names the history it holds with a store ID (see
-[Integration](/docs/guides/integration/#store-id)). A backup file is named
-after it, `<store ID>.sqlite`, in `dataDir`, so the events of one store never
-land in the file of another. Each run:
+Every instance names the history it holds with a store ID (see [Store ID](/docs/concepts/store-id/)). A backup file is
+named after it, `<store ID>.sqlite`, in `dataDir`. Each run:
 
-1. Asks the source for its first event, only for the store ID its response
-   carries. The event itself is dropped.
-2. Opens the file named after that store ID, or creates it, and resumes after
-   the last event it holds.
-3. Reads the new events page by page. Every page must carry the same store
-   ID. If it changes during the run, the source was reset in the meantime:
-   the run stops with an error, without importing that page, and the next run
-   starts the new file.
+1. Asks the source for its first event (`QUERY /events` with `afterSequence: 0` and `limit: 1`), only for the store ID
+   in the response's header. The event itself is dropped, and the page is empty for an empty source.
+2. Checks that the store ID is a UUID in its canonical form, since it comes from the network and becomes a file name.
+   Nothing else can point outside the backup directory.
+3. Creates `dataDir` if it's missing, then opens `<store ID>.sqlite` in it, or creates it with the server's schema. The
+   run holds the file's `.lock` (see [SQLite](/docs/server-internals/sqlite/#one-process-per-file)): a backup file
+   can't be updated while a server serves it.
+4. Reads the highest Sequence Position already in the file.
+5. Pages through the source's `QUERY /events` from there, with `limit` set to `pageLimit`. Every page MUST carry the
+   same store ID as the first response. If it changes, the source was reset during the run: the run stops with an
+   error, without importing that page, and the next run starts the new file.
+6. Writes each page in one SQLite transaction, with `Store.Import`, a variant of `Store.Append`. Each event keeps the
+   `sequence` and `time` the source gave it: the import skips sequence reservation and the Append Condition check,
+   then moves the local counter past the highest sequence imported.
+7. Stops once a page's trailer reads `hasMore: false`.
 
-The store ID comes from the network, so a run checks that it's a UUID before
-using it as a file name.
+**Why the file name.** It's what keeps the events of one store out of the file of another, with nothing else to store
+or check. After a reset of the source, the next run sees a new store ID, creates a new file, and starts from zero; the
+old file stays as it is. On a development instance, files pile up: delete the ones you no longer need.
 
-The store ID only changes when the source is reset with `POST /reset`, which
-exists in developer mode only. Each reset starts a new file, and the files of
-earlier store IDs stay as they are. On a development instance, they pile up:
-delete the ones you no longer need.
+## Failures
+
+- A page cut short (no trailer, see [A page cut short](/docs/http-api/read-events/#a-page-cut-short)) fails the run,
+  instead of importing a partial page.
+- A page request that takes more than 5 minutes fails the run, so a source that stops answering never holds the
+  backup file's lock past that.
+- There's no retry inside a run: the error goes to stderr, with a non-zero exit code.
+- Every page imported before the failure is already committed, so the next run resumes right after it.
 
 ## A source on the same host
 
@@ -100,7 +107,7 @@ Nothing is exposed over the network. The socket's permissions decide who may
 connect, as for the application: the backup's user must be allowed by the
 server's `socketMode`. Run the backup as the server's own user, or set
 `socketMode = "0660"` and add the backup's user to the server's group (see
-[Deployment](/docs/guides/deployment/#configure)).
+[Security](/docs/operations/security/#unix-socket)).
 
 ## A source on another host
 
@@ -118,13 +125,21 @@ Two things to get right:
   proxy passes the `Authorization` header through.
 - **The proxy's access to the socket.** The proxy's user must be allowed by
   the server's `socketMode`: set it to `"0660"`, and add that user to the
-  server's group (see [Deployment](/docs/guides/deployment/#configure)).
+  server's group (see [Security](/docs/operations/security/#unix-socket)).
 
-## What the backup holds
+## What a backup file holds
 
-A backup file is a regular TamarackDB database. If the source is ever lost,
-serve the file of its current store ID as the new instance. That's the file
-the last run wrote to: each run logs its path.
+- Events only. Projections are left out on purpose: every projection can be rebuilt from events, so the file's
+  `projections` table stays empty.
+- It's a regular TamarackDB database file. Unlike a raw copy of the source's file, which can miss commits still in the
+  WAL, `tamarackdb-server` can serve it as a live instance.
+- It has a store ID of its own, drawn when the run created it, not the source's. Served as an instance, it's seen as
+  another store, which is right, since it can be behind the source.
+
+## Restoring
+
+If the source is ever lost, serve the file of its current store ID as the new
+instance. That's the file the last run wrote to: each run logs its path.
 
 1. Wait for any `tamarackdb-backup` run to finish, and stop scheduling new ones.
 2. Create a new data directory, owned by the user the server runs as (here
@@ -143,22 +158,13 @@ the last run wrote to: each run logs its path.
    can't write, and it refuses to start.
 3. Start `tamarackdb-server` with `dataDir` set to that directory.
 
-It holds events only, not projections. Before an application uses a restored
-backup, it must rebuild its projections (see
-[Integration](/docs/guides/integration/#projection-rebuilds)).
-
-A backup file has a store ID of its own, drawn when the run created it, not
-the source's. Served as an instance, it's seen as another store: anything
-that kept a position on the source starts over. That's right, since the
-backup can be behind the source.
+Before an application uses a restored backup, it must rebuild its
+projections (see [Rebuilds](/docs/concepts/projections/#rebuilds)). Anything
+that kept a position on the source starts over, since the backup has its own
+store ID.
 
 Don't serve the backup file while `tamarackdb-backup` still writes to it: the
 two can't hold the file at the same time.
-
-A run that fails exits with a non-zero code and writes the error to stderr.
-The next run resumes where the failed one stopped.
-
-See [Architecture](/docs/architecture/#backup) for how a run works.
 
 ## Scheduling
 
