@@ -1,8 +1,7 @@
 # Documentation writing guidelines
 
 These rules apply to all documentation in this repo: `README.md`, every
-page under `docs/content/` (including the technical
-`docs/content/docs/architecture.md`), the home page template
+page under `docs/content/`, the home page template
 `docs/layouts/home.html`, and prose in Go doc comments.
 
 ## Style
@@ -27,32 +26,50 @@ PR description, not in the doc or comment itself.
 
 ## Documentation structure
 
-Docs are split by audience, not by topic. Paths below are relative to
-`docs/content/docs/`:
+Docs are split by subject, like a wiki. The central rule: **one fact, one
+page**. Each fact has one owning page; every other page links to it
+instead of repeating it. Before writing a rule, find its owning page.
+Duplicated facts drift apart.
 
-- `architecture.md`: internal design, code architecture, logic rules,
-  technical detail. Audience: anyone changing TamarackDB itself.
-- `guides/integration.md`: reading/appending events over HTTP, optimistic
-  concurrency, error responses. Audience: people writing a client library
-  or application integration against TamarackDB's HTTP API. Excludes
-  anything operational.
-- `guides/deploy.md`: configuration, running the binary, Docker,
-  provisioning tool usage, health check, observability
-  (`/metrics`, `/debug`), logs. Audience: whoever runs an instance.
-- `contributing/build.md`: compiling, testing, Makefile targets, the demo/seed
-  tool (`cmd/tamarackdb-demo`). Audience: contributors building TamarackDB from
-  source.
-- `guides/backup.md`: `tamarackdb-backup` usage, how it works, scheduling
-  with cron/systemd. Audience: whoever needs a standing backup copy of an
-  instance's events.
+Sections, relative to `docs/content/docs/`:
+
+- `concepts/`: what TamarackDB is and the ideas the rest builds on:
+  overview and terms, transactions, the courtyard picture, events and
+  tags, the store ID, the Append Condition, projections and rebuilds.
+- `http-api/`: the wire contract: conventions (connecting, request
+  bodies, the store ID header), query grammar, `QUERY /events`,
+  `POST /write`, projection endpoints, `POST /reset`, errors.
+- `client-libraries.md`: what a client library must do on top of the
+  HTTP API.
+- `server-internals/`: how the server works inside: the write FIFO, the
+  Sequence Position counter, reads, lifecycle, SQLite, schema, code
+  layout. For anyone changing TamarackDB itself.
+- `operations/`: running an instance: install (local, systemd, Docker),
+  configuration (the only settings table), security, health check,
+  observability, logs, dev mode, maintenance.
+- `backup.md`: `tamarackdb-backup`: configuration, how a run works,
+  restoring, scheduling.
+- `contributing/`: building from source, tests, the demo dataset, the
+  documentation site.
 - `README.md`: kept short: logo, badges, a one-paragraph intro, a short
   feature list, a single link to the documentation site at
   <https://tamarackdb.github.io/> without listing its pages, a contributing
   note, and a closing "Trivia" section on the name. No config tables, no
   Docker examples, no build instructions live in the README itself.
 
-When adding new documentation content, place it by asking "who reads this
-to do their job," not by topic proximity.
+## Page layout
+
+- A page opens with one or two sentences on what it covers.
+- Within a section: rules as a bulleted list, one rule per bullet, edge
+  cases included. Keep the reason for a rule in a short "**Why.**"
+  paragraph, in prose, when a rewrite might otherwise simplify it in the
+  wrong place.
+- Normative rules (what a client, a client library, an application, or a
+  rewrite of TamarackDB has to do) use the RFC 2119 key words: MUST,
+  MUST NOT, SHOULD, SHOULD NOT, MAY. No SHALL, no RECOMMENDED.
+  Descriptions of how the server works stay ordinary sentences. A page
+  that uses the key words says so near the top, with a link to
+  `/docs/concepts/overview/#key-words`.
 
 ## Documentation site
 
@@ -63,11 +80,13 @@ to do their job," not by topic proximity.
 - Every page starts with front matter: `title`, `slug`, `weight`. The
   page title comes from `title`; don't add a `#` heading.
 - Link between pages with absolute site paths, e.g.
-  `[Deployment](/docs/guides/deployment/#configure)`, never with `.md`
-  file paths.
+  `[Configuration](/docs/operations/configuration/#limits)`, never with
+  `.md` file paths.
 - Top-level sidebar entries are listed in
   `docs/config/_default/menus/menus.en.toml` (`sidebar_docs`). A new
   section or top-level page must be added there.
+- A page that replaces another keeps the old URL working with Hugo
+  `aliases` in its front matter.
 - Build locally from `docs/` with `npm ci` then `npm run dev`.
 
 ## Versioning context
