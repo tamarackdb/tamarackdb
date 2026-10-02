@@ -6,7 +6,7 @@ disableKinds = ["taxonomy", "term"]
 enableEmoji = true
 enableGitInfo = false
 enableRobotsTXT = true
-languageCode = "en-US"
+locale = "en-US"
 defaultContentLanguage = "en"
 summarylength = 20
 
