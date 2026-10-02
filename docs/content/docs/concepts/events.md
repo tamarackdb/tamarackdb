@@ -78,7 +78,7 @@ period tags them when it writes them (a `month` metadata entry, for example) and
 
 ## Size
 
-- An event is at most `maxEventSize` bytes, 64 KiB by default (see
+- An event is at most `maxEventSize` bytes (see
   [Configuration](/docs/operations/configuration/)).
 - Its size is the UTF-8 byte length of its `type`, of every tag's name and value, and of its `payload`. A multi-byte
   character counts for more than one byte.

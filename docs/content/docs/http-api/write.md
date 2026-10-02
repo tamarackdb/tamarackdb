@@ -58,14 +58,16 @@ fixed shape each leave none.
 
 ## Limits
 
-| Limit | Default | Over it |
-|---|---|---|
-| `maxEventsPerWrite` events | 100 | `400` |
-| `maxEventsPerWrite` conditions | 100 | `400` |
-| `maxProjectionsPerWrite` projections, across the three lists | 500 | `400` |
-| `maxEventSize` bytes per event (see [Events](/docs/concepts/events/#size)) | 64 KiB | `413` |
-| `maxProjectionSize` bytes per projection: its `type`, `id`, and `payload` together | 64 KiB | `413` |
-| `maxRequestBodySize` bytes for the whole body | 8 MiB | `413` |
+Each limit is a setting, with its default in [Configuration](/docs/operations/configuration/#settings).
+
+| Limit | Over it |
+|---|---|
+| `maxEventsPerWrite` events | `400` |
+| `maxEventsPerWrite` conditions | `400` |
+| `maxProjectionsPerWrite` projections, across the three lists | `400` |
+| `maxEventSize` bytes per event (see [Events](/docs/concepts/events/#size)) | `413` |
+| `maxProjectionSize` bytes per projection: its `type`, `id`, and `payload` together | `413` |
+| `maxRequestBodySize` bytes for the whole body | `413` |
 
 - These limits count everything one transaction of the application writes, since it all goes out in one write.
 - Each error from a limit names its setting, for example `request carries 612 projections, more than
@@ -109,8 +111,8 @@ it, for as long as it likes.
 }
 ```
 
-- `events`: the Sequence Position and `time` of each event, in the order they were sent. Every event of one write
-  shares the same `time`.
+- `events`: the Sequence Position and `time` of each event, in the order they were sent (see
+  [Events](/docs/concepts/events/#time)).
 - `projections`: the new version of each created and replaced projection, in the order they were sent.
 - Every list is always present, empty if need be.
 
@@ -121,7 +123,7 @@ Nothing is written. The `message` names the item by its place in the body:
 
 | Cause | `message` |
 |---|---|
-| An event matching a condition was written after its `afterSequence` | `conditions[1] no longer holds` |
+| An event matching a condition exists after its `afterSequence`, or at all for a condition without one | `conditions[1] no longer holds` |
 | A condition was read on another store ID | `conditions[0] was read on another store` |
 | A `replace` or `delete` whose version isn't the stored one, or whose projection no longer exists | `projections.replace[0] no longer has the given version` |
 | A `create` whose `type` + `id` already exists | `projections.create[0] already exists` |

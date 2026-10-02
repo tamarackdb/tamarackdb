@@ -27,7 +27,7 @@ curl -X QUERY http://127.0.0.1:8085/events \
 |---|---|---|
 | `query` | yes | A query in the [query grammar](/docs/http-api/query-grammar/), or `"*"` for every event |
 | `afterSequence` | no | Only events with a Sequence Position strictly greater than this value. Left out, the read starts at the beginning |
-| `limit` | no | The most events in this page: at least 1, at most `maxEventsPerPage` (10,000 by default). Left out, `defaultEventsPerPage` (1,000 by default) |
+| `limit` | no | The most events in this page: at least 1, at most `maxEventsPerPage`. Left out, `defaultEventsPerPage` (see [Configuration](/docs/operations/configuration/)) |
 
 - The body is decoded strictly (see [Conventions](/docs/http-api/conventions/#request-bodies)).
 - A negative `afterSequence`, or a `limit` below 1 or above `maxEventsPerPage`, gets `400`.

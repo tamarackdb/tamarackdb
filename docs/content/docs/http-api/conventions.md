@@ -48,8 +48,8 @@ The examples in these pages assume a server on `127.0.0.1:8085`, with authentica
 - A body is JSON. `QUERY /events` and `POST /write` decode it strictly:
   - an unknown key, at any level, gets `400`;
   - anything after the JSON value, other than whitespace, gets `400`.
-- Every request body is capped at `maxRequestBodySize`, 8 MiB by default. Past the cap, the server stops reading and
-  responds `413 PayloadTooLarge`.
+- Every request body is capped at `maxRequestBodySize` (see [Configuration](/docs/operations/configuration/)). Past
+  the cap, the server stops reading and responds `413 PayloadTooLarge`.
 
 **Why strict.** Most keys are optional. A misspelled one would otherwise be dropped without a word: a misspelled
 `afterSequence` would widen a read, and a misspelled list in a write would drop it.
