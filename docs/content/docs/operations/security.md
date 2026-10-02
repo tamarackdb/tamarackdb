@@ -14,8 +14,7 @@ Key words in capitals follow [RFC 2119](/docs/concepts/overview/#key-words).
 The recommended setup: TamarackDB runs on the same host as the application, on its unix socket (the default, see
 [Configuration](/docs/operations/configuration/#listening)).
 
-- Nothing goes over the network, and the socket's permissions decide who may connect. This keeps the server off the
-  network unless you opt in, the way MySQL's default socket does.
+- Nothing goes over the network, and the socket's permissions decide who may connect.
 - A transaction often makes several reads before its one write, and the socket keeps each of those round trips short.
 - Connecting takes write permission on the socket. With the default `socketMode` of `"0600"`, only the server's own
   user can connect.

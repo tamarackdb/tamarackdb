@@ -71,8 +71,7 @@ A file that holds `authToken` is a secret: see [Security](/docs/operations/secur
 
 ## Data directory
 
-- `dataDir` holds the database file, `tamarackdb.sqlite`. Only the directory is configurable: the file name is fixed,
-  the same convention as MySQL's `datadir`.
+- `dataDir` holds the database file, `tamarackdb.sqlite`. Only the directory is configurable: the file name is fixed.
 - Its layout is managed by TamarackDB and may change between versions: don't rely on it, and don't edit its contents
   by hand.
 - Its permissions are in [Security](/docs/operations/security/#files).

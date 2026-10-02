@@ -69,7 +69,6 @@ tags, and the application knows how to read each one back.
   `2026-09-01T14:23:05.123456Z`.
 - Every event of one write shares the same `time`. Order within a write comes from `sequence`.
 - `time` usually follows `sequence` order, but nothing guarantees it: order events by `sequence`, never by `time`.
-- The store has no time zone setting. Converting to local time is the application's job.
 - No read filters on `time` (see [`QUERY /events`](/docs/http-api/read-events/)).
 
 **Why.** Day to day, NTP corrects a small drift smoothly, without moving the clock back. A jump back is still

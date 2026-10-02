@@ -24,10 +24,6 @@ Key words in capitals follow [RFC 2119](/docs/concepts/overview/#key-words).
 
 - "In its turn" means the request waits in the write FIFO, behind the requests that arrived before it (see
   [The write FIFO](/docs/server-internals/write-fifo/)).
-- Endpoints are named by the resource they act on (`/events`, `/projections`) or by what they do (`/write`,
-  `/reset`).
-- No request belongs to a transaction on the server: each one stands on its own (see
-  [Transactions](/docs/concepts/transactions/)).
 - `GET /health`, `GET /metrics`, and `GET /debug` are operational endpoints (see
   [Health check](/docs/operations/health-check/) and [Observability](/docs/operations/observability/)).
 

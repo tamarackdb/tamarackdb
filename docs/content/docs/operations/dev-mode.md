@@ -13,8 +13,7 @@ production.
 | [`POST /reset`](/docs/http-api/reset/) | Deletes every event and projection, and draws a new store ID |
 | `/debug/pprof/*` | Go's standard profiling endpoints (CPU, heap, goroutine, and so on) |
 
-- With `devMode` off, neither exists: a request to either gets the plain `404` of any unknown path. They're out of
-  reach in a normal deployment, not reachable but guarded.
+- With `devMode` off, neither exists: a request to either gets the plain `404` of any unknown path.
 - When `enableAuth` is on, both need the token like every other route.
 - Turn `devMode` on only for as long as you need it, then turn it back off.
 
