@@ -77,8 +77,14 @@ Sections, relative to `docs/content/docs/`:
 <https://tamarackdb.github.io/> by `.github/workflows/docs.yml` on each
 `v*` tag.
 
-- Every page starts with front matter: `title`, `slug`, `weight`. The
-  page title comes from `title`; don't add a `#` heading.
+- Every page starts with front matter: `title`, `description`, `slug`,
+  `weight`. The page title comes from `title`; don't add a `#` heading.
+  `description` is one sentence of 110 to 160 characters saying what the
+  page covers: it's the page's meta description, and its entry in
+  `llms.txt`. A section's `_index.md` has a `description` too.
+- `llms.txt` and `llms-full.txt` are generated at build time from the
+  pages, in sidebar order (`docs/layouts/index.llms.txt` and
+  `index.llmsfull.txt`): never edit their output by hand.
 - Link between pages with absolute site paths, e.g.
   `[Configuration](/docs/operations/configuration/#limits)`, never with
   `.md` file paths.
