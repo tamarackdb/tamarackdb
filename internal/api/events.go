@@ -197,18 +197,27 @@ func (e *oversizeError) Error() string {
 	return fmt.Sprintf("%s is %d bytes, more than %s (%d)", e.at, e.size, e.setting, e.max)
 }
 
-// validateEvents checks each event, in order: dcb.EventData.Validate()
+// validateEvents checks each event, in order: dcb.EventInput.Validate()
 // (fail-fast on the first domain violation), then maxEventSize. A message
 // names the event as events[i].
-func validateEvents(events []dcb.EventData, maxEventSize int) error {
+func validateEvents(events []dcb.EventInput, maxEventSize int) error {
 	for i, ev := range events {
 		at := fmt.Sprintf("events[%d]", i)
 		if err := ev.Validate(); err != nil {
 			return prefixed(at, err)
 		}
-		if size := ev.Size(); size > maxEventSize {
+		if size := ev.Data().Size(); size > maxEventSize {
 			return &oversizeError{at: at, setting: "maxEventSize", size: size, max: maxEventSize}
 		}
 	}
 	return nil
+}
+
+// eventData returns the events to append, once validateEvents has passed.
+func eventData(events []dcb.EventInput) []dcb.EventData {
+	out := make([]dcb.EventData, len(events))
+	for i, ev := range events {
+		out[i] = ev.Data()
+	}
+	return out
 }

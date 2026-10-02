@@ -15,7 +15,7 @@ import (
 // key is optional, and a missing one is an empty list. The body is decoded
 // strictly, so a misspelled key gets 400 instead of being dropped.
 type writeRequest struct {
-	Events      []dcb.EventData       `json:"events"`
+	Events      []dcb.EventInput      `json:"events"`
 	Conditions  []dcb.AppendCondition `json:"conditions"`
 	Projections projection.Writes     `json:"projections"`
 }
@@ -50,7 +50,7 @@ func (s *Server) handleWrite(w http.ResponseWriter, r *http.Request) {
 			// wait for.
 			result, err = s.st.Append(r.Context(), nil, nil, projection.Writes{})
 		} else {
-			result, err = s.tm.Write(r.Context(), req.Events, req.Conditions, req.Projections)
+			result, err = s.tm.Write(r.Context(), eventData(req.Events), req.Conditions, req.Projections)
 		}
 	}
 	if err != nil {

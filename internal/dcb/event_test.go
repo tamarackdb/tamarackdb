@@ -181,6 +181,43 @@ func TestEventDataValidate(t *testing.T) {
 	}
 }
 
+func TestEventInputValidate(t *testing.T) {
+	empty, payload := "", `{"a":1}`
+	tests := []struct {
+		name    string
+		event   EventInput
+		wantErr error
+	}{
+		{"empty payload", EventInput{Type: "t", Payload: &empty}, nil},
+		{"payload", EventInput{Type: "t", Payload: &payload}, nil},
+		{"missing payload", EventInput{Type: "t"}, ErrMissingPayload},
+		{"missing type first", EventInput{}, ErrMissingType},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.event.Validate()
+			if tt.wantErr == nil {
+				if err != nil {
+					t.Errorf("Validate() error = %v, want nil", err)
+				}
+				return
+			}
+			if !errors.Is(err, tt.wantErr) {
+				t.Errorf("Validate() error = %v, want %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestEventInputData(t *testing.T) {
+	payload := "p"
+	in := EventInput{Type: "t", Identifiers: IdentifierSet{{Name: "a", Value: "1"}}, Payload: &payload}
+	got := in.Data()
+	if got.Type != "t" || got.Payload != "p" || len(got.Identifiers) != 1 {
+		t.Errorf("Data() = %+v, want type t, payload p, one identifier", got)
+	}
+}
+
 func TestEventDataSize(t *testing.T) {
 	e := EventData{
 		Type:    "abc",

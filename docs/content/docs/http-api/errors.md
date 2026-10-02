@@ -42,16 +42,16 @@ How each code is logged is in [Logs](/docs/operations/logs/).
 
 - **The body**: invalid JSON, anything after the JSON value other than whitespace, or an unknown key at any level.
 - **A query** (`query`, or a condition's `failIfEventsMatch`): not an array of query items or `"*"`, an empty array
-  where the grammar needs a non-empty one, an empty item, more than 100 items, or more than 100 values in one item
-  (see [Query grammar](/docs/http-api/query-grammar/)).
+  where the grammar needs a non-empty one, an empty item, more than 100 items, or more than 100 values in one item (see
+  [Query grammar](/docs/http-api/query-grammar/)).
 - **Reading**: a non-integer or negative `afterSequence`, or a `limit` below 1 or above `maxEventsPerPage`.
-- **An event**: a missing `type`, an empty array as a tag value, a duplicate tag, or more than 20 identifiers or
-  metadata entries (see [Events](/docs/concepts/events/)).
+- **An event**: a missing `type`, a missing or `null` `payload`, an empty array as a tag value, a duplicate tag, or more
+  than 20 identifiers or metadata entries (see [Events](/docs/concepts/events/)).
 - **A condition**: a negative `afterSequence`, an `afterSequence` without `store`, or a `store` without `afterSequence`.
 - **A projection**: a missing `type`, `id`, `version` (for `replace` and `delete`), or `payload` (for `create` and
   `replace`), a key its list doesn't take, or the same `type` + `id` twice in one write.
 - **A write**: more events, conditions, or projections than one write allows (see
   [Writing](/docs/http-api/write/#limits)).
 
-The `message` names the item at fault by its place in the body, for example `events[3]` or
-`projections.create[0]`, and names the setting behind a limit.
+The `message` names the item at fault by its place in the body, for example `events[3]` or `projections.create[0]`, and
+names the setting behind a limit.

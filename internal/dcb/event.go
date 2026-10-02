@@ -194,6 +194,40 @@ func (e EventData) Validate() error {
 	return nil
 }
 
+// EventInput is an event as POST /write receives it.
+//
+// Payload is a pointer so that a missing or null payload can be told
+// apart from an empty string and rejected: a key that went missing on the
+// client must never be appended as an empty payload, and an event can't be
+// corrected once appended.
+type EventInput struct {
+	Type        string        `json:"type"`
+	Identifiers IdentifierSet `json:"identifiers"`
+	Metadata    MetadataSet   `json:"metadata"`
+	Payload     *string       `json:"payload"`
+}
+
+// Data returns the event to append. A nil Payload becomes an empty string:
+// call it after Validate.
+func (e EventInput) Data() EventData {
+	d := EventData{Type: e.Type, Identifiers: e.Identifiers, Metadata: e.Metadata}
+	if e.Payload != nil {
+		d.Payload = *e.Payload
+	}
+	return d
+}
+
+// Validate checks EventData's rules, then that Payload is present.
+func (e EventInput) Validate() error {
+	if err := e.Data().Validate(); err != nil {
+		return err
+	}
+	if e.Payload == nil {
+		return &ValidationError{Err: ErrMissingPayload, Message: "event is missing its payload"}
+	}
+	return nil
+}
+
 func duplicateExists[T comparable](items []T) bool {
 	seen := make(map[T]struct{}, len(items))
 	for _, it := range items {
@@ -278,6 +312,7 @@ func (e *ValidationError) Unwrap() error { return e.Err }
 
 var (
 	ErrMissingType         = errors.New("event is missing its type")
+	ErrMissingPayload      = errors.New("event is missing its payload")
 	ErrTooManyIdentifiers  = errors.New("too many identifiers")
 	ErrTooManyMetadata     = errors.New("too many metadata entries")
 	ErrDuplicateIdentifier = errors.New("duplicate identifier")

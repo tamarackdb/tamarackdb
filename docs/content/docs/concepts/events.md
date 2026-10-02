@@ -51,7 +51,9 @@ tags, and the application knows how to read each one back.
 
 ## Payload
 
-- `payload` is an opaque string. The server never parses or checks it.
+- `payload` is an opaque string. The server never parses or checks its content.
+- An empty string is valid. A missing or `null` payload gets `400`, so a key dropped on the client (JavaScript's
+  `JSON.stringify` drops `undefined` values) never appends an empty payload, which no later write could correct.
 - Its format (JSON, XML, or anything else) is a convention of the writing application, usually based on `type`.
 
 ## Sequence Position

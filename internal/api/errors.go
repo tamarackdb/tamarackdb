@@ -68,7 +68,7 @@ func (s *Server) handleErr(w http.ResponseWriter, r *http.Request, err error) {
 	var be *bodyTooLargeError
 	switch {
 	case errors.As(err, &ve):
-		// Covers dcb.EventData.Validate(), dcb.Query.Validate(),
+		// Covers dcb.EventInput.Validate(), dcb.Query.Validate(),
 		// dcb.AppendCondition.Validate(), request-shape decode errors
 		// (see decodeJSON, which wraps those as *dcb.ValidationError
 		// too), and every API-layer-invented rule (limit, event,

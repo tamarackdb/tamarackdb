@@ -189,6 +189,10 @@ func TestWriteRejectsInvalidRequests(t *testing.T) {
 		{"malformed json", `{"events":`, 400, "InvalidRequest", "not valid JSON"},
 		{"invalid event", `{"events":[` + event + `,{"payload":""}]}`, 400, "InvalidRequest", "events[1]: "},
 		{"duplicate identifier", `{"events":[{"type":"t","identifiers":{"a":["1","1"]},"payload":""}]}`, 400, "InvalidRequest", "events[0]: "},
+		{"event missing payload", `{"events":[` + event + `,{"type":"t"}]}`, 400, "InvalidRequest",
+			"events[1]: event is missing its payload"},
+		{"event null payload", `{"events":[{"type":"t","payload":null}]}`, 400, "InvalidRequest",
+			"events[0]: event is missing its payload"},
 		{"too many identifiers", `{"events":[{"type":"t","identifiers":{` + repeat(21, func(i int) string { return fmt.Sprintf(`"id%d":"v"`, i) }) +
 			`},"payload":""}]}`, 400, "InvalidRequest", "events[0]: "},
 		{"oversized event", `{"events":[{"type":"t","payload":"` + strings.Repeat("x", 70000) + `"}]}`, 413, "PayloadTooLarge",
