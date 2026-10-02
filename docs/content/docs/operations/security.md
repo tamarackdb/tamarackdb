@@ -88,7 +88,7 @@ The database file holds every event and projection in plain SQLite. Anyone who c
   chmod 600 /path/to/config.toml
   ```
 
-## Dev mode
+## Development mode
 
 `devMode` exposes `POST /reset`, which deletes every event. It MUST stay off on a production instance (see
-[Dev mode](/docs/operations/dev-mode/)).
+[Development mode](/docs/operations/dev-mode/)).

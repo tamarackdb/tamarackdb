@@ -47,7 +47,7 @@ How each code is logged is in [Logs](/docs/operations/logs/).
 - **Reading**: a non-integer or negative `afterSequence`, or a `limit` below 1 or above `maxEventsPerPage`.
 - **An event**: a missing `type`, an empty array as a tag value, a duplicate tag, or more than 20 identifiers or
   metadata entries (see [Events](/docs/concepts/events/)).
-- **A condition**: an `afterSequence` without `store`, or a `store` without `afterSequence`.
+- **A condition**: a negative `afterSequence`, an `afterSequence` without `store`, or a `store` without `afterSequence`.
 - **A projection**: a missing `type`, `id`, `version` (for `replace` and `delete`), or `payload` (for `create` and
   `replace`), a key its list doesn't take, or the same `type` + `id` twice in one write.
 - **A write**: more events, conditions, or projections than one write allows (see

@@ -5,7 +5,8 @@ slug: "configuration"
 weight: 2
 ---
 
-Every setting of `tamarackdb-server`. The settings of `tamarackdb-backup` are in [Backup](/docs/operations/backup/#configuration).
+Every setting of `tamarackdb-server`. The settings of `tamarackdb-backup` are in
+[Backup](/docs/operations/backup/#configuration).
 
 Key words in capitals follow [RFC 2119](/docs/concepts/overview/#key-words).
 
@@ -46,7 +47,7 @@ A file that holds `authToken` is a secret: see [Security](/docs/operations/secur
 | `authToken` | `TAMARACKDB_AUTH_TOKEN` | none | The Bearer token |
 | `dataDir` | `TAMARACKDB_DATA_DIR` | `data` | The directory holding the database file |
 | `logLevel` | `TAMARACKDB_LOG_LEVEL` | `warning` | The lowest level logged: `debug`, `info`, `warning`, or `error` (see [Logs](/docs/operations/logs/)) |
-| `devMode` | `TAMARACKDB_DEV_MODE` | `false` | Turns on `POST /reset` and the profiling endpoints (see [Dev mode](/docs/operations/dev-mode/)) |
+| `devMode` | `TAMARACKDB_DEV_MODE` | `false` | Turns on `POST /reset` and the profiling endpoints (see [Development mode](/docs/operations/dev-mode/)) |
 | `defaultEventsPerPage` | `TAMARACKDB_DEFAULT_EVENTS_PER_PAGE` | `1000` | The `limit` of a `QUERY /events` that leaves it out |
 | `maxEventsPerPage` | `TAMARACKDB_MAX_EVENTS_PER_PAGE` | `10000` | The highest `limit` a `QUERY /events` may ask for |
 | `maxEventSize` | `TAMARACKDB_MAX_EVENT_SIZE` | `65536` (64 KiB) | The largest event, in bytes (see [Events](/docs/concepts/events/#size)) |
@@ -59,8 +60,8 @@ A file that holds `authToken` is a secret: see [Security](/docs/operations/secur
 
 ## Listening
 
-- By default, the server listens on the unix socket at `socketPath`. Setting `bindAddress` or `port` switches it to
-  TCP. `socketPath` wins whenever it's set, even alongside them.
+- By default, the server listens on the unix socket at `socketPath`. Setting `bindAddress` or `port` switches it to TCP.
+  `socketPath` wins whenever it's set, even alongside them.
 - The default socket's directory, `/run/tamarackdb`, MUST exist and be writable by the server's user. Under systemd,
   `RuntimeDirectory=tamarackdb` creates it (see [Install](/docs/operations/install/#production)); elsewhere, create it
   yourself, or set a path the server's user owns.
@@ -72,34 +73,34 @@ A file that holds `authToken` is a secret: see [Security](/docs/operations/secur
 ## Data directory
 
 - `dataDir` holds the database file, `tamarackdb.sqlite`. Only the directory is configurable: the file name is fixed.
-- Its layout is managed by TamarackDB and may change between versions: don't rely on it, and don't edit its contents
-  by hand.
+- Its layout is managed by TamarackDB and may change between versions: don't rely on it, and don't edit its contents by
+  hand.
 - Its permissions are in [Security](/docs/operations/security/#files).
 
 ## Limits
 
 - The size and count limits (`maxEventSize`, `maxProjectionSize`, `maxEventsPerWrite`, `maxProjectionsPerWrite`,
-  `maxRequestBodySize`) are a cautious starting point. Find the real limits in development, with the application's
-  data, then set the same values in production. Every error from a limit names the setting to raise (see
+  `maxRequestBodySize`) are a cautious starting point. Find the real limits in development, with the application's data,
+  then set the same values in production. Every error from a limit names the setting to raise (see
   [Writing](/docs/http-api/write/#limits)).
-- `maxRequestBodySize` isn't checked against the other limits: it's the real bound on a write, and the others are
-  rules for each item.
+- `maxRequestBodySize` isn't checked against the other limits: it's the real bound on a write, and the others are rules
+  for each item.
 - `defaultEventsPerPage` and `maxEventsPerPage` are settings, not constants, because how fast a projector processes a
-  batch varies between applications, and between projectors of one application. The defaults keep a default page easy
-  to buffer, and a maximum page done in seconds.
-- Every limit MUST be positive, and `defaultEventsPerPage` MUST NOT exceed `maxEventsPerPage`: the server refuses
-  to start otherwise.
+  batch varies between applications, and between projectors of one application. The defaults keep a default page easy to
+  buffer, and a maximum page done in seconds.
+- Every limit MUST be positive, and `defaultEventsPerPage` MUST NOT exceed `maxEventsPerPage`: the server refuses to
+  start otherwise.
 
 ## Sizing the write queue
 
-`maxQueuedWrites` bounds how many requests wait for their turn at once: `POST /write`, the bulk deletes of
-projections, `POST /reset`, and the hourly `PRAGMA optimize` (see
-[The write FIFO](/docs/server-internals/write-fifo/)). One more gets `503 WriteQueueFull` instead of joining.
+`maxQueuedWrites` bounds how many requests wait for their turn at once: `POST /write`, the bulk deletes of projections,
+`POST /reset`, and the hourly `PRAGMA optimize` (see [The write FIFO](/docs/server-internals/write-fifo/)). One more
+gets `503 WriteQueueFull` instead of joining.
 
-- A write holds the turn only while its own SQLite transaction runs, usually a few milliseconds, so the queue is
-  usually empty or short. Reads never wait in it.
-- A large write holds the turn longer: a projection rebuild sent in one write holds it for as long as its inserts
-  take, and the writes behind it wait that long.
+- A write holds the turn only while its own SQLite transaction runs, usually a few milliseconds, so the queue is usually
+  empty or short. Reads never wait in it.
+- A large write holds the turn longer: a projection rebuild sent in one write holds it for as long as its inserts take,
+  and the writes behind it wait that long.
 - Size `maxQueuedWrites` against how many writes the application sends at once. There's no "no limit" value: every
   deployment gets a bound.
 - The server doesn't cap how long a request waits. Each client sets its own limit and closes the connection when it's

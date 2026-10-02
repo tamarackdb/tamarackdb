@@ -6,7 +6,7 @@ weight: 6
 ---
 
 `POST /reset` empties the store, for tests. It exists only in dev mode (see
-[Dev mode](/docs/operations/dev-mode/)). Never rely on it against a production instance.
+[Development mode](/docs/operations/dev-mode/)). Never rely on it against a production instance.
 
 ```sh
 curl -X POST http://127.0.0.1:8085/reset
