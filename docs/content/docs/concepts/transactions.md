@@ -2,7 +2,7 @@
 title: "Transactions"
 description: "How a transaction works: it lives in the client library, writes go out whole, conflicts are found at write time, and the application picks atomic or eventual."
 slug: "transactions"
-weight: 2
+weight: 3
 ---
 
 A transaction lives in the client library, not on the server. The server only ever receives complete writes.

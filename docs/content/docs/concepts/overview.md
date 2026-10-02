@@ -46,7 +46,7 @@ them says so at the top.
 
 ## Where to go next
 
-- [The hall](/docs/concepts/hall/): a picture of the whole model.
+- [Mental model](/docs/concepts/mental-model/): a picture of the whole model.
 - [HTTP API](/docs/http-api/conventions/): the contract between TamarackDB and its clients.
 - [Client libraries](/docs/client-libraries/): what a client library must do.
 - [Server internals](/docs/server-internals/write-fifo/): how the server works inside, and

@@ -39,7 +39,7 @@ Duplicated facts drift apart.
 Sections, relative to `docs/content/docs/`:
 
 - `concepts/`: what TamarackDB is and the ideas the rest builds on:
-  overview and terms, transactions, the hall picture, events and
+  overview and terms, transactions, the mental model (the hall picture), events and
   tags, the store ID, the Append Condition, projections and rebuilds.
 - `http-api/`: the wire contract: conventions (connecting, request
   bodies, the store ID header), query grammar, `QUERY /events`,
@@ -61,6 +61,20 @@ Sections, relative to `docs/content/docs/`:
   <https://tamarackdb.github.io/> without listing its pages, a contributing
   note, and a closing "Trivia" section on the name. No config tables, no
   Docker examples, no build instructions live in the README itself.
+
+## The mental model
+
+`concepts/mental-model.md` is a picture of the whole model, after
+Pull-The-Plug Modeling: people in a hall, notebooks, a board, a card
+cabinet, and clerks. Rules for it:
+
+- Only people act or know things. The hall, the board, or the cabinet is
+  never the subject of an action verb.
+- It shows what TamarackDB and the client library do. Rules only a
+  well-designed application can follow stay in the technical pages.
+- No technical terms in parentheses: the picture stands on its own.
+- In the picture, people make *writes*, never *commits*. Committing is
+  what the SQLite transaction does inside one write.
 
 ## Page layout
 
