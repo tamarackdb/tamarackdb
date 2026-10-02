@@ -114,6 +114,6 @@ A Sequence Position only means something next to the store ID it was read on (se
 
 ## Testing a library
 
-- [`POST /reset`](/docs/http-api/reset/) empties the store between tests, in dev mode.
+- [`POST /reset`](/docs/http-api/reset/) empties the store between tests, in development mode.
 - `tamarackdb-demo` fills a data directory with a large set of made-up events and projections, to test against
   realistic volume (see [Building from source](/docs/contributing/building-from-source/#demo-dataset)).

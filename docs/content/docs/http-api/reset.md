@@ -1,11 +1,11 @@
 ---
 title: "Reset"
-description: "POST /reset, in dev mode only: empties the store and draws a new store ID, for tests. What happens to the writes queued before and after it."
+description: "POST /reset, in development mode only: empties the store and draws a new store ID, for tests. What happens to the writes queued before and after it."
 slug: "reset"
 weight: 6
 ---
 
-`POST /reset` empties the store, for tests. It exists only in dev mode (see
+`POST /reset` empties the store, for tests. It exists only in development mode (see
 [Development mode](/docs/operations/dev-mode/)). Never rely on it against a production instance.
 
 ```sh

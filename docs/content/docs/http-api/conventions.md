@@ -18,7 +18,7 @@ Key words in capitals follow [RFC 2119](/docs/concepts/overview/#key-words).
 | [`GET /projections/{type}/{id}`](/docs/http-api/projections/) | Read one committed projection |
 | [`DELETE /projections/{type}`](/docs/http-api/projections/#bulk-delete) | Delete every projection of one type, in its turn |
 | [`DELETE /projections`](/docs/http-api/projections/#bulk-delete) | Delete every projection, in its turn |
-| [`POST /reset`](/docs/http-api/reset/) | Delete all events and projections and draw a new store ID, in its turn (dev mode only) |
+| [`POST /reset`](/docs/http-api/reset/) | Delete all events and projections and draw a new store ID, in its turn (development mode only) |
 
 - "In its turn" means the request waits in the write FIFO, behind the requests that arrived before it (see
   [The write FIFO](/docs/server-internals/write-fifo/)).

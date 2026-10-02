@@ -199,6 +199,6 @@ application.
 ## Startup banner
 
 At startup, before opening the store, the server prints a banner and its resolved configuration to stdout: bind address,
-port, the socket path and mode, the auth flag (`authToken` itself is never printed), data directory, dev mode, log
-level, the pagination, size, write, and queue-depth limits, and the read pool size. Use it to check what an instance
+port, the socket path and mode, the auth flag (`authToken` itself is never printed), data directory, development mode,
+log level, the pagination, size, write, and queue-depth limits, and the read pool size. Use it to check what an instance
 actually runs with. It's not a machine-readable format.
