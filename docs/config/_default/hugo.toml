@@ -1,6 +1,6 @@
 title = "TamarackDB"
 baseurl = "http://localhost/"
-disableAliases = false
+disableAliases = true
 disableHugoGeneratorInject = true
 disableKinds = ["taxonomy", "term"]
 enableEmoji = true

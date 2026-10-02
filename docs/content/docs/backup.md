@@ -3,8 +3,6 @@ title: "Backup"
 description: "tamarackdb-backup keeps a standing copy of an instance's events: its settings, how a run works, local or remote sources, restoring, and scheduling."
 slug: "backup"
 weight: 60
-aliases:
-  - /docs/guides/backup/
 ---
 
 `tamarackdb-backup` keeps a standing copy of an instance's events: an off-site copy, a warm standby, or a database to

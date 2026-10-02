@@ -3,8 +3,6 @@ title: "Overview"
 description: "What TamarackDB is: a DCB event store in Go, over HTTP, on one SQLite file. What it holds, its scope, the terms used everywhere, and the RFC 2119 key words."
 slug: "overview"
 weight: 1
-aliases:
-  - /docs/architecture/
 ---
 
 TamarackDB is an event store in Go. It follows the [DCB (Dynamic Consistency Boundaries)
@@ -48,7 +46,7 @@ them says so at the top.
 
 ## Where to go next
 
-- [The courtyard](/docs/concepts/courtyard/): a picture of the whole model.
+- [The hall](/docs/concepts/hall/): a picture of the whole model.
 - [HTTP API](/docs/http-api/conventions/): the contract between TamarackDB and its clients.
 - [Client libraries](/docs/client-libraries/): what a client library must do.
 - [Server internals](/docs/server-internals/write-fifo/): how the server works inside, and

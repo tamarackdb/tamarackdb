@@ -39,7 +39,7 @@ Duplicated facts drift apart.
 Sections, relative to `docs/content/docs/`:
 
 - `concepts/`: what TamarackDB is and the ideas the rest builds on:
-  overview and terms, transactions, the courtyard picture, events and
+  overview and terms, transactions, the hall picture, events and
   tags, the store ID, the Append Condition, projections and rebuilds.
 - `http-api/`: the wire contract: conventions (connecting, request
   bodies, the store ID header), query grammar, `QUERY /events`,
@@ -96,8 +96,6 @@ Sections, relative to `docs/content/docs/`:
 - Top-level sidebar entries are listed in
   `docs/config/_default/menus/menus.en.toml` (`sidebar_docs`). A new
   section or top-level page must be added there.
-- A page that replaces another keeps the old URL working with Hugo
-  `aliases` in its front matter.
 - Build locally from `docs/` with `npm ci` then `npm run dev`.
 
 ## Versioning context
