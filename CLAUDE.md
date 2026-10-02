@@ -51,9 +51,8 @@ Sections, relative to `docs/content/docs/`:
   layout. For anyone changing TamarackDB itself.
 - `operations/`: running an instance: install (local, systemd, Docker),
   configuration (the only settings table), security, health check,
-  observability, logs, dev mode, maintenance.
-- `backup.md`: `tamarackdb-backup`: configuration, how a run works,
-  restoring, scheduling.
+  observability, logs, backup (`tamarackdb-backup`: its settings, how a
+  run works, restoring, scheduling), maintenance, dev mode.
 - `contributing/`: building from source, tests, the demo dataset, the
   documentation site.
 - `README.md`: kept short: logo, badges, a one-paragraph intro, a short

@@ -15,7 +15,7 @@ Key words in capitals follow [RFC 2119](/docs/concepts/overview/#key-words).
   [Schema](/docs/server-internals/schema/)).
 - It changes only when the store is emptied with [`POST /reset`](/docs/http-api/reset/), in dev mode. After a reset,
   Sequence Positions start over at 1, so sequence 5 names a different event.
-- A backup file has a store ID of its own, drawn when the backup created it (see [Backup](/docs/backup/)).
+- A backup file has a store ID of its own, drawn when the backup created it (see [Backup](/docs/operations/backup/)).
 - Two responses that carry the same store ID come from the same history.
 
 ## Where it appears

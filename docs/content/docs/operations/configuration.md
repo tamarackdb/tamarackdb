@@ -5,7 +5,7 @@ slug: "configuration"
 weight: 2
 ---
 
-Every setting of `tamarackdb-server`. The settings of `tamarackdb-backup` are in [Backup](/docs/backup/#configuration).
+Every setting of `tamarackdb-server`. The settings of `tamarackdb-backup` are in [Backup](/docs/operations/backup/#configuration).
 
 Key words in capitals follow [RFC 2119](/docs/concepts/overview/#key-words).
 

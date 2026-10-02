@@ -63,7 +63,7 @@ Check each point before an instance holds real data:
    [Observability](/docs/operations/observability/), and [Logs](/docs/operations/logs/)).
 9. **Backups.** Schedule `tamarackdb-backup`. On the same host, it reads
    straight from the socket with `sourceSocket`; from another host, through a
-   reverse proxy that handles TLS (see [Backup](/docs/backup/)).
+   reverse proxy that handles TLS (see [Backup](/docs/operations/backup/)).
 
 A systemd unit for the server, running as user `tamarackdb`:
 

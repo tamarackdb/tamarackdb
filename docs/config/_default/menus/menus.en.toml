@@ -10,7 +10,7 @@
   weight = 10
 
 # Explicit sidebar: Doks only lists sections on its own, so a single page
-# (Client libraries, Backup) has to be listed by hand.
+# (Client libraries) has to be listed by hand.
 [[sidebar_docs]]
   pageRef = "/docs/concepts"
   weight = 10
@@ -30,10 +30,6 @@
 [[sidebar_docs]]
   pageRef = "/docs/operations"
   weight = 50
-
-[[sidebar_docs]]
-  pageRef = "/docs/backup"
-  weight = 60
 
 [[sidebar_docs]]
   pageRef = "/docs/contributing"

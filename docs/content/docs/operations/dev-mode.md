@@ -2,7 +2,7 @@
 title: "Dev mode"
 description: "What devMode turns on, POST /reset and Go's profiling endpoints, why it must stay off in production, and how to profile a request with pprof."
 slug: "dev-mode"
-weight: 7
+weight: 9
 ---
 
 `devMode` turns on two things, for a local instance or a controlled troubleshooting session. Never turn it on in

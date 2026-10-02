@@ -17,7 +17,7 @@ Key words in capitals follow [RFC 2119](/docs/concepts/overview/#key-words).
 - It has no history: the store only holds its current state. It can be replaced or deleted.
 - It's always read by `type` and `id`. There is no query over projections.
 - Every projection can be rebuilt from events. That's why backups leave projections out (see
-  [Backup](/docs/backup/)).
+  [Backup](/docs/operations/backup/)).
 - Projections live in the same SQLite file as events, and are written by the same
   [`POST /write`](/docs/http-api/write/). Events and projections of one write become durable together, or neither
   does.

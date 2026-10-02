@@ -11,7 +11,7 @@ Where each part of TamarackDB lives in the Go code.
 |---|---|
 | `cmd/tamarackdb-server` | The server binary: configuration, startup, signals, ordered shutdown, the hourly `PRAGMA optimize` |
 | `cmd/tamarackdb-init` | Creates an empty database file |
-| `cmd/tamarackdb-backup` | The backup tool (see [Backup](/docs/backup/)) |
+| `cmd/tamarackdb-backup` | The backup tool (see [Backup](/docs/operations/backup/)) |
 | `cmd/tamarackdb-demo` | Fills a data directory with made-up data |
 | `internal/api` | The HTTP API: routing, decoding, validation, errors, logging, `/metrics`, `/debug` |
 | `internal/queue` | The FIFO (see [The write FIFO](/docs/server-internals/write-fifo/)) |
