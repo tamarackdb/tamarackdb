@@ -10,16 +10,17 @@ using SQLite as the storage engine.
 
 ## Features
 
-- Compliant with the DCB specification, with optimistic concurrency on
-  writes.
-- Full HTTP API to read and write events, with pagination for large
-  result sets.
-- Optional projection store, written with the events or on its own: each
-  command atomic, or eventually consistent, as the application chooses.
-- Single-instance design with no external dependency.
-- Plain SQLite storage with no opaque format lock-in.
+- DCB compliant: follows the DCB specification, with optimistic
+  concurrency on writes.
+- HTTP API: send plain JSON requests from any language or platform.
+- Atomic or eventual projections: update projections with their events,
+  or catch up later.
+- Simple deployment: static Linux binaries with no runtime and no
+  external service to install.
+- SQLite storage: events and projections live in one SQLite file, easy
+  to inspect.
+- Built-in backup: keep an incremental copy of an instance's events.
 - Bearer token authentication.
-- Incremental backup tooling.
 - Built-in monitoring and troubleshooting endpoints.
 
 ## Documentation
