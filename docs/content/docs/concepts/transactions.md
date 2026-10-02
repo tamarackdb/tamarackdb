@@ -14,7 +14,7 @@ Key words in capitals follow [RFC 2119](/docs/concepts/overview/#key-words).
 - While a command runs, the client library keeps in memory what the command wants to write: new events, the Append
   Conditions they depend on, and projection changes. These are its **pending writes**.
 - Reads made inside the transaction see the pending writes, merged into what the server returns (see
-  [Client libraries](/docs/client-libraries/)).
+  [Client libraries](/docs/integration/client-libraries/)).
 - When the transaction ends, the library sends everything in one [`POST /write`](/docs/http-api/write/).
 - The server checks the write and applies it in one SQLite transaction of its own: it checks that every Append
   Condition holds, and that every projection is still at the version read. Then it writes everything, or nothing.

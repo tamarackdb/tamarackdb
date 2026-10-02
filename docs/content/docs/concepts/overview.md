@@ -48,7 +48,7 @@ them says so at the top.
 
 - [Mental model](/docs/concepts/mental-model/): a picture of the whole model.
 - [HTTP API](/docs/http-api/conventions/): the contract between TamarackDB and its clients.
-- [Client libraries](/docs/client-libraries/): what a client library must do.
+- [Client libraries](/docs/integration/client-libraries/): what a client library must do.
 - [Server internals](/docs/server-internals/write-fifo/): how the server works inside, and
   [where each part lives in the code](/docs/server-internals/code-layout/).
 - [Operations](/docs/operations/install/): running an instance.

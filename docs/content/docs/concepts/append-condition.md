@@ -70,7 +70,7 @@ queries matched anything after the earliest position. A list is more precise, an
   a transaction read, and a projection can be stale the moment it's read.
 - **Pending events of the same transaction.** A decision can also go stale because of a pending event added after
   its read, by another processor of the same command for example. Only the client library knows the order of its
-  reads and pending events, so that check is the library's (see [Client libraries](/docs/client-libraries/)).
+  reads and pending events, so that check is the library's (see [Client libraries](/docs/integration/client-libraries/)).
 - **A condition left out, or too narrow.** It leaves a race that no error reports. Describing what a decision depends
   on is the application's job.
 

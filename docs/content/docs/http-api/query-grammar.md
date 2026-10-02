@@ -60,7 +60,7 @@ bound parameters. A query of about 1,000 terms would otherwise fail inside SQLit
 ## Shared test cases
 
 A client library matches its own pending events against queries, in memory (see
-[Client libraries](/docs/client-libraries/)). Its matcher MUST follow this grammar exactly, or a command could miss one
+[Client libraries](/docs/integration/client-libraries/)). Its matcher MUST follow this grammar exactly, or a command could miss one
 of its own pending events without any error.
 
 The repository publishes shared test cases for that,

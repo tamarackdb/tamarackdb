@@ -44,8 +44,9 @@ Sections, relative to `docs/content/docs/`:
 - `http-api/`: the wire contract: conventions (connecting, request
   bodies, the store ID header), query grammar, `QUERY /events`,
   `POST /write`, projection endpoints, `POST /reset`, errors.
-- `client-libraries.md`: what a client library must do on top of the
-  HTTP API.
+- `integration/`: building on the HTTP API: what a client library must
+  do (`client-libraries.md`). Step-by-step guides for applications go
+  here too, when there are any.
 - `server-internals/`: how the server works inside: the write FIFO, the
   Sequence Position counter, reads, lifecycle, SQLite, schema, code
   layout. For anyone changing TamarackDB itself.

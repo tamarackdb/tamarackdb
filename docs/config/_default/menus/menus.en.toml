@@ -9,8 +9,7 @@
   url = "https://github.com/tamarackdb/tamarackdb"
   weight = 10
 
-# Explicit sidebar: Doks only lists sections on its own, so a single page
-# (Client libraries) has to be listed by hand.
+# Explicit sidebar: every section of /docs, in order.
 [[sidebar_docs]]
   pageRef = "/docs/concepts"
   weight = 10
@@ -20,7 +19,7 @@
   weight = 20
 
 [[sidebar_docs]]
-  pageRef = "/docs/client-libraries"
+  pageRef = "/docs/integration"
   weight = 30
 
 [[sidebar_docs]]
