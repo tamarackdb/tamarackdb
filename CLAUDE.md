@@ -77,8 +77,9 @@ cabinet, and clerks. Rules for it:
 
 - Only people act or know things. The hall, the board, or the cabinet is
   never the subject of an action verb.
-- It shows what TamarackDB and the client library do. Rules only a
-  well-designed application can follow stay in the technical pages.
+- It shows what TamarackDB, the client library, and the application do.
+  What the people do is the client library's and the application's
+  behavior, never TamarackDB's.
 - No technical terms in parentheses: the picture stands on its own.
 - In the picture, people make *writes*, never *commits*. Committing is
   what the SQLite transaction does inside one write.

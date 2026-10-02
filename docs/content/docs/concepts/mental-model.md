@@ -67,9 +67,9 @@ people with paper and pencils in a large hall, to reason about concurrency witho
 - **Emptying drawers.** A person with no notebook can ask the head clerk to empty the drawer of one type, or the whole
   card cabinet. They get in line like everyone else: the notebooks that arrived before them are written
   first, and the removal applies to everything accepted before it.
-- **Turning the board around (dev mode only).** A person with no notebook can ask for the board to be turned around.
-  The head clerk handles the request in its turn, like a notebook: the ones that arrived before it are written on the
-  visible side, then the clerks turn the board around. The side that comes up is blank and carries a new name, and no
-  one can read the old side any more. The card cabinet is emptied at the same time. A notebook that notes the old name
-  will be refused. Those who keep a marker elsewhere (a projector that remembers the name and the last number read, for
-  example) see that the name changed, and start over from zero.
+- **Turning the board around.** Only in a test hall, a person with no notebook can ask for the board to be turned
+  around. The head clerk handles the request in its turn, like a notebook: the ones that arrived before it are written
+  on the visible side, then the clerks turn the board around. The side that comes up is blank and carries a new name,
+  and no one can read the old side any more. The card cabinet is emptied at the same time. A notebook that notes the old
+  name will be refused. Those who keep a marker elsewhere (a projector that remembers the name and the last number read,
+  for example) see that the name changed, and start over from zero.
