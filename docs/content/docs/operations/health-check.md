@@ -26,4 +26,5 @@ curl http://127.0.0.1:8085/health
 
 - When SQLite can't be reached: `503 Unavailable`, the usual signal for "not ready right now", rather than the `500` of
   an ordinary failure.
-- When `enableAuth` is on, it needs the token like every other route.
+- When `enableAuth` is on, it needs the token like every other route (see
+  [Security](/docs/operations/security/#bearer-token)).

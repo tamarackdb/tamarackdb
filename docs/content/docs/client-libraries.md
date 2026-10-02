@@ -9,6 +9,17 @@ spans several requests: the library keeps the transaction (see [Transactions](/d
 
 Key words in capitals follow [RFC 2119](/docs/concepts/overview/#key-words).
 
+## Read first
+
+A library builds on these pages:
+
+1. [Transactions](/docs/concepts/transactions/), [Append Condition](/docs/concepts/append-condition/), and
+   [Projections](/docs/concepts/projections/): the model the library implements.
+2. [Conventions](/docs/http-api/conventions/): connecting, request bodies, the store ID header.
+3. [Reading events](/docs/http-api/read-events/) and [Query grammar](/docs/http-api/query-grammar/).
+4. [Writing](/docs/http-api/write/) and [Projections](/docs/http-api/projections/).
+5. [Errors](/docs/http-api/errors/): every code a library has to handle.
+
 ## Pending writes
 
 A library MUST keep a transaction's pending writes in memory, and send them all in one

@@ -53,5 +53,6 @@ them says so at the top.
 - [The courtyard](/docs/concepts/courtyard/): a picture of the whole model.
 - [HTTP API](/docs/http-api/conventions/): the contract between TamarackDB and its clients.
 - [Client libraries](/docs/client-libraries/): what a client library must do.
-- [Server internals](/docs/server-internals/write-fifo/): how the server works inside.
+- [Server internals](/docs/server-internals/write-fifo/): how the server works inside, and
+  [where each part lives in the code](/docs/server-internals/code-layout/).
 - [Operations](/docs/operations/install/): running an instance.
