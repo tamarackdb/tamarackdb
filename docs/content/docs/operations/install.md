@@ -35,8 +35,9 @@ Check each point before an instance holds real data:
 
 1. **A dedicated user.** Run the server as its own system user, never as root, and run every command that touches
    `dataDir` as that user (see [Run](#run)).
-2. **A private data directory.** `dataDir` is readable by the server's user only (`0700`). The server creates it that
-   way; give a directory you create yourself the same permissions (see [Security](/docs/operations/security/#files)).
+2. **A private data directory.** `dataDir` is readable by the server's user only (`0700`). `tamarackdb-init` creates it
+   that way; give a directory you create yourself the same permissions (see
+   [Security](/docs/operations/security/#files)).
 3. **The same host, over the unix socket.** Installed directly on the host, run TamarackDB next to the application, on
    the socket. If the application runs as another user, set `socketMode = "0660"` and add that user to the server's
    group (see [Security](/docs/operations/security/#unix-socket)). In Docker, use TCP on a private network instead (see
@@ -94,6 +95,8 @@ To create the user and start the service:
 
 ```sh
 sudo useradd --system --user-group --no-create-home --shell /usr/sbin/nologin tamarackdb
+sudo install -d -o tamarackdb -g tamarackdb -m 700 /var/lib/tamarackdb
+sudo -u tamarackdb /usr/local/bin/tamarackdb-init --data-dir /var/lib/tamarackdb
 sudo systemctl enable --now tamarackdb
 ```
 
@@ -119,10 +122,15 @@ sudo -u tamarackdb ./bin/tamarackdb-server --config /path/to/config.toml
 lasting service, use the systemd unit in [Production](#production): `User=tamarackdb` replaces `sudo`, and
 `RuntimeDirectory=tamarackdb` creates the directory at every start.
 
-`tamarackdb-init` is optional: the server creates `dataDir` and its database, with the schema, on its first start. On
-every start, it checks that the database's schema version matches the one built into the binary, and refuses to start if
-it doesn't; it never changes the schema on its own (see [Schema](/docs/server-internals/schema/#schema-version)). Once
-running, it logs one line per request to stdout (see [Logs](/docs/operations/logs/)).
+`tamarackdb-init` creates `dataDir` and a new database in it, with the schema and a new store ID. It refuses to
+overwrite an existing database. The server never creates one: when the database file is missing, it refuses to start. A
+wrong `dataDir`, or a disk that isn't mounted, would otherwise get a new, empty store, and the history would be split in
+two.
+
+On every start, the server checks that the database's schema version matches the one built into the binary, and refuses
+to start if it doesn't; it never changes the schema on its own (see
+[Schema](/docs/server-internals/schema/#schema-version)). Once running, it logs one line per request to stdout (see
+[Logs](/docs/operations/logs/)).
 
 ## Docker
 
@@ -163,12 +171,9 @@ sudo install -d -o 10001 -g 10001 -m 700 /srv/tamarackdb
 docker run -d -p 127.0.0.1:8085:8085 -v /srv/tamarackdb:/data tamarackdb
 ```
 
-`tamarackdb-init` is also in the image. The server creates its database on its first start anyway, so you only need it
-to prepare a volume before that first start:
-
-```sh
-docker run --rm -v tamarackdb-data:/data --entrypoint ./tamarackdb-init tamarackdb --data-dir /data
-```
+When `/data` holds no database, the image runs `tamarackdb-init` before the server and logs `tamarackdb-init: created
+/data/tamarackdb.sqlite`. That line is expected on the first start only. On a restart, it means the container got an
+empty volume: check the volume's name and where it's mounted.
 
 ### Alongside the application
 

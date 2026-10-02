@@ -80,8 +80,8 @@ func main() {
 	fmt.Printf("maxQueuedWrites: %d\n", cfg.MaxQueuedWrites)
 	fmt.Printf("readPoolSize: %d\n\n", cfg.ReadPoolSize)
 
-	if err := os.MkdirAll(cfg.DataDir, 0o700); err != nil {
-		log.Fatalf("tamarackdb-server: create data directory: %v", err)
+	if err := requireDatabase(*cfg); err != nil {
+		log.Fatalf("tamarackdb-server: %v", err)
 	}
 	st, err := store.Open(context.Background(), cfg.DatabasePath(), cfg.ReadPoolSize)
 	if err != nil {
@@ -288,4 +288,18 @@ func printDefaultConfig() {
 		config.DefaultProjectionSize,
 		config.DefaultMaxEventsPerWrite, config.DefaultMaxProjectionsPerWrite, config.DefaultMaxRequestBodySize,
 		config.DefaultMaxQueuedWrites, config.DefaultReadPoolSize)
+}
+
+// requireDatabase checks that the database file already exists: only
+// tamarackdb-init creates it. A missing file most likely means a wrong
+// dataDir or a disk that isn't mounted, and serving a new, empty store
+// there would split the history in two without anyone noticing.
+func requireDatabase(cfg config.Config) error {
+	path := cfg.DatabasePath()
+	_, err := os.Stat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("%s doesn't exist: check dataDir, or create a new database with tamarackdb-init --data-dir %s",
+			path, cfg.DataDir)
+	}
+	return err
 }

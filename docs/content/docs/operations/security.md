@@ -16,8 +16,8 @@ The recommended setup: TamarackDB runs on the same host as the application, on i
 
 - Nothing goes over the network, and the socket's permissions decide who may connect.
 - A transaction often makes several reads before its one write, and the socket keeps each of those round trips short.
-- Connecting takes write permission on the socket. With the default `socketMode` of `"0600"`, only the server's own
-  user can connect.
+- Connecting takes write permission on the socket. With the default `socketMode` of `"0600"`, only the server's own user
+  can connect.
 - If the application runs as another user, set `socketMode = "0660"` and add the application's user to the server's
   group. For a server running as `tamarackdb`, and an application running as `www-data`:
 
@@ -47,38 +47,38 @@ MUST go through a reverse proxy that handles TLS.
   ```
 
 - The proxy's user MUST be allowed by `socketMode`, like the application's.
-- Turn `enableAuth` on: once the proxy is up, the API is reachable over the network, and the token is what keeps
-  others out. The proxy passes the `Authorization` header through unchanged.
+- Turn `enableAuth` on: once the proxy is up, the API is reachable over the network, and the token is what keeps others
+  out. The proxy passes the `Authorization` header through unchanged.
 - In Docker, the server listens over TCP: how to keep its port private is in
   [Install](/docs/operations/install/#docker).
 
 **Why a proxy, not TLS in the server.** A server that loads its certificate once at startup would need a restart,
 cutting off any write in progress, each time a short-lived certificate is renewed; a proxy renews on its own. It also
-handles what surrounds TLS (protocol versions, client certificates, address allowlists) better than a store should,
-and keeps one path for every access from another host.
+handles what surrounds TLS (protocol versions, client certificates, address allowlists) better than a store should, and
+keeps one path for every access from another host.
 
 ## Bearer token
 
-- When `enableAuth` is on, every registered route needs `Authorization: Bearer <token>`: every endpoint of the HTTP
-  API, `/health`, `/metrics`, `/debug`, and, in development mode, `POST /reset` and the profiling endpoints.
+- When `enableAuth` is on, every registered route needs `Authorization: Bearer <token>`: every endpoint of the HTTP API,
+  `/health`, `/metrics`, `/debug`, and, in development mode, `POST /reset` and the profiling endpoints.
 - A request with no valid token gets `401 Unauthorized` before it reaches any handler.
 - The token is one fixed value, `authToken`. Rotating it means changing the configuration and restarting the server:
   there's no window where two tokens both work.
-- The server MUST compare the token in constant time, never with a plain string comparison: one that stops at the
-  first differing byte would let an attacker guess the token one byte at a time, by timing the responses.
+- The server MUST compare the token in constant time, never with a plain string comparison: one that stops at the first
+  differing byte would let an attacker guess the token one byte at a time, by timing the responses.
 - `enableAuth` is off by default, for the recommended setup, where the socket's permissions already decide who may
   connect. When it's off, no request is checked at all.
 
-**Why one token.** An instance has exactly one trusted caller: the application that owns it. If that application
-serves many tenants, keeping them apart is its own job, done with tenant metadata on events.
+**Why one token.** An instance has exactly one trusted caller: the application that owns it. If that application serves
+many tenants, keeping them apart is its own job, done with tenant metadata on events.
 
 ## Files
 
 The database file holds every event and projection in plain SQLite. Anyone who can read it bypasses `enableAuth` and
 `socketMode` entirely.
 
-- The server, `tamarackdb-init`, and `tamarackdb-backup` create a missing data directory as `0700`, and a new database
-  file as `0600`, whatever the umask. SQLite gives its WAL and shared-memory files the database file's permissions.
+- `tamarackdb-init` and `tamarackdb-backup` create a missing data directory as `0700`, and a new database file as
+  `0600`, whatever the umask. SQLite gives its WAL and shared-memory files the database file's permissions.
 - A directory or database file that already exists keeps its permissions: the server never changes them. Give a
   directory you create yourself `0700`.
 - Which user runs which command is in [Install](/docs/operations/install/#run).
@@ -90,5 +90,5 @@ The database file holds every event and projection in plain SQLite. Anyone who c
 
 ## Development mode
 
-`devMode` exposes `POST /reset`, which deletes every event. It MUST stay off on a production instance (see
-[Development mode](/docs/operations/dev-mode/)).
+`devMode` exposes `POST /reset`, which deletes every event. It MUST stay off on a production instance (see [Development
+mode](/docs/operations/dev-mode/)).

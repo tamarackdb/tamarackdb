@@ -6,3 +6,4 @@
 !cmd/**
 !internal
 !internal/**
+!docker-entrypoint.sh

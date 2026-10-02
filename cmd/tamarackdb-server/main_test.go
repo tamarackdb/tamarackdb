@@ -7,6 +7,8 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+
+	"github.com/tamarackdb/tamarackdb/internal/config"
 )
 
 func TestRemoveStaleSocketRemovesSocket(t *testing.T) {
@@ -84,5 +86,23 @@ func TestListenUnixNamesAMissingDirectory(t *testing.T) {
 	_, err := listenUnix(filepath.Join(dir, "s.sock"), 0o600)
 	if err == nil || !strings.Contains(err.Error(), "socket directory "+dir+" does not exist") {
 		t.Fatalf("listenUnix() error = %v, want it to name the missing directory", err)
+	}
+}
+
+func TestRequireDatabaseRefusesAMissingFile(t *testing.T) {
+	dir := t.TempDir()
+	err := requireDatabase(config.Config{DataDir: filepath.Join(dir, "missing")})
+	if err == nil || !strings.Contains(err.Error(), "tamarackdb-init --data-dir") {
+		t.Fatalf("requireDatabase() = %v, want an error pointing to tamarackdb-init", err)
+	}
+}
+
+func TestRequireDatabaseAcceptsAnExistingFile(t *testing.T) {
+	cfg := config.Config{DataDir: t.TempDir()}
+	if err := os.WriteFile(cfg.DatabasePath(), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := requireDatabase(cfg); err != nil {
+		t.Fatalf("requireDatabase() = %v, want nil", err)
 	}
 }

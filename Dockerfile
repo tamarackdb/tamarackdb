@@ -27,6 +27,7 @@ RUN addgroup -S -g 10001 tamarackdb && adduser -S -u 10001 -G tamarackdb tamarac
 WORKDIR /app
 
 COPY --from=builder /out/tamarackdb-server /out/tamarackdb-init ./
+COPY --chmod=755 docker-entrypoint.sh ./
 
 RUN mkdir -p /data && chown -R tamarackdb:tamarackdb /data && chmod 700 /data
 
@@ -39,4 +40,4 @@ EXPOSE 8085
 
 USER tamarackdb
 
-ENTRYPOINT ["./tamarackdb-server"]
+ENTRYPOINT ["./docker-entrypoint.sh"]

@@ -11,13 +11,14 @@ How the server starts, stops, and fails.
 
 1. It prints a banner and its resolved configuration to stdout (see
    [Install](/docs/operations/install/#startup-banner)).
-2. It opens the store:
+2. It refuses to start if the database file doesn't exist: only `tamarackdb-init` creates one (see
+   [Install](/docs/operations/install/#run)).
+3. It opens the store:
    - It takes the lock on the database file (see [SQLite](/docs/server-internals/sqlite/#one-process-per-file)).
-   - It creates the file if it doesn't exist, with the current schema and a new store ID.
    - It checks the schema version (see [Schema](/docs/server-internals/schema/#schema-version)).
    - It reads the highest `sequence` into the [Sequence Position counter](/docs/server-internals/sequence-counter/), and
      the store ID into memory next to it.
-3. It serves requests.
+4. It serves requests.
 
 ## What lives only in memory
 
