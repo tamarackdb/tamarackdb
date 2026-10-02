@@ -19,16 +19,32 @@
   url = "https://github.com/tamarackdb/tamarackdb"
   weight = 10
 
-# Explicit sidebar: Doks only lists sections on its own, and Architecture
-# is a single page, not a section.
+# Explicit sidebar: Doks only lists sections on its own, and a single
+# page (Architecture) has to be listed by hand.
 [[sidebar_docs]]
-  pageRef = "/docs/guides"
+  pageRef = "/docs/concepts"
   weight = 10
 
 [[sidebar_docs]]
-  pageRef = "/docs/architecture"
+  pageRef = "/docs/http-api"
   weight = 20
 
 [[sidebar_docs]]
+  pageRef = "/docs/server-internals"
+  weight = 40
+
+[[sidebar_docs]]
+  pageRef = "/docs/operations"
+  weight = 50
+
+[[sidebar_docs]]
   pageRef = "/docs/contributing"
-  weight = 30
+  weight = 70
+
+[[sidebar_docs]]
+  pageRef = "/docs/guides"
+  weight = 80
+
+[[sidebar_docs]]
+  pageRef = "/docs/architecture"
+  weight = 90
