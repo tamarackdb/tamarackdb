@@ -6,6 +6,8 @@ weight: 2
 
 Every setting of `tamarackdb-server`. The settings of `tamarackdb-backup` are in [Backup](/docs/backup/#configuration).
 
+Key words in capitals follow [RFC 2119](/docs/concepts/overview/#key-words).
+
 ## Sources
 
 A setting comes from, in this order:
@@ -29,8 +31,7 @@ Generate a starter file, with every setting commented out at its default:
 ./bin/tamarackdb-backup --default-config >> config.toml
 ```
 
-A file that holds `authToken` must be readable by the server's user only (see
-[Security](/docs/operations/security/#files)).
+A file that holds `authToken` is a secret: see [Security](/docs/operations/security/#files).
 
 ## Settings
 
@@ -59,7 +60,7 @@ A file that holds `authToken` must be readable by the server's user only (see
 
 - By default, the server listens on the unix socket at `socketPath`. Setting `bindAddress` or `port` switches it to
   TCP. `socketPath` wins whenever it's set, even alongside them.
-- The default socket's directory, `/run/tamarackdb`, must exist and be writable by the server's user. Under systemd,
+- The default socket's directory, `/run/tamarackdb`, MUST exist and be writable by the server's user. Under systemd,
   `RuntimeDirectory=tamarackdb` creates it (see [Install](/docs/operations/install/#production)); elsewhere, create it
   yourself, or set a path the server's user owns.
 - At startup, the server removes a socket left at that path by an earlier run, and refuses to start if the path holds
@@ -86,7 +87,8 @@ A file that holds `authToken` must be readable by the server's user only (see
 - `defaultEventsPerPage` and `maxEventsPerPage` are settings, not constants, because how fast a projector processes a
   batch varies between applications, and between projectors of one application. The defaults keep a default page easy
   to buffer, and a maximum page done in seconds.
-- Every limit must be positive. `defaultEventsPerPage` can't exceed `maxEventsPerPage`.
+- Every limit MUST be positive, and `defaultEventsPerPage` MUST NOT exceed `maxEventsPerPage`: the server refuses
+  to start otherwise.
 
 ## Sizing the write queue
 

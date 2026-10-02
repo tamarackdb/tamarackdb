@@ -6,6 +6,8 @@ weight: 4
 
 An event is a fact the application recorded. Once written, it never changes and is never removed.
 
+Key words in capitals follow [RFC 2119](/docs/concepts/overview/#key-words).
+
 ## Fields
 
 | Field | Set by | What it is |
@@ -71,7 +73,7 @@ tags, and the application knows how to read each one back.
 
 **Why.** Day to day, NTP corrects a small drift smoothly, without moving the clock back. A jump back is still
 possible: a large gap corrected at once (often at boot), a virtual machine resumed, the time set by hand, a leap
-second handled badly. Neither a decision nor a read should depend on `time`. An application that looks events up by
+second handled badly. A decision or a read SHOULD NOT depend on `time`. An application that looks events up by
 period tags them when it writes them (a `month` metadata entry, for example) and queries that tag.
 
 ## Size

@@ -43,7 +43,7 @@ Generate a starter config and adjust it:
 : Default: `backup`
 
 `pageLimit`
-: Page size used when reading from the source. It must not exceed the source's `maxEventsPerPage`, or every run fails with `400 Bad Request`.
+: Page size used when reading from the source. It MUST NOT exceed the source's `maxEventsPerPage`, or every run fails with `400 Bad Request`.
 : Env: `TAMARACKDB_BACKUP_PAGE_LIMIT`
 : Default: `1000`
 
@@ -104,7 +104,7 @@ sourceSocket = "/run/tamarackdb/tamarackdb.sock"
 ```
 
 Nothing is exposed over the network. The socket's permissions decide who may
-connect, as for the application: the backup's user must be allowed by the
+connect, as for the application: the backup's user MUST be allowed by the
 server's `socketMode`. Run the backup as the server's own user, or set
 `socketMode = "0660"` and add the backup's user to the server's group (see
 [Security](/docs/operations/security/#unix-socket)).
@@ -123,7 +123,7 @@ Two things to get right:
   full access to the API, writes included, to anyone who reaches its port.
   Turn `enableAuth` on in the server, with the token in `sourceToken`: the
   proxy passes the `Authorization` header through.
-- **The proxy's access to the socket.** The proxy's user must be allowed by
+- **The proxy's access to the socket.** The proxy's user MUST be allowed by
   the server's `socketMode`: set it to `"0660"`, and add that user to the
   server's group (see [Security](/docs/operations/security/#unix-socket)).
 
@@ -158,7 +158,7 @@ instance. That's the file the last run wrote to: each run logs its path.
    can't write, and it refuses to start.
 3. Start `tamarackdb-server` with `dataDir` set to that directory.
 
-Before an application uses a restored backup, it must rebuild its
+Before an application uses a restored backup, it MUST rebuild its
 projections (see [Rebuilds](/docs/concepts/projections/#rebuilds)). Anything
 that kept a position on the source starts over, since the backup has its own
 store ID.

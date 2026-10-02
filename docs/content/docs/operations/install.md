@@ -122,8 +122,8 @@ file created by another user, such as root, is one the server can't open, and
 it refuses to start. The examples below assume the server runs as a user named
 `tamarackdb`:
 
-The default socket sits in `/run/tamarackdb`, which must exist and belong to
-that user before the server starts:
+Create the default socket's directory first (see
+[Configuration](/docs/operations/configuration/#listening)):
 
 ```sh
 sudo install -d -o tamarackdb -g tamarackdb -m 755 /run/tamarackdb

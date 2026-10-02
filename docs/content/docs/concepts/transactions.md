@@ -15,8 +15,8 @@ Key words in capitals follow [RFC 2119](/docs/concepts/overview/#key-words).
 - Reads made inside the transaction see the pending writes, merged into what the server returns (see
   [Client libraries](/docs/client-libraries/)).
 - When the transaction ends, the library sends everything in one [`POST /write`](/docs/http-api/write/).
-- The server checks the write and applies it in one SQLite transaction of its own: every Append Condition must hold,
-  and every projection must still be at the version read. Then it writes everything, or nothing.
+- The server checks the write and applies it in one SQLite transaction of its own: it checks that every Append
+  Condition holds, and that every projection is still at the version read. Then it writes everything, or nothing.
 - The server keeps nothing between two requests: no open transaction, no pending write, no timer.
 
 **Why.** Kept on the server, transactions alive at the same time would have to be kept apart while they run, which is

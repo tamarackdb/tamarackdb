@@ -46,7 +46,7 @@ MUST go through a reverse proxy that handles TLS.
   }
   ```
 
-- The proxy's user must be allowed by `socketMode`, like the application's.
+- The proxy's user MUST be allowed by `socketMode`, like the application's.
 - Turn `enableAuth` on: once the proxy is up, the API is reachable over the network, and the token is what keeps
   others out. The proxy passes the `Authorization` header through unchanged.
 - In Docker, the server listens over TCP: how to keep its port private is in

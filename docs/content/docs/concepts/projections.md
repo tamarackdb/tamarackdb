@@ -49,7 +49,7 @@ since it never repeats, a stale copy never matches again, even after the project
 after a rebuild.
 
 A projection doesn't carry who wrote it, so the server can't keep two projectors from touching the same projections.
-Giving each projector its own types is the application's rule (see
+Keeping projectors apart is the application's job (see
 [Transactions](/docs/concepts/transactions/#where-a-transaction-ends)).
 
 ## What a projection may depend on

@@ -6,8 +6,6 @@ weight: 5
 
 How TamarackDB uses SQLite as its storage engine.
 
-Key words in capitals follow [RFC 2119](/docs/concepts/overview/#key-words).
-
 ## Why SQLite
 
 - The volume (several million rows across the tag tables) fits comfortably, with `name + value` indexes.
