@@ -17,8 +17,6 @@ specification](https://dcb.events/specification/), is reachable over HTTP, and s
   [Projections](/docs/concepts/projections/)). An application that keeps its projections elsewhere never touches
   them.
 
-Several applications can share one instance when they share events.
-
 ## Scope
 
 - TamarackDB serves applications with modest throughput.
