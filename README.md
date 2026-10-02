@@ -32,12 +32,12 @@ TamarackDB is under active development. Issues and pull requests are
 welcome for bug reports and feature ideas; see
 [CONTRIBUTING.md](CONTRIBUTING.md).
 
-## Trivia
+---
 
-TamarackDB takes its name from the tamarack (*Larix laricina*), a conifer
+*TamarackDB takes its name from the tamarack (*Larix laricina*), a conifer
 native to Quebec's boreal forest. It's one of the few conifers used in
 dendrochronology, because its growth rings are unusually clear and easy to
 read. Each ring records one season, laid down once and never changed. You can
 read the tree's whole history by reading the rings from the center out. This
 event store works the same way: an ordered, append-only list of facts that
-never change, from which you rebuild current state by replaying them.
+never change, from which you rebuild current state by replaying them.*
