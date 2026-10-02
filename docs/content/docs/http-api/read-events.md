@@ -1,5 +1,6 @@
 ---
 title: "Reading events"
+description: "QUERY /events: reading committed events a page at a time, the NDJSON response and its trailer, cursor pagination, and resuming a page that was cut short."
 slug: "read-events"
 weight: 3
 ---

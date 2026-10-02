@@ -1,5 +1,6 @@
 ---
 title: "Maintenance"
+description: "The two maintenance tasks left to you, both run by hand while the server is stopped: giving back disk space with VACUUM, and a full ANALYZE."
 slug: "maintenance"
 weight: 8
 ---

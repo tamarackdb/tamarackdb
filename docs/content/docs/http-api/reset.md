@@ -1,5 +1,6 @@
 ---
 title: "Reset"
+description: "POST /reset, in dev mode only: empties the store and draws a new store ID, for tests. What happens to the writes queued before and after it."
 slug: "reset"
 weight: 6
 ---

@@ -1,5 +1,6 @@
 ---
 title: "Store ID"
+description: "The store ID names the history a database file holds. Where it appears, when it changes, and why a position is always a store ID with a Sequence Position."
 slug: "store-id"
 weight: 5
 ---

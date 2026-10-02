@@ -1,5 +1,6 @@
 ---
 title: "Projections"
+description: "Reading one projection with GET /projections/{type}/{id}, its version header, and deleting projections in bulk, by type or all at once, for a rebuild."
 slug: "projections"
 weight: 5
 ---

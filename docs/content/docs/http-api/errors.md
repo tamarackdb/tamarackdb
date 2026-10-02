@@ -1,5 +1,6 @@
 ---
 title: "Errors"
+description: "The error envelope of the TamarackDB HTTP API, every error code with its status and meaning, and the causes of a 400 InvalidRequest response."
 slug: "errors"
 weight: 7
 ---

@@ -1,5 +1,6 @@
 ---
 title: "Conventions"
+description: "What every endpoint of the TamarackDB HTTP API has in common: the endpoints, connecting, strict request bodies, the body size cap, and the store ID header."
 slug: "conventions"
 weight: 1
 aliases:

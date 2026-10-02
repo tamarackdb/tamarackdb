@@ -1,5 +1,6 @@
 ---
 title: "Reads"
+description: "How reads run on their own connection pool, see a steady SQLite snapshot with the store ID in it, never wait for a write, and can't stall the pool."
 slug: "reads"
 weight: 3
 ---

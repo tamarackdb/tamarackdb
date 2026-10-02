@@ -1,5 +1,6 @@
 ---
 title: "Logs"
+description: "The access log of tamarackdb-server: one line per request, what it carries and never carries, logLevel, and the fixed level of each outcome."
 slug: "logs"
 weight: 6
 ---

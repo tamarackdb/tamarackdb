@@ -1,5 +1,6 @@
 ---
 title: "Lifecycle"
+description: "How the TamarackDB server starts, shuts down in order, and fails: what lives only in memory, connection timeouts, crashes, and fatal storage errors."
 slug: "lifecycle"
 weight: 4
 ---

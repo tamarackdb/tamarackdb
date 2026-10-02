@@ -1,5 +1,6 @@
 ---
 title: "Writing"
+description: "POST /write: one write with events, Append Conditions, and projection changes, applied all or nothing. Its limits, response, conflicts, and safe retries."
 slug: "write"
 weight: 4
 ---

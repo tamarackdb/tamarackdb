@@ -1,5 +1,6 @@
 ---
 title: "Install"
+description: "Getting a TamarackDB instance running: on your own machine with Docker, in production with systemd, from the binaries, or alongside an app in Docker."
 slug: "install"
 weight: 1
 aliases:

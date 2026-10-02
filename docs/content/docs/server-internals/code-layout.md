@@ -1,5 +1,6 @@
 ---
 title: "Code layout"
+description: "Where each part of TamarackDB lives in the Go code: the binaries under cmd and the packages under internal, with the role of each one."
 slug: "code-layout"
 weight: 7
 ---

@@ -1,5 +1,6 @@
 ---
 title: "Security"
+description: "Who can reach a TamarackDB instance and who can read its data: the unix socket, a reverse proxy for other hosts, the Bearer token, and file permissions."
 slug: "security"
 weight: 3
 ---

@@ -1,5 +1,6 @@
 ---
 title: "The courtyard"
+description: "A picture of the transaction model, with people, notebooks, a board, and a head clerk, to reason about concurrency without the technical details."
 slug: "courtyard"
 weight: 3
 ---

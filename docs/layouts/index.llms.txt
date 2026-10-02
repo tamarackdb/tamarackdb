@@ -1,0 +1,22 @@
+{{- /* llms.txt (https://llmstxt.org/): the documentation pages, in the order of
+the sidebar, each with its description. llms-full.txt holds the whole
+documentation in one Markdown file. */ -}}
+# {{ site.Title }}
+
+> {{ site.Params.Description }}
+
+The whole documentation in one Markdown file: [llms-full.txt]({{ "llms-full.txt" | absURL }})
+{{- with site.GetPage "/docs" }}
+{{- range .Pages.ByWeight }}
+
+## {{ .Title }}
+{{ if .IsSection }}
+{{ .Description }}
+{{ range .Pages.ByWeight }}
+- [{{ .Title }}]({{ .Permalink }}): {{ .Description }}
+{{- end }}
+{{- else }}
+- [{{ .Title }}]({{ .Permalink }}): {{ .Description }}
+{{- end }}
+{{- end }}
+{{- end }}

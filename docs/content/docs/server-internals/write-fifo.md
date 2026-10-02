@@ -1,5 +1,6 @@
 ---
 title: "The write FIFO"
+description: "The write FIFO: one request at a time on the write connection, in strict arrival order, with no priority and a bounded queue, and why the design is that way."
 slug: "write-fifo"
 weight: 1
 ---

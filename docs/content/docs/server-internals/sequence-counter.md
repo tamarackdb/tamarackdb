@@ -1,5 +1,6 @@
 ---
 title: "Sequence Position counter"
+description: "How the server assigns Sequence Positions from a counter in memory: reserved only once a write holds, given back on failure, and used to skip checks."
 slug: "sequence-counter"
 weight: 2
 ---

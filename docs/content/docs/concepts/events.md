@@ -1,5 +1,6 @@
 ---
 title: "Events"
+description: "What an event holds: type, identifiers and metadata as tags, an opaque payload, its Sequence Position, its time, and the limits on its size and tags."
 slug: "events"
 weight: 4
 ---

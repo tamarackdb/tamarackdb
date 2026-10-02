@@ -1,5 +1,6 @@
 ---
 title: "Overview"
+description: "What TamarackDB is: a DCB event store in Go, over HTTP, on one SQLite file. What it holds, its scope, the terms used everywhere, and the RFC 2119 key words."
 slug: "overview"
 weight: 1
 aliases:

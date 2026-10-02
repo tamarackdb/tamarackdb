@@ -1,5 +1,6 @@
 ---
 title: "Concepts"
+description: "What TamarackDB is, and the ideas the rest of the documentation builds on: transactions, events, the store ID, Append Conditions, and projections."
 weight: 10
 ---
 

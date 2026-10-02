@@ -1,5 +1,6 @@
 ---
 title: "Health check"
+description: "GET /health: how a process supervisor or a load balancer checks that a TamarackDB instance responds and that its SQLite database can be reached."
 slug: "health-check"
 weight: 4
 ---

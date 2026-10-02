@@ -1,5 +1,6 @@
 ---
 title: "Observability"
+description: "GET /metrics and GET /debug: the Prometheus metrics and the JSON snapshot that show the write turn, the waiting requests, the writes, and the pools."
 slug: "observability"
 weight: 5
 ---

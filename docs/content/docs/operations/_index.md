@@ -1,5 +1,6 @@
 ---
 title: "Operations"
+description: "Running a TamarackDB instance: installing it, configuring it, securing it, checking its health, watching it, reading its logs, and maintaining it."
 weight: 50
 ---
 

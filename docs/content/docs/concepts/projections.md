@@ -1,5 +1,6 @@
 ---
 title: "Projections"
+description: "What a projection is, how versions keep two writes from overwriting each other, what a projection may depend on, and how to rebuild projections from events."
 slug: "projections"
 weight: 7
 ---

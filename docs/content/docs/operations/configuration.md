@@ -1,5 +1,6 @@
 ---
 title: "Configuration"
+description: "Every setting of tamarackdb-server: where settings come from, the full table of keys, environment variables, and defaults, and how to size the limits."
 slug: "configuration"
 weight: 2
 ---

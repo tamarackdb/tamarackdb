@@ -1,5 +1,6 @@
 ---
 title: "Append Condition"
+description: "How an Append Condition protects a decision: its shape, its edge cases, several conditions per write, what it doesn't cover, and TamarackDB's DCB compliance."
 slug: "append-condition"
 weight: 6
 ---

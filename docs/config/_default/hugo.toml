@@ -16,7 +16,7 @@ copyRight = "Copyright (c) 2026 Maxime Gosselin"
   enable = true
 
 [outputs]
-  home = ["HTML", "searchIndex"]
+  home = ["HTML", "searchIndex", "llms", "llmsfull"]
   section = ["HTML"]
 
 [outputFormats.searchIndex]
@@ -24,6 +24,18 @@ copyRight = "Copyright (c) 2026 Maxime Gosselin"
   baseName = "search-index"
   isPlainText = true
   notAlternative = true
+
+[outputFormats.llms]
+  baseName = "llms"
+  isHTML = false
+  isPlainText = true
+  mediaType = "text/plain"
+
+[outputFormats.llmsfull]
+  baseName = "llms-full"
+  isHTML = false
+  isPlainText = true
+  mediaType = "text/plain"
 
 [sitemap]
   changefreq = "monthly"

@@ -1,5 +1,6 @@
 ---
 title: "Building from source"
+description: "Building TamarackDB from source: the Makefile targets, the tests, the tamarackdb-demo dataset tool, and running the documentation site locally."
 slug: "building-from-source"
 weight: 1
 ---

@@ -1,5 +1,6 @@
 ---
 title: "Schema"
+description: "The SQLite schema of a TamarackDB database file, why each table and index is shaped the way it is, and how the schema version is checked at startup."
 slug: "schema"
 weight: 6
 ---

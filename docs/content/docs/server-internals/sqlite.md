@@ -1,5 +1,6 @@
 ---
 title: "SQLite"
+description: "How TamarackDB uses SQLite: one file, one process per file, one write connection, the pragmas it sets, checkpoints, and query planner statistics."
 slug: "sqlite"
 weight: 5
 ---

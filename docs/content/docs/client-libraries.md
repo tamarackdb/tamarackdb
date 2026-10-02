@@ -1,5 +1,6 @@
 ---
 title: "Client libraries"
+description: "What a TamarackDB client library must do: keep pending writes, match them in reads, check conditions against them, send the net effect, and retry safely."
 slug: "client-libraries"
 weight: 30
 ---

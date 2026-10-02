@@ -1,5 +1,6 @@
 ---
 title: "Dev mode"
+description: "What devMode turns on, POST /reset and Go's profiling endpoints, why it must stay off in production, and how to profile a request with pprof."
 slug: "dev-mode"
 weight: 7
 ---

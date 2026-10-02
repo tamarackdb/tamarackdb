@@ -1,5 +1,6 @@
 ---
 title: "Query grammar"
+description: "The query grammar used to read events and in Append Conditions: query items, matching rules, size limits, and the shared test cases for client matchers."
 slug: "query-grammar"
 weight: 2
 ---
