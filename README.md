@@ -13,8 +13,8 @@ using SQLite as the storage engine.
 - DCB compliant: follows the DCB specification, with optimistic
   concurrency on writes.
 - HTTP API: send plain JSON requests from any language or platform.
-- Atomic or eventual projections: update projections with their events,
-  or catch up later.
+- Atomic or eventual projections: store updated projections with new
+  events, or catch up later.
 - Simple deployment: static Linux binaries with no runtime and no
   external service to install.
 - SQLite storage: events and projections live in one SQLite file, easy
