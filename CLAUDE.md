@@ -65,7 +65,8 @@ Sections, relative to `docs/content/docs/`:
 - `README.md`: kept short: logo, badges, a one-paragraph intro, a short
   feature list, a single link to the documentation site at
   <https://tamarackdb.github.io/> without listing its pages, a contributing
-  note, and a closing "Trivia" section on the name. No config tables, no
+  note, and, after a horizontal rule, a closing paragraph in italics on
+  the name. No config tables, no
   Docker examples, no build instructions live in the README itself.
 
 ## The mental model

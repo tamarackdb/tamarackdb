@@ -11,8 +11,9 @@ people with paper and pencils in a large hall, to reason about concurrency witho
 
 - **The hall is the application, and the people are its threads or requests.** The application decides how many
   people come into the hall, not TamarackDB.
-- **The board and the card cabinet.** The board is large, on wheels, and it pivots; its name is written at the top of
-  the side that faces the hall. On it is the log of events, numbered in the order they're added.
+- **The board and the card cabinet.** The board is large and on wheels, and the clerks can turn it around; its name
+  is written at the top of the side that faces the hall. On it is the log of events, numbered in the order they're
+  added.
   Pages are glued end to end: whoever reads the board sees one long list of events, not pages. Nothing is ever taken
   off the board. In a large card cabinet are the projections: one drawer per type, and in it one card per projection,
   filed under its id, with a version stamp, new on every write. A card can be replaced or pulled out. No one searches
@@ -68,7 +69,7 @@ people with paper and pencils in a large hall, to reason about concurrency witho
   first, and the removal applies to everything accepted before it.
 - **Turning the board around (dev mode only).** A person with no notebook can ask for the board to be turned around.
   The head clerk handles the request in its turn, like a notebook: the ones that arrived before it are written on the
-  visible side, then the board pivots. The side that comes up is blank and carries a new name, and no one can read the
-  old side any more. The card cabinet is emptied at the same time. A notebook that notes the old name will be
-  refused. Those who keep a marker elsewhere (a projector that remembers the name and the last number read, for
+  visible side, then the clerks turn the board around. The side that comes up is blank and carries a new name, and no
+  one can read the old side any more. The card cabinet is emptied at the same time. A notebook that notes the old name
+  will be refused. Those who keep a marker elsewhere (a projector that remembers the name and the last number read, for
   example) see that the name changed, and start over from zero.
