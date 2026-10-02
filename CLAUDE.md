@@ -59,7 +59,7 @@ Sections, relative to `docs/content/docs/`:
 - `operations/`: running an instance: install (local, systemd, Docker),
   configuration (the only settings table), security, health check,
   observability, logs, backup (`tamarackdb-backup`: its settings, how a
-  run works, restoring, scheduling), maintenance, dev mode.
+  run works, restoring, scheduling), maintenance, development mode.
 - `contributing/`: building from source, tests, the demo dataset, the
   documentation site.
 - `README.md`: kept short: logo, badges, a one-paragraph intro, a short
