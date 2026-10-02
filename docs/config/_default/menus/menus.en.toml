@@ -20,6 +20,10 @@
   weight = 10
 
 [[sidebar_docs]]
+  pageRef = "/docs/quickstart"
+  weight = 15
+
+[[sidebar_docs]]
   pageRef = "/docs/http-api"
   weight = 20
 
