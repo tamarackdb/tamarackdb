@@ -16,12 +16,12 @@
 
 # Explicit sidebar: every section of /docs, in order.
 [[sidebar_docs]]
-  pageRef = "/docs/concepts"
-  weight = 10
+  pageRef = "/docs/quickstart"
+  weight = 5
 
 [[sidebar_docs]]
-  pageRef = "/docs/quickstart"
-  weight = 15
+  pageRef = "/docs/concepts"
+  weight = 10
 
 [[sidebar_docs]]
   pageRef = "/docs/http-api"

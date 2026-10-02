@@ -2,7 +2,7 @@
 title: "Quickstart"
 description: "Run TamarackDB with Docker and try it with curl: write events, read them back, and see an Append Condition refuse a write based on a stale read."
 slug: "quickstart"
-weight: 15
+weight: 5
 ---
 
 Run an instance on your machine, write a few events, read them back, and see an Append Condition refuse a write. Every

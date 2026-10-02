@@ -38,15 +38,15 @@ Duplicated facts drift apart.
 
 Sections, relative to `docs/content/docs/`:
 
-- `concepts/`: what TamarackDB is and the ideas the rest builds on:
-  overview and terms, transactions, the mental model (the hall picture), events and
-  tags, the store ID, the Append Condition, projections and rebuilds.
-- `quickstart.md`: a single page, right after Concepts, and the target of
+- `quickstart.md`: a single page, the first entry, before Concepts, and the target of
   the home page's "Get Started" button. It runs an instance and tries a
   write, a read, and a refused Append Condition with `curl`. It is the one
   exception to "one fact, one page": it shows working requests and their
   responses, and links to the owning pages for every rule. When the API
   changes, its examples change too.
+- `concepts/`: what TamarackDB is and the ideas the rest builds on:
+  overview and terms, transactions, the mental model (the hall picture), events and
+  tags, the store ID, the Append Condition, projections and rebuilds.
 - `http-api/`: the wire contract: conventions (connecting, request
   bodies, the store ID header), query grammar, `QUERY /events`,
   `POST /write`, projection endpoints, `POST /reset`, errors.
