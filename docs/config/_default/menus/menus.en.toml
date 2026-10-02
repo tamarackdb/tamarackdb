@@ -1,22 +1,7 @@
 [[main]]
-  name = "Concepts"
+  name = "Documentation"
   url = "/docs/concepts/overview/"
   weight = 10
-
-[[main]]
-  name = "HTTP API"
-  url = "/docs/http-api/conventions/"
-  weight = 20
-
-[[main]]
-  name = "Operations"
-  url = "/docs/operations/install/"
-  weight = 30
-
-[[main]]
-  name = "Contributing"
-  url = "/docs/contributing/building-from-source/"
-  weight = 40
 
 [[social]]
   name = "GitHub"
