@@ -15,6 +15,11 @@ page under `docs/content/`, the home page template
   not the technical precision itself.
 - Never use an em-dash ("—"). Use a comma, colon, semicolon, parentheses,
   or a new sentence instead.
+- Every sentence earns its place: it states a rule, a behavior the reader
+  relies on, or the reason for a rule. No asides, no trivia, no
+  comparisons with other products.
+- Never restate the previous sentence in other words ("Marie is hungry.
+  She is very hungry."). Say it once.
 
 ## No references to prior designs
 
