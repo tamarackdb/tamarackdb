@@ -44,9 +44,8 @@ const (
 )
 
 // databaseFilename is the fixed filename TamarackDB uses within DataDir:
-// only the directory is configurable, not the file's name, the same
-// convention MySQL's own datadir uses. Unexported: DatabasePath is the
-// only supported way to get at this path.
+// only the directory is configurable, not the file's name. Unexported:
+// DatabasePath is the only supported way to get at this path.
 const databaseFilename = "tamarackdb.sqlite"
 
 // maxSocketPathLen is the longest unix socket path Linux accepts, in
@@ -57,7 +56,7 @@ const maxSocketPathLen = 107
 // file and/or environment variables and never mutated or reloaded while the
 // process runs.
 type Config struct {
-	// SocketPath, BindAddress, Port and DatabasePath are optional; defaulted
+	// SocketPath, BindAddress, Port and DataDir are optional; defaulted
 	// by Load when omitted. SocketPath and BindAddress/Port are mutually
 	// exclusive: whenever SocketPath is set (explicitly, or by its own
 	// default when the other two are left out), it wins and BindAddress/Port
