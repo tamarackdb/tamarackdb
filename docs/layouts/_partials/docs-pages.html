@@ -1,0 +1,16 @@
+{{- /* The documentation pages in sidebar order: the sections and single pages
+of /docs by weight, each section's pages by weight in its place. Used by the
+previous/next links, llms.txt, and llms-full.txt. */ -}}
+{{- $pages := slice -}}
+{{- with site.GetPage "/docs" -}}
+  {{- range .Pages.ByWeight -}}
+    {{- if .IsSection -}}
+      {{- range .Pages.ByWeight -}}
+        {{- $pages = $pages | append . -}}
+      {{- end -}}
+    {{- else -}}
+      {{- $pages = $pages | append . -}}
+    {{- end -}}
+  {{- end -}}
+{{- end -}}
+{{- return $pages -}}

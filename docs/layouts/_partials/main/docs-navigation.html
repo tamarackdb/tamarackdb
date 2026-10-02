@@ -1,0 +1,53 @@
+{{- /* Previous and next links in sidebar order (see docs-pages.html). The
+theme's version orders every page of /docs by weight alone, which mixes the
+sections together. */ -}}
+{{- $pages := partial "docs-pages.html" . -}}
+{{- $i := -1 -}}
+{{- range $j, $p := $pages }}{{ if eq $p.RelPermalink $.RelPermalink }}{{ $i = $j }}{{ end }}{{ end -}}
+{{- $prev := "" -}}
+{{- $next := "" -}}
+{{- if gt $i 0 }}{{ $prev = index $pages (sub $i 1) }}{{ end -}}
+{{- if and (ge $i 0) (lt $i (sub (len $pages) 1)) }}{{ $next = index $pages (add $i 1) }}{{ end -}}
+{{ if or $prev $next -}}
+<div class="page-nav d-flex flex-column flex-sm-row">
+	{{ with $prev -}}
+		<div class="card w-100">
+			<div class="card-body d-flex">
+				<div class="d-flex flex-column justify-content-center">
+					<svg xmlns="http://www.w3.org/2000/svg" class="icon icon-tabler icon-tabler-arrow-left" width="20" height="20" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round">
+						<path stroke="none" d="M0 0h24v24H0z" fill="none"></path>
+						<path d="M5 12l14 0"></path>
+						<path d="M5 12l6 6"></path>
+						<path d="M5 12l6 -6"></path>
+				 	</svg>
+				</div>
+				<div class="d-flex flex-column">
+					<div class="text-body-secondary">{{ i18n "chapter_previous" }}</div>
+					<a href="{{ .RelPermalink }}" class="stretched-link text-reset text-decoration-none">{{ .Title }}</a>
+				</div>
+			</div>
+		</div>
+	{{ end -}}
+	{{ if and $prev $next -}}
+		<div class="m-2"></div>
+	{{ end -}}
+	{{ with $next -}}
+		<div class="card text-end w-100">
+			<div class="card-body d-flex justify-content-end">
+				<div class="d-flex flex-column">
+					<div class="text-body-secondary">{{ i18n "chapter_next" }}</div>
+					<a href="{{ .RelPermalink }}" class="stretched-link text-reset text-decoration-none">{{ .Title }}</a>
+				</div>
+				<div class="d-flex flex-column justify-content-center">
+					<svg xmlns="http://www.w3.org/2000/svg" class="icon icon-tabler icon-tabler-arrow-right" width="20" height="20" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round">
+						<path stroke="none" d="M0 0h24v24H0z" fill="none"></path>
+						<path d="M5 12l14 0"></path>
+						<path d="M13 18l6 -6"></path>
+						<path d="M13 6l6 6"></path>
+					</svg>
+				</div>
+			</div>
+		</div>
+	{{ end -}}
+</div>
+{{ end -}}

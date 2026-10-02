@@ -1,16 +1,7 @@
 {{- /* llms-full.txt: every documentation page, in the order of the
 sidebar, as its Markdown source. Links between pages are made absolute. */ -}}
 {{- $base := site.BaseURL | strings.TrimSuffix "/" -}}
-{{- $pages := slice -}}
-{{- with site.GetPage "/docs" -}}
-{{- range .Pages.ByWeight -}}
-{{- if .IsSection -}}
-{{- range .Pages.ByWeight }}{{ $pages = $pages | append . }}{{ end -}}
-{{- else -}}
-{{- $pages = $pages | append . -}}
-{{- end -}}
-{{- end -}}
-{{- end -}}
+{{- $pages := partial "docs-pages.html" . -}}
 # {{ site.Title }}
 
 > {{ site.Params.Description }}
