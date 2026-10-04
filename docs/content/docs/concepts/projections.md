@@ -1,6 +1,6 @@
 ---
 title: "Projections"
-description: "What a projection is, how versions keep two writes from overwriting each other, what a projection may depend on, and how to rebuild projections from events."
+description: "What a projection is, how versions keep two writes from overwriting each other, what a projection may use, and how to rebuild projections from events."
 slug: "projections"
 weight: 7
 ---
@@ -18,31 +18,33 @@ Key words in capitals follow [RFC 2119](/docs/concepts/overview/#key-words).
 - It's always read by `type` and `id`. There is no query over projections.
 - Every projection can be rebuilt from events. That's why backups leave projections out (see
   [Backup](/docs/operations/backup/)).
-- Projections live in the same SQLite file as events, and are written by the same
+- Projections live in the same SQLite file as events, and are written by the same writes: a transaction's commit, or
   [`POST /write`](/docs/http-api/write/). Events and projections of one write become durable together, or neither
   does.
 - The payload's format (JSON, XML, plain text) is up to the writing application. The store never parses it.
 
-The calls are in [HTTP API: Projections](/docs/http-api/projections/).
+The calls are in [HTTP API: Projections](/docs/http-api/projections/), and in
+[HTTP API: Transactions](/docs/http-api/transactions/).
 
 ## Versions
 
 Every projection has a version, a random UUID (version 4), new on every write.
 
-- A write changes a projection with one of three operations:
+- In a transaction, the server keeps the version of each projection read, and the client never sees it (see
+  [Transactions](/docs/concepts/transactions/#projections-in-a-transaction)). At commit, the server checks it the same
+  way as below.
+- With [`POST /write`](/docs/http-api/write/), a write changes a projection with one of three operations:
   - `create`: the `type` + `id` MUST be free.
   - `replace`: the stored version MUST be the one given. The whole payload is replaced.
   - `delete`: the stored version MUST be the one given.
 - An operation that doesn't hold fails the whole write with `409 ConcurrencyException`, events included. A `replace`
   or `delete` of a projection that no longer exists fails the same way: another write deleted it since it was read.
-- A projection saved without being read first goes out as a `create`, and fails if the projection exists: read
-  before you write.
 - A `409` on a projection means another write changed it since it was read. Read it again and redo the work, in a new
-  write.
+  transaction or a new write.
 - Only the projections a write changes are checked, never the ones it only read (see
   [Append Condition](/docs/concepts/append-condition/#what-a-condition-doesnt-cover)).
-- A client MUST treat the version as opaque: compare it only for equality, and never compute it. To change the same
-  projection again later, use the version from the last response.
+- A client MUST treat a version it receives as opaque: compare it only for equality, and never compute it. To change
+  the same projection again with `POST /write`, use the version from the last response.
 
 **Why.** The version check is what keeps two writes from overwriting each other's projections: each one read a
 version, and the second write to arrive finds it changed. An opaque UUID can't be guessed from the previous one, and
@@ -51,6 +53,16 @@ after a rebuild.
 
 A projection doesn't carry who wrote it, so the server can't keep two writers from touching the same projections.
 Keeping them apart is the application's job.
+
+## What a projection may use
+
+A rebuild reads the same events back, so it must produce the same projections. What a projection may use depends on
+when it's computed:
+
+- **In a transaction**, from events of the same transaction: a projection MAY use their `time`, which is stored as is
+  at commit. It MUST NOT use their `sequence`: a pending event has none yet.
+- **From committed events**, read with [`QUERY /events`](/docs/http-api/read-events/): a projection MAY use both
+  `sequence` and `time`.
 
 ## Rebuilds
 

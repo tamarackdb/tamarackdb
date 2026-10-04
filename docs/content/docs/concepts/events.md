@@ -18,7 +18,7 @@ Key words in capitals follow [RFC 2119](/docs/concepts/overview/#key-words).
 | `metadata` | the client | Everything else about the event, as tags (see below) |
 | `payload` | the client | An opaque string |
 | `sequence` | the server | The event's Sequence Position (see below) |
-| `time` | the server | When the server wrote it (see below) |
+| `time` | the server | When the server received the write that carries it (see below) |
 
 ## Tags: identifiers and metadata
 
@@ -66,14 +66,18 @@ tags, and the application knows how to read each one back.
 
 ## Time
 
-- `time` is when the server wrote the event, read from the server's clock during the write.
+- `time` is when the server received the write that carries the event, read from the server's clock. In a
+  transaction, that's the write of the decision (see [Transactions](/docs/concepts/transactions/)). With
+  [`POST /write`](/docs/http-api/write/), that's when the write gets its turn, just before it commits.
 - It's in RFC 3339 format, always in UTC (`Z`), with exactly 6 fractional digits:
   `2026-09-01T14:23:05.123456Z`.
 - Every event of one write shares the same `time`. Order within a write comes from `sequence`.
-- `time` usually follows `sequence` order, but nothing guarantees it: order events by `sequence`, never by `time`.
+- `time` can seem to follow `sequence` order, but it's not a rule to rely on: order events by `sequence`, never by
+  `time`.
 - No read filters on `time` (see [`QUERY /events`](/docs/http-api/read-events/)).
 
-**Why.** Day to day, NTP corrects a small drift smoothly, without moving the clock back. A jump back is still
+**Why.** In a transaction, an event gets its `time` when its write reaches the server, and its `sequence` at commit. A
+transaction that commits after another one can carry older times. Day to day, NTP corrects a small drift smoothly, without moving the clock back. A jump back is still
 possible: a large gap corrected at once (often at boot), a virtual machine resumed, the time set by hand, a leap
 second handled badly. A decision or a read SHOULD NOT depend on `time`. An application that looks events up by
 period tags them when it writes them (a `month` metadata entry, for example) and queries that tag.
@@ -86,6 +90,6 @@ period tags them when it writes them (a `month` metadata entry, for example) and
   character counts for more than one byte.
 - A write carrying a larger event gets `413 PayloadTooLarge`.
 
-**Why.** The limit keeps an event a short statement about the world, not a data container, and keeps a decision
-model's replay fast, even over hundreds of thousands of events. Larger content (files, images) belongs in external
+**Why.** The limit keeps an event a short statement about the world, not a data container, and keeps the read
+behind a decision fast, even over hundreds of thousands of events. Larger content (files, images) belongs in external
 storage, referenced from the event.

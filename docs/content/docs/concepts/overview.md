@@ -23,12 +23,16 @@ specification](https://dcb.events/specification/), is reachable over HTTP, and s
 
 ## Terms
 
-- **Write**: everything one request sends to the server at once: events, Append Conditions, and projection changes
-  (see [`POST /write`](/docs/http-api/write/)).
+- **Transaction**: what one command reads and writes, kept in the server's memory until its commit (see
+  [Transactions](/docs/concepts/transactions/)).
+- **Decision**: one read of events in a transaction, then the write of the events it produced, or none.
+- **Commit**: the end of a transaction, where everything it holds is checked, then written at once, or not at all.
+- **Write**: what the server writes at once, in one SQLite transaction: the commit of a transaction, or one
+  [`POST /write`](/docs/http-api/write/).
 
 ## Key words
 
-Rules that a client, a client library, an application, or a rewrite of TamarackDB has to follow use the key words
+Rules that a client, a client library, or an application has to follow use the key words
 MUST, MUST NOT, SHOULD, SHOULD NOT, and MAY, as described in [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119) and
 [RFC 8174](https://www.rfc-editor.org/rfc/rfc8174): they mean that only when written in capitals. A page that uses
 them says so at the top.
@@ -36,5 +40,6 @@ them says so at the top.
 ## Where to go next
 
 - [Mental model](/docs/concepts/mental-model/): a picture of the whole model.
+- [Transactions](/docs/concepts/transactions/): how a command reads, decides, and writes.
 - [HTTP API](/docs/http-api/conventions/): the contract between TamarackDB and its clients.
 - [Operations](/docs/operations/install/): running an instance.

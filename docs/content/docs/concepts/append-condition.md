@@ -22,7 +22,14 @@ TamarackDB runs the standard DCB flow, optimistically:
 
 A read never locks anything. The decision is made on what was read, and the write carries what the decision depends on.
 
+- **In a transaction**, the server runs this flow itself: each read of events becomes a condition, with the query, the
+  position reached, and the store ID. The client never sees a condition (see
+  [Transactions](/docs/concepts/transactions/)).
+- **With [`POST /write`](/docs/http-api/write/)**, the client builds each condition and sends it, in the shape below.
+
 ## Shape
+
+The shape `POST /write` takes:
 
 ```json
 {
@@ -50,8 +57,8 @@ A read never locks anything. The decision is made on what was read, and the writ
   - `failIfEventsMatch` alone fails if any matching event exists at all, from Sequence Position 1. It suits a decision
     that rests on no read, for example "fail if a `user-registered` event with this email exists".
   - `afterSequence` alone fails if any event at all exists after it.
-  - A condition with neither field always holds: it says nothing, so it protects nothing. A rewrite MUST NOT read an
-    empty condition as `afterSequence: 0`, which would fail as soon as the store holds one event.
+  - A condition with neither field always holds: it says nothing, so it protects nothing.
+  - A condition on `"none"` always holds, with or without `afterSequence`: no event can match it.
 - A write carries a list of conditions, at most `maxEventsPerWrite` of them, and every one MUST hold. The first one that
   fails ends the write, and the `409` names it by its place: `conditions[1] no longer holds`, or `conditions[0] was read
   on another store`.
@@ -59,14 +66,14 @@ A read never locks anything. The decision is made on what was read, and the writ
   slip in between the checks and the inserts: writes are served one at a time, in the order they arrive.
 
 **Why a list.** A write usually has one condition per decision: each decision adds the condition its own read
-supports. Merging them into one condition with OR would refuse a write whenever any of the queries matched anything
+supports. A transaction's commit carries one condition per read. Merging them into one condition with OR would refuse a write whenever any of the queries matched anything
 after the earliest position. A list is more precise, and still never a partial success.
 
 ## What a condition doesn't cover
 
 - **Projections.** A decision rests on events, never on a projection. A write checks the projections it changes, by
-  their version, and nothing else. A projection the application only read isn't checked: the server never learns what an
-  application read, and a projection can be stale the moment it's read.
+  their version, and nothing else. A projection that was only read isn't checked, even in a transaction: a projection
+  can be stale the moment it's read.
 - **A condition left out, or too narrow.** It leaves a race that no error reports. Describing what a decision depends on
   is the application's job.
 
@@ -78,8 +85,8 @@ TamarackDB follows the [DCB specification](https://dcb.events/specification/):
 |---|---|---|
 | Read events filtered by type and/or tags through a Query | MUST | [`QUERY /events`](/docs/http-api/read-events/) |
 | Read from a given Sequence Position | SHOULD | `afterSequence` on `QUERY /events` |
-| Append one or more events atomically | MUST | Every [`POST /write`](/docs/http-api/write/) commits atomically |
-| Fail the append if an event matches the Append Condition, when one is given | MUST | `conditions` on `POST /write`, optional for the client |
+| Append one or more events atomically | MUST | Every commit, and every [`POST /write`](/docs/http-api/write/), writes atomically |
+| Fail the append if an event matches the Append Condition, when one is given | MUST | Every read in a transaction, and `conditions` on `POST /write` |
 
 Its guarantee is exactly the one of the specification, no more and no less. Only what an Append Condition or a
 projection version expresses is protected. A broader guarantee is a business rule of the application, not something the
