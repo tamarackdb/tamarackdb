@@ -7,21 +7,35 @@ import (
 	"testing"
 )
 
-func TestQueryAllRoundTrip(t *testing.T) {
-	q := QueryAll()
-	data, err := json.Marshal(q)
-	if err != nil {
-		t.Fatalf("Marshal() error = %v", err)
+func TestQueryStringFormsRoundTrip(t *testing.T) {
+	tests := []struct {
+		q         Query
+		want      string
+		all, none bool
+	}{
+		{QueryAll(), `"all"`, true, false},
+		{QueryNone(), `"none"`, false, true},
 	}
-	if string(data) != `"*"` {
-		t.Errorf("Marshal() = %s, want %q", data, `"*"`)
-	}
-	var q2 Query
-	if err := json.Unmarshal(data, &q2); err != nil {
-		t.Fatalf("Unmarshal() error = %v", err)
-	}
-	if !q2.All() {
-		t.Errorf("Unmarshal() All() = false, want true")
+	for _, tt := range tests {
+		t.Run(tt.want, func(t *testing.T) {
+			data, err := json.Marshal(tt.q)
+			if err != nil {
+				t.Fatalf("Marshal() error = %v", err)
+			}
+			if string(data) != tt.want {
+				t.Errorf("Marshal() = %s, want %s", data, tt.want)
+			}
+			var q2 Query
+			if err := json.Unmarshal(data, &q2); err != nil {
+				t.Fatalf("Unmarshal() error = %v", err)
+			}
+			if q2.All() != tt.all || q2.None() != tt.none || q2.Items() != nil {
+				t.Errorf("Unmarshal() All() = %v, None() = %v, Items() = %v, want %v, %v, nil", q2.All(), q2.None(), q2.Items(), tt.all, tt.none)
+			}
+			if err := q2.Validate(); err != nil {
+				t.Errorf("Validate() = %v, want nil", err)
+			}
+		})
 	}
 }
 
@@ -35,8 +49,8 @@ func TestQueryConcreteRoundTrip(t *testing.T) {
 	if err := json.Unmarshal(data, &q2); err != nil {
 		t.Fatalf("Unmarshal() error = %v", err)
 	}
-	if q2.All() {
-		t.Errorf("Unmarshal() All() = true, want false")
+	if q2.All() || q2.None() {
+		t.Errorf("Unmarshal() All() = %v, None() = %v, want false, false", q2.All(), q2.None())
 	}
 	if len(q2.Items()) != 1 || q2.Items()[0].Types[0] != "user-created" {
 		t.Errorf("Unmarshal() Items() = %+v, want one item with type user-created", q2.Items())
@@ -48,7 +62,13 @@ func TestQueryUnmarshalJSONErrors(t *testing.T) {
 		name  string
 		input string
 	}{
-		{"non-star string", `"not-a-query"`},
+		{"unknown string", `"not-a-query"`},
+		{"star", `"*"`},
+		{"all capitalized", `"All"`},
+		{"none in capitals", `"NONE"`},
+		{"all with a space", `" all"`},
+		{"empty string", `""`},
+		{"false", `false`},
 		{"number", `5`},
 	}
 	for _, tt := range tests {
@@ -158,6 +178,7 @@ func TestAppendConditionValidate(t *testing.T) {
 	seqNeg := int64(-1)
 	seqOK := int64(5)
 	all := QueryAll()
+	none := QueryNone()
 	emptyQuery := NewQuery(nil)
 	itemQuery := NewQuery([]QueryItem{{}})
 
@@ -169,6 +190,7 @@ func TestAppendConditionValidate(t *testing.T) {
 		{"no condition fields", AppendCondition{}, nil},
 		{"afterSequence only", AppendCondition{AfterSequence: &seqOK}, nil},
 		{"failIfEventsMatch all", AppendCondition{FailIfEventsMatch: &all}, nil},
+		{"failIfEventsMatch none", AppendCondition{FailIfEventsMatch: &none, AfterSequence: &seqOK}, nil},
 		{"failIfEventsMatch empty query", AppendCondition{FailIfEventsMatch: &emptyQuery}, ErrEmptyQuery},
 		{"failIfEventsMatch with empty item", AppendCondition{FailIfEventsMatch: &itemQuery}, ErrEmptyQueryItem},
 		{"negative afterSequence", AppendCondition{AfterSequence: &seqNeg}, ErrNegativeAfterSequence},

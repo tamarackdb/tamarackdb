@@ -143,7 +143,7 @@ func fetchPage(ctx context.Context, src source, cfg *config.BackupConfig, afterS
 		Query         string `json:"query"`
 		AfterSequence int64  `json:"afterSequence"`
 		Limit         int    `json:"limit"`
-	}{Query: "*", AfterSequence: afterSeq, Limit: limit})
+	}{Query: "all", AfterSequence: afterSeq, Limit: limit})
 	if err != nil {
 		return nil, false, "", fmt.Errorf("build read request: %w", err)
 	}

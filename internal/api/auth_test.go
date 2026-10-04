@@ -12,7 +12,7 @@ func TestAuthRejectsEveryRoute(t *testing.T) {
 	routes := []struct {
 		method, path, body string
 	}{
-		{"QUERY", "/events", `{"query":"*"}`},
+		{"QUERY", "/events", `{"query":"all"}`},
 		{"POST", "/write", `{"events":[{"type":"t","identifiers":{},"metadata":{},"payload":""}]}`},
 		{"GET", "/projections/user-profile/123", ""},
 		{"DELETE", "/projections/user-profile", ""},

@@ -10,7 +10,7 @@ import (
 
 func TestRequestBodyOverLimitGets413(t *testing.T) {
 	srv, _, _ := newTestServer(t)
-	body := `{"query":"*","x":"` + strings.Repeat("a", srv.opts.MaxRequestBodySize) + `"}`
+	body := `{"query":"all","x":"` + strings.Repeat("a", srv.opts.MaxRequestBodySize) + `"}`
 	rec := doRequest(t, srv, "QUERY", "/events", body)
 	if rec.Code != 413 || errorCode(t, rec) != "PayloadTooLarge" {
 		t.Fatalf("status = %d, body = %.200s, want 413 PayloadTooLarge", rec.Code, rec.Body.String())
@@ -19,13 +19,13 @@ func TestRequestBodyOverLimitGets413(t *testing.T) {
 
 func TestRequestBodyWithTrailingDataGets400(t *testing.T) {
 	srv, _, _ := newTestServer(t)
-	for _, body := range []string{`{"query":"*"} xyz`, `{"query":"*"}{"query":"*"}`} {
+	for _, body := range []string{`{"query":"all"} xyz`, `{"query":"all"}{"query":"all"}`} {
 		rec := doRequest(t, srv, "QUERY", "/events", body)
 		if rec.Code != 400 || errorCode(t, rec) != "InvalidRequest" {
 			t.Errorf("body %q: status = %d, body = %s, want 400 InvalidRequest", body, rec.Code, rec.Body.String())
 		}
 	}
-	if rec := doRequest(t, srv, "QUERY", "/events", "{\"query\":\"*\"}\n  \n"); rec.Code != 200 {
+	if rec := doRequest(t, srv, "QUERY", "/events", "{\"query\":\"all\"}\n  \n"); rec.Code != 200 {
 		t.Errorf("trailing whitespace: status = %d, want 200", rec.Code)
 	}
 }

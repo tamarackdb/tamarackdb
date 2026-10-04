@@ -30,7 +30,7 @@ func TestReadPaginationOverHTTP(t *testing.T) {
 	srv, _, _ := newTestServer(t)
 	seedHTTPEvents(t, srv, 3)
 
-	rec := doRequest(t, srv, "QUERY", "/events", `{"query":"*","limit":2}`)
+	rec := doRequest(t, srv, "QUERY", "/events", `{"query":"all","limit":2}`)
 	if rec.Code != 200 {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
 	}
@@ -44,7 +44,7 @@ func TestReadPaginationOverHTTP(t *testing.T) {
 
 	// Page 2, using the last sequence seen as afterSequence.
 	last := events[len(events)-1].Sequence
-	rec2 := doRequest(t, srv, "QUERY", "/events", fmt.Sprintf(`{"query":"*","limit":2,"afterSequence":%d}`, last))
+	rec2 := doRequest(t, srv, "QUERY", "/events", fmt.Sprintf(`{"query":"all","limit":2,"afterSequence":%d}`, last))
 	if rec2.Code != 200 {
 		t.Fatalf("page 2 status = %d, body = %s", rec2.Code, rec2.Body.String())
 	}
@@ -71,13 +71,13 @@ func TestReadAfterSequenceFilteringOverHTTP(t *testing.T) {
 		t.Fatalf("Import() error = %v", err)
 	}
 
-	all := doRequest(t, srv, "QUERY", "/events", `{"query":"*"}`)
+	all := doRequest(t, srv, "QUERY", "/events", `{"query":"all"}`)
 	_, events := parseNDJSON(t, all.Body.String())
 	if len(events) != 3 {
 		t.Fatalf("got %d events, want 3", len(events))
 	}
 
-	rec := doRequest(t, srv, "QUERY", "/events", fmt.Sprintf(`{"query":"*","afterSequence":%d}`, events[0].Sequence))
+	rec := doRequest(t, srv, "QUERY", "/events", fmt.Sprintf(`{"query":"all","afterSequence":%d}`, events[0].Sequence))
 	_, filtered := parseNDJSON(t, rec.Body.String())
 	if len(filtered) != 2 || filtered[0].Type != "b" || filtered[1].Type != "c" {
 		t.Fatalf("afterSequence filter: got %+v, want b, c", filtered)
@@ -89,15 +89,19 @@ func TestReadValidationFailures(t *testing.T) {
 		name string
 		body string
 	}{
+		{"missing query", `{}`},
+		{"star query", `{"query":"*"}`},
+		{"capitalized all", `{"query":"All"}`},
+		{"false query", `{"query":false}`},
 		{"empty query array", `{"query":[]}`},
 		{"empty query item", `{"query":[{}]}`},
-		{"limit above max", `{"query":"*","limit":999999}`},
-		{"limit negative", `{"query":"*","limit":-1}`},
-		{"limit zero", `{"query":"*","limit":0}`},
+		{"limit above max", `{"query":"all","limit":999999}`},
+		{"limit negative", `{"query":"all","limit":-1}`},
+		{"limit zero", `{"query":"all","limit":0}`},
 		// The body is decoded strictly: an unknown key would otherwise
 		// widen the read without a word.
-		{"unknown key", `{"query":"*","time":{"from":"2026-01-01T00:00:00Z"}}`},
-		{"misspelled afterSequence", `{"query":"*","afterSequense":1}`},
+		{"unknown key", `{"query":"all","time":{"from":"2026-01-01T00:00:00Z"}}`},
+		{"misspelled afterSequence", `{"query":"all","afterSequense":1}`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -127,7 +131,7 @@ func TestAppendReadRoundTrip(t *testing.T) {
 		t.Fatalf("got %d appended events, want 2", len(resp.Events))
 	}
 
-	readRec := doRequest(t, srv, "QUERY", "/events", `{"query":"*"}`)
+	readRec := doRequest(t, srv, "QUERY", "/events", `{"query":"all"}`)
 	if readRec.Code != 200 {
 		t.Fatalf("read status = %d, body = %s", readRec.Code, readRec.Body.String())
 	}
@@ -148,5 +152,24 @@ func TestAppendReadRoundTrip(t *testing.T) {
 	}
 	if resp.Events[0].Time != resp.Events[1].Time {
 		t.Errorf("time differs within one append: %q vs %q", resp.Events[0].Time, resp.Events[1].Time)
+	}
+}
+
+// TestReadNone checks that "none" reads no event, and still answers with
+// the store ID and a trailer.
+func TestReadNone(t *testing.T) {
+	srv, _, _ := newTestServer(t)
+	appendCommitted(t, srv, `{"events":[{"type":"user-created","payload":""}]}`)
+
+	rec := doRequest(t, srv, "QUERY", "/events", `{"query":"none"}`)
+	if rec.Code != 200 {
+		t.Fatalf("status = %d, want 200, body = %s", rec.Code, rec.Body.String())
+	}
+	trailer, events := parseNDJSON(t, rec.Body.String())
+	if len(events) != 0 || trailer.HasMore {
+		t.Errorf("events = %+v, hasMore = %v, want none and false", events, trailer.HasMore)
+	}
+	if rec.Header().Get(StoreHeader) == "" {
+		t.Errorf("%s header missing", StoreHeader)
 	}
 }

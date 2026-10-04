@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -11,7 +12,7 @@ import (
 // QueryItem is one item of a Query, combined with the others by OR. A
 // zero-value QueryItem ({}) poses no constraint at all, so it isn't a
 // meaningful item to send: Validate rejects it. To match every event, use
-// Query.all() (JSON "*") instead of an item with nothing set.
+// QueryAll (JSON "all") instead of an item with nothing set.
 //
 // nil vs. a non-nil empty slice is meaningful here: nil means the axis
 // is unconstrained (key omitted in JSON); a non-nil empty slice means
@@ -51,12 +52,13 @@ func (i QueryItem) Validate() error {
 	return nil
 }
 
-// Query is a DCB Query: either Query.all() (every event matches, JSON
-// "*") or a concrete, non-empty, OR-combined list of QueryItem. Built
-// only through QueryAll or NewQuery so the "all and items both set" and
-// "neither set" states are unrepresentable; the zero value is invalid
-// by design (see Validate) rather than silently meaning "all", since a
-// silent default to Query.all() would be a dangerous default for a read.
+// Query is a DCB Query in one of three forms: QueryAll (every event
+// matches, JSON "all"), QueryNone (no event matches, JSON "none"), or a
+// concrete, non-empty, OR-combined list of QueryItem. Built only through
+// QueryAll, QueryNone, or NewQuery, so a Query holds exactly one form.
+// The zero value is an empty list, invalid by design (see Validate): a
+// query key lost on the client side gets a 400 instead of silently
+// meaning "all" or "none", either of which would be a dangerous default.
 //
 // Items that are exact duplicates of one another (same types, same
 // identifiers, same metadata, regardless of order) are silently
@@ -64,11 +66,20 @@ func (i QueryItem) Validate() error {
 // clause. This applies wherever a Query is built, including a
 // failIfEventsMatch in one of the conditions of a POST /write.
 type Query struct {
-	all   bool
+	form  queryForm
 	items []QueryItem
 }
 
-func QueryAll() Query                  { return Query{all: true} }
+type queryForm uint8
+
+const (
+	formItems queryForm = iota // the zero value: a list of QueryItem
+	formAll
+	formNone
+)
+
+func QueryAll() Query                  { return Query{form: formAll} }
+func QueryNone() Query                 { return Query{form: formNone} }
 func NewQuery(items []QueryItem) Query { return Query{items: dedupeQueryItems(items)} }
 
 // dedupeQueryItems drops exact duplicate QueryItem, keeping the first
@@ -128,39 +139,86 @@ func queryItemKey(item QueryItem) string {
 	return b.String()
 }
 
-func (q Query) All() bool          { return q.all }
-func (q Query) Items() []QueryItem { return q.items } // nil when All()
+func (q Query) All() bool          { return q.form == formAll }
+func (q Query) None() bool         { return q.form == formNone }
+func (q Query) Items() []QueryItem { return q.items } // nil when All() or None()
+
+// Matches reports whether e is selected by q, in memory. It follows the
+// same rules as the SQL internal/store runs: OR across items, OR across
+// the types of one item, AND across its identifiers, its metadata, and
+// the three axes. Names, values, and types compare as exact byte strings.
+// testdata/query-cases.json holds the cases both must agree on.
+func (q Query) Matches(e EventData) bool {
+	switch q.form {
+	case formAll:
+		return true
+	case formNone:
+		return false
+	}
+	for _, item := range q.items {
+		if item.matches(e) {
+			return true
+		}
+	}
+	return false
+}
+
+func (i QueryItem) matches(e EventData) bool {
+	if i.Types != nil && !slices.Contains(i.Types, e.Type) {
+		return false
+	}
+	for _, id := range i.Identifiers {
+		if !slices.Contains(e.Identifiers, id) {
+			return false
+		}
+	}
+	for _, md := range i.Metadata {
+		if !slices.Contains(e.Metadata, md) {
+			return false
+		}
+	}
+	return true
+}
 
 func (q Query) MarshalJSON() ([]byte, error) {
-	if q.all {
-		return json.Marshal("*")
+	switch q.form {
+	case formAll:
+		return json.Marshal("all")
+	case formNone:
+		return json.Marshal("none")
 	}
 	return json.Marshal(q.items)
 }
 
+// UnmarshalJSON accepts exactly "all", "none", or an array of QueryItem.
+// Any other string, "*" and "All" included, is an error.
 func (q *Query) UnmarshalJSON(data []byte) error {
 	var s string
 	if err := json.Unmarshal(data, &s); err == nil {
-		if s != "*" {
-			return fmt.Errorf("dcb: query string must be \"*\", got %q", s)
+		switch s {
+		case "all":
+			*q = QueryAll()
+		case "none":
+			*q = QueryNone()
+		default:
+			return fmt.Errorf("dcb: query string must be \"all\" or \"none\", got %q", s)
 		}
-		*q = Query{all: true}
 		return nil
 	}
 	var items []QueryItem
 	if err := json.Unmarshal(data, &items); err != nil {
-		return fmt.Errorf("dcb: query must be an array of QueryItem or \"*\": %w", err)
+		return fmt.Errorf("dcb: query must be an array of QueryItem, \"all\", or \"none\": %w", err)
 	}
 	*q = Query{items: dedupeQueryItems(items)}
 	return nil
 }
 
 func (q Query) Validate() error {
-	if q.all {
+	if q.form != formItems {
 		return nil
 	}
 	if len(q.items) == 0 {
-		return &ValidationError{Err: ErrEmptyQuery, Message: "query must be a non-empty array of QueryItem, or \"*\""}
+		return &ValidationError{Err: ErrEmptyQuery, Message: "query must be a non-empty array of QueryItem, \"all\", or \"none\""}
 	}
 	if len(q.items) > MaxQueryItems {
 		return &ValidationError{Err: ErrQueryTooLarge, Message: fmt.Sprintf(

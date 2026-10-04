@@ -41,7 +41,7 @@ func TestStalledReadFreesItsConnection(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer conn.Close()
-	body := `{"query":"*","limit":10000}`
+	body := `{"query":"all","limit":10000}`
 	fmt.Fprintf(conn, "QUERY /events HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer %s\r\nContent-Type: application/json\r\nContent-Length: %d\r\n\r\n%s",
 		testToken, len(body), body)
 	// Read the status line only, to know the page has started, then stall.

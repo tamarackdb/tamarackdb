@@ -9,19 +9,19 @@ import (
 // queryToSQL translates a dcb.Query into a boolean SQL expression: an
 // event matches when it matches at least one QueryItem (OR across items).
 // The caller ANDs the (non-empty) result into its own WHERE clause. Returns ("", nil) when the query
-// imposes no constraint at all (Query.all(), or an OR that contains a
+// imposes no constraint at all (dcb.QueryAll, or an OR that contains a
 // trivially-matches-everything QueryItem{}); the caller must skip
 // appending the fragment in that case rather than rely on SQL folding an
 // empty string.
 //
-// A non-all Query with zero Items (dcb.Query's unvalidated zero value)
-// matches nothing, as the SQL literal "0".
+// dcb.QueryNone, and a Query with zero Items (dcb.Query's unvalidated
+// zero value), match nothing, as the SQL literal "0".
 func queryToSQL(q dcb.Query) (string, []any) {
 	if q.All() {
 		return "", nil
 	}
 	items := q.Items()
-	if len(items) == 0 {
+	if q.None() || len(items) == 0 {
 		return "0", nil
 	}
 	clauses := make([]string, 0, len(items))

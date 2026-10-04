@@ -37,13 +37,13 @@ func doWrite(t *testing.T, srv *Server, body string) (writeResponse, *httptest.R
 // currentStore returns the store ID a read reports.
 func currentStore(t *testing.T, srv *Server) string {
 	t.Helper()
-	return storeHeader(t, doRequest(t, srv, "QUERY", "/events", `{"query":"*"}`), "read")
+	return storeHeader(t, doRequest(t, srv, "QUERY", "/events", `{"query":"all"}`), "read")
 }
 
 // countEvents returns how many events the store holds.
 func countEvents(t *testing.T, srv *Server) int {
 	t.Helper()
-	_, events := parseNDJSON(t, doRequest(t, srv, "QUERY", "/events", `{"query":"*"}`).Body.String())
+	_, events := parseNDJSON(t, doRequest(t, srv, "QUERY", "/events", `{"query":"all"}`).Body.String())
 	return len(events)
 }
 
@@ -360,5 +360,19 @@ func TestWriteProjectionCreateOfExistingGets409(t *testing.T) {
 	}
 	if _, body := getProjection(t, srv, "user-profile", "123", 200); body != "v1" {
 		t.Errorf("GET body = %q, want v1", body)
+	}
+}
+
+// TestWriteConditionNoneAlwaysHolds checks that a condition on "none"
+// holds even when events exist after its afterSequence.
+func TestWriteConditionNoneAlwaysHolds(t *testing.T) {
+	srv, _, _ := newTestServer(t)
+	store := currentStore(t, srv)
+	doWrite(t, srv, `{"events":[{"type":"user-created","payload":""}]}`)
+
+	resp, _ := doWrite(t, srv, `{"events":[{"type":"t","payload":""}],"conditions":[`+
+		`{"failIfEventsMatch":"none","afterSequence":0,"store":"`+store+`"}]}`)
+	if len(resp.Events) != 1 || resp.Events[0].Sequence != 2 {
+		t.Errorf("events = %+v, want one at sequence 2", resp.Events)
 	}
 }

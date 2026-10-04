@@ -16,7 +16,7 @@ func TestResetDeletesEventsAndProjections(t *testing.T) {
 		t.Fatalf("status = %d, body = %q, want 204 with no body", rec.Code, rec.Body.String())
 	}
 
-	if _, events := parseNDJSON(t, doRequest(t, srv, "QUERY", "/events", `{"query":"*"}`).Body.String()); len(events) != 0 {
+	if _, events := parseNDJSON(t, doRequest(t, srv, "QUERY", "/events", `{"query":"all"}`).Body.String()); len(events) != 0 {
 		t.Errorf("events after reset = %+v, want none", events)
 	}
 	if rec := doRequest(t, srv, "GET", "/projections/user-profile/123", ""); rec.Code != 404 {

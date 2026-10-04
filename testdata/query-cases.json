@@ -1,9 +1,21 @@
 [
   {
-    "name": "\"*\" matches every event",
-    "query": "*",
+    "name": "\"all\" matches every event",
+    "query": "all",
     "event": { "type": "user-created", "identifiers": { "userId": "1" } },
     "matches": true
+  },
+  {
+    "name": "\"none\" matches no event",
+    "query": "none",
+    "event": { "type": "user-created", "identifiers": { "userId": "1" } },
+    "matches": false
+  },
+  {
+    "name": "\"none\" matches no event, even one without tags",
+    "query": "none",
+    "event": { "type": "user-created" },
+    "matches": false
   },
   {
     "name": "a listed type matches",

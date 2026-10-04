@@ -19,7 +19,7 @@ const StoreHeader = "X-Tamarackdb-Store"
 
 // readRequest is the exact wire shape of QUERY /events's JSON body.
 // Query's own UnmarshalJSON (dispatched automatically by encoding/json on
-// this named field) handles "*" vs. an array of QueryItem.
+// this named field) handles "all", "none", and an array of QueryItem.
 type readRequest struct {
 	Query         dcb.Query `json:"query"`
 	AfterSequence *int64    `json:"afterSequence,omitempty"`
