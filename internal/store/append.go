@@ -46,7 +46,7 @@ func (s *Store) Append(ctx context.Context, events []dcb.PendingEvent, condition
 		}
 	}
 	if len(events) == 0 && len(conditions) == 0 && projections.Len() == 0 {
-		return AppendResult{StoreID: s.currentStoreID()}, nil
+		return AppendResult{StoreID: s.StoreID()}, nil
 	}
 
 	// BEGIN IMMEDIATE (the write pool's _txlock=immediate DSN): SQLite's
@@ -61,7 +61,7 @@ func (s *Store) Append(ctx context.Context, events []dcb.PendingEvent, condition
 	// Reset runs on the same single write connection, and updates the
 	// store ID before it frees it: the ID can't change until this
 	// transaction ends.
-	storeID := s.currentStoreID()
+	storeID := s.StoreID()
 	for i, c := range conditions {
 		if c.AfterSequence != nil && c.Store != storeID {
 			return AppendResult{}, &ConditionConflictError{Index: i, StoreChanged: true}
@@ -163,8 +163,8 @@ func insertEvents(ctx context.Context, tx *sql.Tx, events []dcb.PendingEvent, st
 	return result, nil
 }
 
-// currentStoreID returns the store ID (see storeid.go).
-func (s *Store) currentStoreID() string {
+// StoreID returns the current store ID (see storeid.go), without SQL.
+func (s *Store) StoreID() string {
 	s.seqMu.Lock()
 	defer s.seqMu.Unlock()
 	return s.storeID

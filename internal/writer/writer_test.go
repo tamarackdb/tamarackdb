@@ -332,7 +332,7 @@ func TestWritePendingKeepsEachTime(t *testing.T) {
 	events := append(
 		dcb.NewPendingEvents([]dcb.EventData{{Type: "a"}}, first),
 		dcb.NewPendingEvents([]dcb.EventData{{Type: "b"}}, second)...)
-	if _, err := env.m.WritePending(context.Background(), events, nil, projection.Writes{}); err != nil {
+	if _, err := env.m.WritePending(context.Background(), env.st.StoreID(), events, nil, projection.Writes{}); err != nil {
 		t.Fatalf("WritePending() error = %v", err)
 	}
 	got := readAll(t, env.st)
@@ -373,5 +373,25 @@ func TestWriteQueueFullIsCounted(t *testing.T) {
 	release()
 	if err := <-queued; err != nil {
 		t.Fatalf("queued Write() error = %v", err)
+	}
+}
+
+// TestWritePendingRefusesAnotherStore checks that a commit begun on a
+// store that was reset since writes nothing.
+func TestWritePendingRefusesAnotherStore(t *testing.T) {
+	env := newTestEnv(t)
+	before := env.st.StoreID()
+	if err := env.m.Reset(context.Background()); err != nil {
+		t.Fatalf("Reset() error = %v", err)
+	}
+	events := dcb.NewPendingEvents([]dcb.EventData{{Type: "a"}}, dcb.Now())
+	if _, err := env.m.WritePending(context.Background(), before, events, nil, projection.Writes{}); !errors.Is(err, ErrStoreChanged) || !errors.Is(err, store.ErrConcurrencyConflict) {
+		t.Fatalf("WritePending() error = %v, want ErrStoreChanged", err)
+	}
+	if n := committedEvents(t, env.st); n != 0 {
+		t.Errorf("committed events = %d, want 0", n)
+	}
+	if s := env.m.Stats(); s.ConditionConflicts != 1 {
+		t.Errorf("Stats().ConditionConflicts = %d, want 1", s.ConditionConflicts)
 	}
 }
