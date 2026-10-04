@@ -2,11 +2,11 @@
 title: "Projections"
 description: "Reading one projection with GET /projections/{type}/{id}, its version header, and deleting projections in bulk, by type or all at once, for a rebuild."
 slug: "projections"
-weight: 5
+weight: 6
 ---
 
-Reading one projection, and deleting projections in bulk. Projections are written with
-[`POST /write`](/docs/http-api/write/). What a projection is, and how versions work, is in
+Reading one projection, and deleting projections in bulk, outside any transaction. Projections are written in a
+[transaction](/docs/http-api/transactions/#writing-projections), or with [`POST /write`](/docs/http-api/write/). What a projection is, and how versions work, is in
 [Concepts: Projections](/docs/concepts/projections/).
 
 ## Reading a projection
@@ -27,8 +27,8 @@ X-Tamarackdb-Store: 5b0c7e2a-1f4d-4a9b-8c3e-6d2f1a0b9e47
 - `200 OK`: the body is the payload exactly as written, with no JSON envelope around it, since its format is up to
   the writing application. The version is in the `X-Tamarackdb-Version` header: keep it to replace or delete the
   projection later.
-- `404 ProjectionNotFound`: no projection exists at that `type` + `id`. This is an ordinary answer, not a failure: a
-  projector that gets a `404` usually creates the projection.
+- `404 ProjectionNotFound`: no projection exists at that `type` + `id`. This is an ordinary answer, not a failure: an
+  application that gets a `404` usually creates the projection.
 - Both carry the store ID in the `X-Tamarackdb-Store` header.
 - The read sees committed projections only, and never waits for a write.
 - `type` and `id` are path segments, so they're percent-encoded: an `id` of `a/b` is

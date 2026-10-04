@@ -1,6 +1,6 @@
 ---
 title: "Query grammar"
-description: "The query grammar used to read events and in Append Conditions: query items, matching rules, size limits, and the shared test cases for client matchers."
+description: "The query grammar used to read events and in Append Conditions: \"all\", \"none\", query items, the matching rules, and the size limits."
 slug: "query-grammar"
 weight: 2
 ---
@@ -12,7 +12,11 @@ Key words in capitals follow [RFC 2119](/docs/concepts/overview/#key-words).
 
 ## Shape
 
-A query is either the string `"*"`, which matches every event, or an array of query items:
+A query is one of three things:
+
+- the string `"all"`, which matches every event;
+- the string `"none"`, which matches no event;
+- an array of query items:
 
 ```json
 [
@@ -24,6 +28,12 @@ A query is either the string `"*"`, which matches every event, or an array of qu
   { "types": ["some-other-event"] }
 ]
 ```
+
+`"all"` and `"none"` are exact and lowercase: any other string, such as `"All"` or `"*"`, gets `400`.
+
+**Why `"none"`.** A decision in a transaction that rests on no event still reads first, with `"none"` (see
+[Transactions](/docs/concepts/transactions/#one-decision-one-read-one-write)). Its read returns nothing, and the condition
+it opens can never fail.
 
 ## Matching
 
@@ -42,7 +52,9 @@ A query is either the string `"*"`, which matches every event, or an array of qu
 
 - Every array (the query itself, `types`, `identifiers`, `metadata`) MUST be non-empty when present. An empty array gets
   `400`, instead of meaning something special. To leave an axis open, leave the key out. To match every event, use
-  `"*"`.
+  `"all"`.
+- `query` is always required. A missing `query` gets `400`, instead of meaning `"all"` or `"none"`: a key lost on the
+  client must never widen a read or remove the protection of a decision.
 - An item MUST name at least one of `types`, `identifiers`, or `metadata`. An empty item (`{}`) gets `400`: it poses no
   constraint.
 - There is no negation ("not X"). A negation describes an unlimited set of events, so nothing could guarantee that no

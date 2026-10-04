@@ -5,7 +5,8 @@ slug: "read-events"
 weight: 3
 ---
 
-`QUERY /events` reads committed events, a page at a time.
+`QUERY /events` reads committed events, a page at a time, outside any transaction. A decision in a transaction reads
+with [`QUERY /tx/{txId}/events`](/docs/http-api/transactions/#reading-events) instead.
 
 Key words in capitals follow [RFC 2119](/docs/concepts/overview/#key-words).
 
@@ -26,7 +27,7 @@ curl -X QUERY http://127.0.0.1:8085/events \
 
 | Key | Required | What it does |
 |---|---|---|
-| `query` | yes | A query in the [query grammar](/docs/http-api/query-grammar/), or `"*"` for every event |
+| `query` | yes | A query in the [query grammar](/docs/http-api/query-grammar/), such as `"all"` for every event |
 | `afterSequence` | no | Only events with a Sequence Position strictly greater than this value. Left out, the read starts at the beginning |
 | `limit` | no | The most events in this page: at least 1, at most `maxEventsPerPage`. Left out, `defaultEventsPerPage` (see [Configuration](/docs/operations/configuration/)) |
 

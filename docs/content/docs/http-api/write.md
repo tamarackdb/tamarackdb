@@ -1,12 +1,16 @@
 ---
 title: "Writing"
-description: "POST /write: one write with events, Append Conditions, and projection changes, applied all or nothing. Its limits, response, conflicts, and safe retries."
+description: "POST /write: one write with events, Append Conditions, and projection changes, outside any transaction. Its limits, response, conflicts, and retries."
 slug: "write"
-weight: 4
+weight: 5
 ---
 
 `POST /write` sends one write: the events to append, the Append Conditions they depend on, and the projection
 changes. It's checked and applied all or nothing, in its turn.
+
+It serves what isn't a command, outside any transaction: a projector that catches up on its own, a rebuild, a script.
+The client sends its conditions and the versions of its projections itself. A command uses a
+[transaction](/docs/http-api/transactions/), where the server keeps both.
 
 Key words in capitals follow [RFC 2119](/docs/concepts/overview/#key-words).
 
@@ -70,7 +74,6 @@ Each limit is a setting, with its default in [Configuration](/docs/operations/co
 | `maxProjectionSize` bytes per projection: its `type`, `id`, and `payload` together | `413` |
 | `maxRequestBodySize` bytes for the whole body | `413` |
 
-- These limits count everything one transaction of the application writes, since it all goes out in one write.
 - Each error from a limit names its setting, for example `request carries 612 projections, more than
   maxProjectionsPerWrite (500)`, so a developer who hits one in development knows which setting to raise.
 - The defaults are a cautious starting point: find the real limits in development, with the application's data, and
