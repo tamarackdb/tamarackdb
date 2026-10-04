@@ -50,10 +50,11 @@ people with paper and pencils in a large hall, to reason about concurrency witho
   whole notebook appears at once, or nothing does.
 - **An employee with no news goes home.** After a minute without an instruction, the employee throws the notebook away.
   If the power goes out, every notebook is lost, and no one makes a fuss: each person starts their work over.
-- **Leaving while the notebook is in line.** Once the employee is in line, the head clerk goes to the end, checks and
-  writing alike, even if the person leaves the counter. The person then doesn't know whether the notebook was
-  written. Coming back with the number, they learn only that the employee has gone home. To know, they look at the
-  board or the cabinet.
+- **Leaving while the notebook is in line.** If the person leaves the counter while the employee waits in line, the
+  employee leaves the line, nothing is written, and they go home. Once the head clerk has taken the notebook, they
+  go to the end, checks and writing alike, even if the person leaves. Either way, the person doesn't know whether the
+  notebook was written. Coming back with the number, they learn only that the employee has gone home. To know, they
+  look at the board or the cabinet.
 - **A sheet that stands on its own.** A person who makes no decision, such as one who keeps cards up to date from the
   board at their own pace, needs no employee. They hand the head clerk a complete sheet: the cards to file, replace,
   or pull out, each with the stamp they saw, and any events, each with what it rests on. The head clerk checks the

@@ -71,10 +71,15 @@ func (s *Server) handleTxBegin(w http.ResponseWriter, r *http.Request) {
 }
 
 // txFail writes err for a request on transaction id that this layer
-// refused before reaching the transaction, and ends the transaction. A
-// transaction that doesn't exist gets 404 instead, as any call on it does.
+// refused before reaching the transaction, and ends the transaction. An
+// item over a size limit is the application's data, not a bug of its
+// client library, so it doesn't count as a design error. A transaction
+// that doesn't exist gets 404 instead, as any call on it does.
 func (s *Server) txFail(w http.ResponseWriter, r *http.Request, id string, err error) {
-	if !s.txs.Reject(id) {
+	var oe *oversizeError
+	var be *bodyTooLargeError
+	design := !errors.As(err, &oe) && !errors.As(err, &be)
+	if !s.txs.Reject(id, design) {
 		err = tx.ErrNotFound
 	}
 	s.handleErr(w, r, err)

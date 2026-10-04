@@ -276,8 +276,8 @@ func NewPendingEvents(events []EventData, t time.Time) []PendingEvent {
 	return out
 }
 
-// TimeLayout is the one format of an event's time, everywhere: on the wire,
-// in the events table, and in a read's time bounds. It's ATOM format
+// TimeLayout is the one format of an event's time, everywhere: on the wire
+// and in the events table. It's ATOM format
 // (RFC 3339) with exactly 6 fractional digits, formatted from a UTC time
 // so it ends in "Z" (e.g. "2026-09-01T14:23:05.123456Z"). The fixed width
 // is what makes the stored text sort chronologically. Go's default

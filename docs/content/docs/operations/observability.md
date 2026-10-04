@@ -49,7 +49,7 @@ curl http://127.0.0.1:8085/stats
 | `transactions.committed` | Transactions committed, including those with nothing to write |
 | `transactions.abandoned` | Transactions ended with `DELETE /tx/{txId}` |
 | `transactions.expired` | Transactions ended after `txIdleTimeout` without a call |
-| `transactions.designErrors` | Transactions ended by a request that broke a rule, or that the server refused before reaching the transaction |
+| `transactions.designErrors` | Transactions ended by a call that broke a rule, or by a malformed request. An event or a projection over its size limit doesn't count |
 | `errors.internal` | Responses `500 InternalError` |
 
 ## Reading them

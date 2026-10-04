@@ -28,5 +28,9 @@
   weight = 20
 
 [[sidebar_docs]]
+  pageRef = "/docs/integration"
+  weight = 30
+
+[[sidebar_docs]]
   pageRef = "/docs/operations"
   weight = 50

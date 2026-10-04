@@ -191,6 +191,20 @@ func TestRefusedRequestOnAnEndedTransactionGets404(t *testing.T) {
 	}
 }
 
+// TestOversizeItemIsNotADesignError checks that an event too large ends
+// its transaction without counting as a design error: it's the
+// application's data, not a bug of its client library.
+func TestOversizeItemIsNotADesignError(t *testing.T) {
+	srv, _, _ := newTestServer(t)
+	tx := begin(t, srv)
+	txRequest(t, srv, "QUERY", tx+"/events", `{"query":"none"}`, 200)
+	txRequest(t, srv, "POST", tx+"/events", `{"events":[{"type":"t","payload":"`+strings.Repeat("x", 70000)+`"}]}`, 413)
+	txRequest(t, srv, "POST", tx+"/commit", "", 404)
+	if s := srv.txs.Stats(); s.DesignErrors != 0 {
+		t.Errorf("Stats().DesignErrors = %d, want 0", s.DesignErrors)
+	}
+}
+
 func TestTransactionRuleGets400(t *testing.T) {
 	srv, _, _ := newTestServer(t)
 	tx := begin(t, srv)

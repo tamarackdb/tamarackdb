@@ -244,10 +244,11 @@ func (r *Registry) Abandon(id string) {
 }
 
 // Reject ends transaction id after a request on it that the caller
-// refused before reaching the Registry, such as a malformed body. It
-// counts as a design error. It reports whether the transaction existed:
-// a request on one that doesn't gets ErrNotFound, whatever its body.
-func (r *Registry) Reject(id string) bool {
+// refused before reaching the Registry: a malformed body, which counts as
+// a design error (design is true), or an event or a projection too large,
+// which doesn't. It reports whether the transaction existed: a request on
+// one that doesn't gets ErrNotFound, whatever its body.
+func (r *Registry) Reject(id string, design bool) bool {
 	t, err := r.acquire(id)
 	if err != nil {
 		return false
@@ -255,9 +256,11 @@ func (r *Registry) Reject(id string) bool {
 	defer r.release(t)
 	defer t.mu.Unlock()
 	r.end(t)
-	r.mu.Lock()
-	r.stats.DesignErrors++
-	r.mu.Unlock()
+	if design {
+		r.mu.Lock()
+		r.stats.DesignErrors++
+		r.mu.Unlock()
+	}
 	return true
 }
 

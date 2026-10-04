@@ -89,12 +89,14 @@ type Config struct {
 	MaxEventSize         int `toml:"maxEventSize"`         // default: 65536 (64 KiB)
 
 	// MaxProjectionSize is the maximum combined UTF-8 byte size of one
-	// projection's type, id, and payload (a deletion has no payload) in a
-	// POST /write request. Optional; defaulted by Load when omitted.
+	// projection's type, id, and payload (a deletion has no payload), in
+	// POST /write or in a transaction's write of projections. Optional;
+	// defaulted by Load when omitted.
 	MaxProjectionSize int `toml:"maxProjectionSize"` // default: 65536 (64 KiB)
 
 	// MaxEventsPerWrite and MaxProjectionsPerWrite cap how many events and
-	// projections a single POST /write may carry. The defaults are a
+	// projections one write may carry: a POST /write, or a transaction's
+	// commit. MaxEventsPerWrite caps the Append Conditions too. The defaults are a
 	// cautious starting point: an application finds its real limits in
 	// development, with its own data, and sets them for production.
 	// Optional; defaulted by Load when omitted.
@@ -108,7 +110,8 @@ type Config struct {
 	MaxRequestBodySize int `toml:"maxRequestBodySize"` // default: 8388608 (8 MiB)
 
 	// MaxQueuedWrites caps how many requests may wait in the FIFO at once:
-	// POST /write, the bulk deletes of projections, and POST /reset. One
+	// POST /write, a transaction's commit, the bulk deletes of
+	// projections, and POST /reset. One
 	// more gets 503 WriteQueueFull instead of joining.
 	// Optional; defaulted by Load when omitted. It isn't "0 means no
 	// limit": a FIFO with no bound would let a burst, or a broken client,

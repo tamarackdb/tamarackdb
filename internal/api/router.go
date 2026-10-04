@@ -41,8 +41,8 @@ type Options struct {
 	MaxEventSize int
 
 	// MaxProjectionSize is the maximum combined UTF-8 byte size of one
-	// projection's type, id, and payload (a deletion has no payload) in a
-	// POST /write request; over it, 413. Default: 65536 (64 KiB).
+	// projection's type, id, and payload (a deletion has no payload), in
+	// POST /write or in a transaction's write of projections; over it, 413. Default: 65536 (64 KiB).
 	MaxProjectionSize int
 
 	// MaxEventsPerWrite caps how many events, and how many Append

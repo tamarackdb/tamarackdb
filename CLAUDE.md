@@ -31,20 +31,20 @@ PR description, not in the doc or comment itself.
 
 ## Documentation structure
 
-Docs are split by subject, like a wiki. The central rule: **one fact, one
-page**. Each fact has one owning page; every other page links to it
-instead of repeating it. Before writing a rule, find its owning page.
-Duplicated facts drift apart.
+Docs are split by subject, like a wiki. Each fact has a main page that
+states it in full, with its edge cases and its reason. Another page MAY
+restate it briefly where its reader needs it, with a link to the main
+page. When a fact changes, its main page changes first, then every page
+that restates it.
 
 Sections, relative to `docs/content/docs/`:
 
 - `quickstart.md`: a single page, the first entry, before Concepts, and the target of
   the home page's "Get Started" button. It runs an instance, writes events
   in a transaction, reads them back, and shows a commit refused by a stale
-  read, with `curl`. It is the one
-  exception to "one fact, one page": it shows working requests and their
-  responses, and links to the owning pages for every rule. When the API
-  changes, its examples change too.
+  read, with `curl`. It shows working requests and their responses, and
+  links to the main page of every rule. When the API changes, its
+  examples change too.
 - `concepts/`: what TamarackDB is and the ideas the rest builds on:
   overview and terms, transactions, the mental model (the hall picture), events and
   tags, the store ID, the Append Condition, projections and rebuilds.
@@ -53,6 +53,9 @@ Sections, relative to `docs/content/docs/`:
   transaction endpoints (`/tx`), `POST /write`, projection endpoints,
   `POST /reset`, errors, and an example: one order in an online store,
   call by call.
+- `integration/`: building on the HTTP API: what every client of the
+  protocol must do (`client-libraries.md`), each rule in brief with a
+  link to its main page.
 - `operations/`: running an instance: install (local, systemd, Docker),
   configuration (the only settings table), security, health check,
   observability (`GET /stats`), logs, backup (`tamarackdb-backup`: its

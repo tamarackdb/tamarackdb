@@ -523,9 +523,11 @@ func TestAbandonAndReject(t *testing.T) {
 	env.r.Abandon(abandoned)
 	env.r.Abandon(abandoned) // already closed: no error, not counted again
 	env.r.Abandon("unknown")
-	env.r.Reject(rejected)
+	env.r.Reject(rejected, true)
+	tooLarge := env.r.Begin()
+	env.r.Reject(tooLarge, false)
 
-	for _, id := range []string{abandoned, rejected} {
+	for _, id := range []string{abandoned, rejected, tooLarge} {
 		if err := env.r.Commit(bg, id); !errors.Is(err, ErrNotFound) {
 			t.Errorf("Commit() error = %v, want ErrNotFound", err)
 		}

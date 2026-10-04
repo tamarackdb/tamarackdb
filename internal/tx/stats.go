@@ -6,7 +6,7 @@ type Stats struct {
 	Committed    uint64 // transactions committed, with or without anything to write
 	Abandoned    uint64 // transactions ended by Abandon
 	Expired      uint64 // transactions ended after IdleTimeout without a call
-	DesignErrors uint64 // transactions ended by a broken rule, or a request refused before the Registry
+	DesignErrors uint64 // transactions ended by a broken rule, or a malformed request refused before the Registry
 }
 
 // Stats returns the counters.

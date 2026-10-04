@@ -42,4 +42,5 @@ them says so at the top.
 - [Mental model](/docs/concepts/mental-model/): a picture of the whole model.
 - [Transactions](/docs/concepts/transactions/): how a command reads, decides, and writes.
 - [HTTP API](/docs/http-api/conventions/): the contract between TamarackDB and its clients.
+- [Client libraries](/docs/integration/client-libraries/): what every client of the protocol must do.
 - [Operations](/docs/operations/install/): running an instance.
