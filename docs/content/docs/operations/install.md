@@ -51,8 +51,9 @@ Check each point before an instance holds real data:
    mode](/docs/operations/dev-mode/)).
 7. **A sized queue.** Set `maxQueuedWrites` from how many writes the application sends at once (see [Sizing the write
    queue](/docs/operations/configuration/#sizing-the-write-queue)).
-8. **Monitoring.** Point a supervisor at `/health`, and keep `logLevel` at `warning` (see [Health
-   check](/docs/operations/health-check/) and [Logs](/docs/operations/logs/)).
+8. **Monitoring.** Point a supervisor at `/health`, watch the counters of `/stats`, and keep `logLevel` at `warning`
+   (see [Health check](/docs/operations/health-check/), [Observability](/docs/operations/observability/), and
+   [Logs](/docs/operations/logs/)).
 9. **Backups.** Schedule `tamarackdb-backup`. On the same host, it reads straight from the socket with `sourceSocket`;
    from another host, through a reverse proxy that handles TLS (see [Backup](/docs/operations/backup/)).
 

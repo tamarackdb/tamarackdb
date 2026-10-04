@@ -60,7 +60,7 @@ keeps one path for every access from another host.
 ## Bearer token
 
 - When `enableAuth` is on, every registered route needs `Authorization: Bearer <token>`: every endpoint of the HTTP API,
-  `/health`, and, in development mode, `POST /reset` and the profiling endpoints.
+  `/health`, `/stats`, and, in development mode, `POST /reset` and the profiling endpoints.
 - A request with no valid token gets `401 Unauthorized` before it reaches any handler.
 - The token is one fixed value, `authToken`. Rotating it means changing the configuration and restarting the server:
   there's no window where two tokens both work.

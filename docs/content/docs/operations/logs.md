@@ -28,6 +28,7 @@ Each outcome has a fixed level, not derived from the status code alone:
 |---|---|---|
 | Successful request | 2XX | `debug` |
 | Projection not found | 404 | `debug` |
+| Transaction not found | 404 | `info` |
 | Concurrency conflict | 409 | `debug` |
 | Invalid request | 400 | `info` |
 | Payload too large | 413 | `info` |
@@ -39,8 +40,8 @@ Each outcome has a fixed level, not derived from the status code alone:
 
 - `debug`: the server did exactly what it should, a success or an expected rejection (a conflict, a projection that
   doesn't exist).
-- `info`: not the server's fault, but worth knowing: a malformed or oversized request, a bad token, or a request
-  turned away during shutdown.
+- `info`: not the server's fault, but worth knowing: a malformed or oversized request, a bad token, a call on a
+  transaction that no longer exists, or a request turned away during shutdown.
 - `warning`: a real signal of capacity or contention, such as a full write queue.
 - `error`: a real failure.
 
