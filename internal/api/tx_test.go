@@ -167,6 +167,30 @@ func TestRefusedRequestsEndTheTransaction(t *testing.T) {
 	}
 }
 
+// TestRefusedRequestOnAnEndedTransactionGets404 checks that a request
+// this layer would refuse gets 404 when its transaction doesn't exist,
+// as any call on it does.
+func TestRefusedRequestOnAnEndedTransactionGets404(t *testing.T) {
+	srv, _, _ := newTestServer(t)
+	committed := begin(t, srv)
+	txRequest(t, srv, "POST", committed+"/commit", "", 204)
+	for _, tx := range []string{"/tx/5b0c7e2a-1f4d-4a9b-8c3e-6d2f1a0b9e47", committed} {
+		for _, call := range []struct{ method, path, body string }{
+			{"QUERY", "/events", `{"query":"*"}`},
+			{"POST", "/events", `{}`},
+			{"POST", "/projections", `{"upsert":[{"type":"p","id":"1"}]}`},
+		} {
+			rec := txRequest(t, srv, call.method, tx+call.path, call.body, 404)
+			if code := errorCode(t, rec); code != "TransactionNotFound" {
+				t.Errorf("%s %s: error = %q, want TransactionNotFound", call.method, tx+call.path, code)
+			}
+		}
+	}
+	if s := srv.txs.Stats(); s.DesignErrors != 0 {
+		t.Errorf("Stats().DesignErrors = %d, want 0: no transaction was ended", s.DesignErrors)
+	}
+}
+
 func TestTransactionRuleGets400(t *testing.T) {
 	srv, _, _ := newTestServer(t)
 	tx := begin(t, srv)

@@ -245,11 +245,12 @@ func (r *Registry) Abandon(id string) {
 
 // Reject ends transaction id after a request on it that the caller
 // refused before reaching the Registry, such as a malformed body. It
-// counts as a design error.
-func (r *Registry) Reject(id string) {
+// counts as a design error. It reports whether the transaction existed:
+// a request on one that doesn't gets ErrNotFound, whatever its body.
+func (r *Registry) Reject(id string) bool {
 	t, err := r.acquire(id)
 	if err != nil {
-		return
+		return false
 	}
 	defer r.release(t)
 	defer t.mu.Unlock()
@@ -257,6 +258,7 @@ func (r *Registry) Reject(id string) {
 	r.mu.Lock()
 	r.stats.DesignErrors++
 	r.mu.Unlock()
+	return true
 }
 
 // Read is the result of ReadEvents: the committed events that match,

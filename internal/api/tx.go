@@ -71,9 +71,12 @@ func (s *Server) handleTxBegin(w http.ResponseWriter, r *http.Request) {
 }
 
 // txFail writes err for a request on transaction id that this layer
-// refused before reaching the transaction, and ends the transaction.
+// refused before reaching the transaction, and ends the transaction. A
+// transaction that doesn't exist gets 404 instead, as any call on it does.
 func (s *Server) txFail(w http.ResponseWriter, r *http.Request, id string, err error) {
-	s.txs.Reject(id)
+	if !s.txs.Reject(id) {
+		err = tx.ErrNotFound
+	}
 	s.handleErr(w, r, err)
 }
 
