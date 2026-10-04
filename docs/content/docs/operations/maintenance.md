@@ -5,8 +5,8 @@ slug: "maintenance"
 weight: 8
 ---
 
-The server maintains itself: SQLite checkpoints its WAL, and the server refreshes query statistics every hour (see
-[SQLite](/docs/server-internals/sqlite/)). Two operations are left to you, both run by hand while the server is
+The server maintains itself: SQLite checkpoints its WAL, and the server refreshes query statistics every hour. Two
+operations are left to you, both run by hand while the server is
 stopped.
 
 Run both as the server's user (see [Install](/docs/operations/install/#run)).

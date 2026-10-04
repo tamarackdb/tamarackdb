@@ -33,8 +33,8 @@ curl -X QUERY http://127.0.0.1:8085/events \
 - The body is decoded strictly (see [Conventions](/docs/http-api/conventions/#request-bodies)).
 - A negative `afterSequence`, or a `limit` below 1 or above `maxEventsPerPage`, gets `400`.
 - There is no filter on `time` (see [Events](/docs/concepts/events/#time)), and no `order` option: events always come
-  in ascending Sequence Position order, the only order a decision model needs.
-- A read sees committed events only, and never waits for a write (see [Reads](/docs/server-internals/reads/)).
+  in ascending Sequence Position order, the only order a decision needs.
+- A read sees committed events only, and never waits for a write.
 
 ## Response
 

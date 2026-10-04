@@ -9,7 +9,6 @@ import (
 	"context"
 	"errors"
 	"sync"
-	"time"
 
 	"github.com/tamarackdb/tamarackdb/internal/dcb"
 	"github.com/tamarackdb/tamarackdb/internal/projection"
@@ -47,22 +46,20 @@ func New(st *store.Store, cfg Config) *Manager {
 
 // Write runs one POST /write in its turn: it has the store check every
 // Append Condition, then append events and write projections, all or
-// nothing (see store.Store.Append). It counts the outcome and the time
-// the write held the turn, for GET /metrics.
+// nothing (see store.Store.Append). It counts the outcome.
 func (m *Manager) Write(ctx context.Context, events []dcb.EventData, conditions []dcb.AppendCondition, projections projection.Writes) (store.AppendResult, error) {
 	var result store.AppendResult
 	err := m.RunInTurn(ctx, queue.KindWrite, func(ctx context.Context) error {
-		start := time.Now()
 		var err error
 		result, err = m.st.Append(ctx, events, conditions, projections)
-		m.record(err, time.Since(start))
+		m.record(err)
 		return err
 	})
 	return result, err
 }
 
-// record counts a write's outcome and duration.
-func (m *Manager) record(err error, took time.Duration) {
+// record counts a write's outcome.
+func (m *Manager) record(err error) {
 	var ce *store.ConditionConflictError
 	var pe *store.ProjectionConflictError
 	m.mu.Lock()
@@ -75,13 +72,12 @@ func (m *Manager) record(err error, took time.Duration) {
 	case errors.As(err, &pe):
 		m.stats.Rejected[RejectedProjection]++
 	}
-	m.stats.Durations.observe(took.Seconds())
 }
 
 // RunInTurn waits for a turn in the FIFO, behind every request already
 // queued, runs fn, then gives the turn to the next request. fn runs with
 // the write connection to itself, and commits on its own. kind says what
-// the request waits for, for GET /metrics and GET /debug.
+// the request waits for.
 //
 // ctx is the request's: if the client disconnects while waiting, or just
 // as its turn comes, the request leaves the FIFO and fn never runs. Once

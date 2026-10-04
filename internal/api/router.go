@@ -7,7 +7,6 @@ package api
 import (
 	"net/http"
 	"net/http/pprof"
-	"sync/atomic"
 
 	"github.com/tamarackdb/tamarackdb/internal/store"
 	"github.com/tamarackdb/tamarackdb/internal/txn"
@@ -89,14 +88,6 @@ type Server struct {
 	st   *store.Store
 	opts Options
 
-	// writeHTTPOpen and readHTTPOpen count requests in flight on each
-	// side, exposed by GET /debug. The write side is every request that
-	// waits in the FIFO or uses the write connection: POST /write, the
-	// bulk deletes of projections, and POST /reset. The read side is
-	// QUERY /events and GET /projections/{type}/{id}.
-	writeHTTPOpen atomic.Int64
-	readHTTPOpen  atomic.Int64
-
 	// logThreshold is Options.LogLevel parsed once at construction; see
 	// withLogging.
 	logThreshold level
@@ -149,8 +140,6 @@ func New(tm *txn.Manager, st *store.Store, opts Options) *Server {
 	mux.HandleFunc("DELETE /projections/{type}", s.handleDeleteProjectionsByType)
 	mux.HandleFunc("DELETE /projections", s.handleDeleteAllProjections)
 	mux.HandleFunc("GET /health", s.handleHealth)
-	mux.HandleFunc("GET /metrics", s.handleMetrics)
-	mux.HandleFunc("GET /debug", s.handleDebug)
 	// Deliberately no catch-all "/" route: registering one would live in
 	// ServeMux's method-agnostic subtree and match any method on any
 	// path, silently swallowing the mux's built-in 405 detection (which

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/tamarackdb/tamarackdb/internal/queue"
+	"github.com/tamarackdb/tamarackdb/internal/txn"
 )
 
 // userCondition is an Append Condition on userId 123, read after
@@ -105,7 +106,7 @@ func TestWriteEmptyBodyWritesNothing(t *testing.T) {
 // TestWriteIsAtomic checks that a projection conflict writes nothing, the
 // events included, and that the 409 names the projection by its path.
 func TestWriteIsAtomic(t *testing.T) {
-	srv, _, _ := newTestServer(t)
+	srv, tm, _ := newTestServer(t)
 	writeProjectionsCommitted(t, srv, `{"create":[{"type":"user-profile","id":"123","payload":"x"}]}`)
 
 	rec := doRequest(t, srv, "POST", "/write", `{
@@ -120,15 +121,14 @@ func TestWriteIsAtomic(t *testing.T) {
 	if n := countEvents(t, srv); n != 0 {
 		t.Errorf("store holds %d events, want 0: the write must be all or nothing", n)
 	}
-	values := parseMetrics(t, doRequest(t, srv, "GET", "/metrics", "").Body.String())
-	cond, proj := `tamarackdb_writes_rejected_total{reason="condition"}`, `tamarackdb_writes_rejected_total{reason="projection"}`
-	if values[cond] != 0 || values[proj] != 1 {
-		t.Errorf("%s = %v, %s = %v, want 0 and 1: a projection conflict isn't a failed Append Condition", cond, values[cond], proj, values[proj])
+	rejected := tm.Snapshot().Stats.Rejected
+	if cond, proj := rejected[txn.RejectedCondition], rejected[txn.RejectedProjection]; cond != 0 || proj != 1 {
+		t.Errorf("rejected on a condition = %d, on a projection = %d, want 0 and 1: a projection conflict isn't a failed Append Condition", cond, proj)
 	}
 }
 
 func TestWriteConditions(t *testing.T) {
-	srv, _, _ := newTestServer(t)
+	srv, tm, _ := newTestServer(t)
 	store := currentStore(t, srv)
 	doWrite(t, srv, `{"events":[{"type":"user-created","identifiers":{"userId":"123"},"payload":""}]}`)
 
@@ -162,9 +162,8 @@ func TestWriteConditions(t *testing.T) {
 	if n := countEvents(t, srv); n != 2 {
 		t.Errorf("store holds %d events, want 2: failed writes must write nothing", n)
 	}
-	values := parseMetrics(t, doRequest(t, srv, "GET", "/metrics", "").Body.String())
-	if got := values[`tamarackdb_writes_rejected_total{reason="condition"}`]; got != 2 {
-		t.Errorf(`tamarackdb_writes_rejected_total{reason="condition"} = %v, want 2`, got)
+	if got := tm.Snapshot().Stats.Rejected[txn.RejectedCondition]; got != 2 {
+		t.Errorf("rejected on a condition = %d, want 2", got)
 	}
 }
 

@@ -80,7 +80,7 @@ func TestWriteProjectionCreateReplaceDelete(t *testing.T) {
 // longer the stored one gets 409 ConcurrencyException naming its position,
 // and writes nothing: not even the create next to it.
 func TestStaleVersionGets409(t *testing.T) {
-	srv, _, _ := newTestServer(t)
+	srv, tm, _ := newTestServer(t)
 	v1 := writeProjectionsCommitted(t, srv, `{"create":[{"type":"user-profile","id":"123","payload":"v1"}]}`).Create[0].Version
 	writeProjectionsCommitted(t, srv, fmt.Sprintf(
 		`{"replace":[{"type":"user-profile","id":"123","version":%q,"payload":"v2"}]}`, v1))
@@ -100,10 +100,9 @@ func TestStaleVersionGets409(t *testing.T) {
 	}
 	getProjection(t, srv, "user-profile", "456", 404)
 
-	values := parseMetrics(t, doRequest(t, srv, "GET", "/metrics", "").Body.String())
-	cond, proj := `tamarackdb_writes_rejected_total{reason="condition"}`, `tamarackdb_writes_rejected_total{reason="projection"}`
-	if values[cond] != 0 || values[proj] != 1 {
-		t.Errorf("%s = %v, %s = %v, want 0 and 1: a projection conflict isn't a failed Append Condition", cond, values[cond], proj, values[proj])
+	rejected := tm.Snapshot().Stats.Rejected
+	if cond, proj := rejected[txn.RejectedCondition], rejected[txn.RejectedProjection]; cond != 0 || proj != 1 {
+		t.Errorf("rejected on a condition = %d, on a projection = %d, want 0 and 1: a projection conflict isn't a failed Append Condition", cond, proj)
 	}
 }
 

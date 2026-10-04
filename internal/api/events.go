@@ -57,8 +57,6 @@ type readEventWire struct {
 // and sees committed events only, and the response carries the store ID in
 // the X-Tamarackdb-Store header.
 func (s *Server) handleReadEvents(w http.ResponseWriter, r *http.Request) {
-	s.readHTTPOpen.Add(1)
-	defer s.readHTTPOpen.Add(-1)
 	filter, err := s.parseReadRequest(r)
 	if err != nil {
 		s.handleErr(w, r, err)

@@ -56,20 +56,17 @@ A read never locks anything. The decision is made on what was read, and the writ
   fails ends the write, and the `409` names it by its place: `conditions[1] no longer holds`, or `conditions[0] was read
   on another store`.
 - The server checks conditions against committed events only, in the same SQLite transaction as the inserts. Nothing can
-  slip in between the checks and the inserts (see [The write FIFO](/docs/server-internals/write-fifo/)).
+  slip in between the checks and the inserts: writes are served one at a time, in the order they arrive.
 
-**Why a list.** A transaction usually has one condition per decision: each decision model or processor adds the
-condition its own read supports. Merging them into one condition with OR would refuse a write whenever any of the
-queries matched anything after the earliest position. A list is more precise, and still never a partial success.
+**Why a list.** A write usually has one condition per decision: each decision adds the condition its own read
+supports. Merging them into one condition with OR would refuse a write whenever any of the queries matched anything
+after the earliest position. A list is more precise, and still never a partial success.
 
 ## What a condition doesn't cover
 
 - **Projections.** A decision rests on events, never on a projection. A write checks the projections it changes, by
-  their version, and nothing else. A projection the transaction only read isn't checked: the server never learns what a
-  transaction read, and a projection can be stale the moment it's read.
-- **Pending events of the same transaction.** A decision can also go stale because of a pending event added after its
-  read, by another processor of the same command for example. Only the client library knows the order of its reads and
-  pending events, so that check is the library's (see [Client libraries](/docs/integration/client-libraries/)).
+  their version, and nothing else. A projection the application only read isn't checked: the server never learns what an
+  application read, and a projection can be stale the moment it's read.
 - **A condition left out, or too narrow.** It leaves a race that no error reports. Describing what a decision depends on
   is the application's job.
 

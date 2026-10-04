@@ -56,13 +56,3 @@ A query is either the string `"*"`, which matches every event, or an array of qu
 **Why the size limits.** They keep the SQL a query turns into well inside SQLite's limits on expression depth and bound
 parameters. A query of about 1,000 terms would otherwise fail inside SQLite, instead of getting a clear `400`.
 
-## Shared test cases
-
-A client library matches its own pending events against queries, in memory (see [Client
-libraries](/docs/integration/client-libraries/)). Its matcher MUST follow this grammar exactly, or a command could miss
-one of its own pending events without any error.
-
-The repository publishes shared test cases for that,
-[`testdata/query-cases.json`](https://github.com/tamarackdb/tamarackdb/blob/main/testdata/query-cases.json): each case
-is a query, an event, and whether it matches. A test in `internal/store` checks every case against the SQL the server
-runs; a client library replays them against its matcher.

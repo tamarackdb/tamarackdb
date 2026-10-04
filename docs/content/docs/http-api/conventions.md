@@ -20,10 +20,9 @@ Key words in capitals follow [RFC 2119](/docs/concepts/overview/#key-words).
 | [`DELETE /projections`](/docs/http-api/projections/#bulk-delete) | Delete every projection, in its turn |
 | [`POST /reset`](/docs/http-api/reset/) | Delete all events and projections and draw a new store ID, in its turn (development mode only) |
 
-- "In its turn" means the request waits in the write FIFO, behind the requests that arrived before it (see
-  [The write FIFO](/docs/server-internals/write-fifo/)).
-- `GET /health`, `GET /metrics`, and `GET /debug` are operational endpoints (see
-  [Health check](/docs/operations/health-check/) and [Observability](/docs/operations/observability/)).
+- "In its turn" means the request waits behind the requests that arrived before it: the server runs them one at a
+  time, in the order they arrive.
+- `GET /health` is an operational endpoint (see [Health check](/docs/operations/health-check/)).
 
 ## Connecting
 

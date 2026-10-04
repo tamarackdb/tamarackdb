@@ -69,8 +69,8 @@ named after it, `<store ID>.sqlite`, in `dataDir`. Each run:
 2. Checks that the store ID is a UUID in its canonical form, since it comes from the network and becomes a file name.
    Nothing else can point outside the backup directory.
 3. Creates `dataDir` if it's missing, then opens `<store ID>.sqlite` in it, or creates it with the server's schema. The
-   run holds the file's `.lock` (see [SQLite](/docs/server-internals/sqlite/#one-process-per-file)): a backup file can't
-   be updated while a server serves it.
+   run holds the file's `.lock`: only one process opens a database file at a time, so a backup file can't be updated
+   while a server serves it.
 4. Reads the highest Sequence Position already in the file.
 5. Pages through the source's `QUERY /events` from there, with `limit` set to `pageLimit`. The run checks that every
    page carries the same store ID as the first response. If it changes, the source was reset during the run: the run

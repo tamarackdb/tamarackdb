@@ -113,5 +113,4 @@ true. The application reads again, decides again, and sends a new write (see
 - [Mental model](/docs/concepts/mental-model/): a picture of the whole model.
 - [Append Condition](/docs/concepts/append-condition/): what a condition protects, and what it doesn't.
 - [Conventions](/docs/http-api/conventions/): the HTTP API, endpoint by endpoint.
-- [Client libraries](/docs/integration/client-libraries/): what a library does for the application.
 - [Install](/docs/operations/install/): running an instance in production.

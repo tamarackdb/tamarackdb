@@ -35,8 +35,6 @@ type writeResponse struct {
 // slowly would otherwise hold the turn, and every request behind it, for
 // as long as it likes.
 func (s *Server) handleWrite(w http.ResponseWriter, r *http.Request) {
-	defer s.trackWrite()()
-
 	var req writeRequest
 	err := decodeJSONStrict(r, &req)
 	if err == nil {
@@ -110,11 +108,4 @@ func (s *Server) validateWriteRequest(req writeRequest) error {
 		}
 	}
 	return validateProjections(req.Projections, s.opts.MaxProjectionSize, "projections.")
-}
-
-// trackWrite counts a request on the write side for GET /debug. Callers
-// defer the returned function.
-func (s *Server) trackWrite() func() {
-	s.writeHTTPOpen.Add(1)
-	return func() { s.writeHTTPOpen.Add(-1) }
 }

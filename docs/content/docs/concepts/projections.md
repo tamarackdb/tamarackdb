@@ -5,7 +5,7 @@ slug: "projections"
 weight: 7
 ---
 
-A projection is the current state a projector computes from events. Storing projections in TamarackDB is optional:
+A projection is the current state an application computes from events. Storing projections in TamarackDB is optional:
 an application that keeps them elsewhere never touches them.
 
 Key words in capitals follow [RFC 2119](/docs/concepts/overview/#key-words).
@@ -38,38 +38,24 @@ Every projection has a version, a random UUID (version 4), new on every write.
 - A projection saved without being read first goes out as a `create`, and fails if the projection exists: read
   before you write.
 - A `409` on a projection means another write changed it since it was read. Read it again and redo the work, in a new
-  transaction.
+  write.
 - Only the projections a write changes are checked, never the ones it only read (see
   [Append Condition](/docs/concepts/append-condition/#what-a-condition-doesnt-cover)).
 - A client MUST treat the version as opaque: compare it only for equality, and never compute it. To change the same
   projection again later, use the version from the last response.
 
-**Why.** The version check is what keeps two transactions from overwriting each other's projections: each one read a
+**Why.** The version check is what keeps two writes from overwriting each other's projections: each one read a
 version, and the second write to arrive finds it changed. An opaque UUID can't be guessed from the previous one, and
 since it never repeats, a stale copy never matches again, even after the projection is deleted and created anew, or
 after a rebuild.
 
-A projection doesn't carry who wrote it, so the server can't keep two projectors from touching the same projections.
-Keeping projectors apart is the application's job (see
-[Transactions](/docs/concepts/transactions/#where-a-transaction-ends)).
-
-## What a projection may depend on
-
-It depends on where the application ends its transactions (see
-[Transactions](/docs/concepts/transactions/#where-a-transaction-ends)):
-
-- **Atomic**: projectors run before the write, while the events are still pending in the client library, so the
-  events have no `sequence` or `time` yet. A projection MUST NOT use them. A business date goes in the payload or the
-  metadata.
-- **Eventually consistent**: projectors read events that are already written, so a projection MAY use `sequence`
-  and `time` too.
-
-Either way, a rebuild reads the same events back, so it produces the same projections.
+A projection doesn't carry who wrote it, so the server can't keep two writers from touching the same projections.
+Keeping them apart is the application's job.
 
 ## Rebuilds
 
 A rebuild replays events to write projections again. How it's organized is up to the application: one thread
-replaying every event in order, several projectors in parallel, or anything else. It's built from ordinary calls:
+replaying every event in order, several threads in parallel, or anything else. It's built from ordinary calls:
 
 1. Delete the projections to rebuild, one type at a time or all at once, with a
    [bulk delete](/docs/http-api/projections/#bulk-delete).
@@ -81,7 +67,7 @@ One write or several is the application's choice:
 
 - **One write** MUST fit under `maxProjectionsPerWrite` and `maxRequestBodySize`. It holds the write turn for as long
   as its inserts take, with every other write waiting behind it.
-- **Several writes** each fit the limits. A projector writes its position (store ID and Sequence Position) with each
+- **Several writes** each fit the limits. The application writes its position (store ID and Sequence Position) with each
   one, so a rebuild that stops halfway resumes from there.
 
 Either way, the bulk delete is a separate call: between it and the writes, a read finds the deleted projections gone.

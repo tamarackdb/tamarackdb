@@ -20,22 +20,11 @@ specification](https://dcb.events/specification/), is reachable over HTTP, and s
 - TamarackDB serves applications with modest throughput.
 - It runs as a single instance ("single brain"): one process, one SQLite file, one writer, no clustering.
 - It trades speed for simplicity, on purpose. A system that needs high write throughput is not a good fit.
-- Eventual consistency is supported, not imposed: each application chooses (see
-  [Transactions](/docs/concepts/transactions/)).
 
 ## Terms
 
-These pieces are code in the application. TamarackDB never runs them: it stores what they read and write.
-
-- **Command**: one request to change something, handled by the application.
-- **Decision model**: reads the events a command needs, decides, and appends new events.
-- **Event handler**: code that reacts to events. There are two kinds:
-  - **Projector**: computes projections from events and writes them.
-  - **Processor**: reads events and may append more events in response.
-- **Transaction**: what one command, or one event handler run, collects before sending it to the server. It lives in
-  the client library (see [Transactions](/docs/concepts/transactions/)).
-- **Write**: everything one transaction sends to the server at once: events, Append Conditions, and projection
-  changes (see [`POST /write`](/docs/http-api/write/)).
+- **Write**: everything one request sends to the server at once: events, Append Conditions, and projection changes
+  (see [`POST /write`](/docs/http-api/write/)).
 
 ## Key words
 
@@ -48,7 +37,4 @@ them says so at the top.
 
 - [Mental model](/docs/concepts/mental-model/): a picture of the whole model.
 - [HTTP API](/docs/http-api/conventions/): the contract between TamarackDB and its clients.
-- [Client libraries](/docs/integration/client-libraries/): what a client library must do.
-- [Server internals](/docs/server-internals/write-fifo/): how the server works inside, and
-  [where each part lives in the code](/docs/server-internals/code-layout/).
 - [Operations](/docs/operations/install/): running an instance.

@@ -183,7 +183,7 @@ func (s *Store) Optimize(ctx context.Context) error {
 }
 
 // PoolStats reports how many connections of a pool are currently checked
-// out (InUse) against its configured ceiling (Max), for GET /debug.
+// out (InUse) against its configured ceiling (Max).
 type PoolStats struct {
 	InUse int
 	Max   int
@@ -192,14 +192,6 @@ type PoolStats struct {
 // ReadPoolStats reports the read connection pool's current usage.
 func (s *Store) ReadPoolStats() PoolStats {
 	stats := s.readDB.Stats()
-	return PoolStats{InUse: stats.InUse, Max: stats.MaxOpenConnections}
-}
-
-// WritePoolStats reports the write connection pool's current usage. Max is
-// always 1: Open sets SetMaxOpenConns(1) on writeDB so that internal/queue's
-// exclusive-writer guarantee holds at the SQLite driver level too.
-func (s *Store) WritePoolStats() PoolStats {
-	stats := s.writeDB.Stats()
 	return PoolStats{InUse: stats.InUse, Max: stats.MaxOpenConnections}
 }
 

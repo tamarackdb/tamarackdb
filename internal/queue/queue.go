@@ -19,8 +19,8 @@ var ErrClosed = errors.New("queue: closed")
 // maxQueued depth; the caller never joins the queue in that case.
 var ErrFull = errors.New("queue: full")
 
-// Kind says what a request waits for, for GET /metrics and GET /debug.
-// The queue itself treats every kind the same way.
+// Kind says what a request waits for. The queue itself treats every
+// kind the same way.
 type Kind string
 
 const (
@@ -54,8 +54,7 @@ type waiter struct {
 	queuedAt time.Time
 }
 
-// Snapshot is a point-in-time view of the queue's live state, for
-// GET /metrics and GET /debug. Time is the capture instant, so callers
+// Snapshot is a point-in-time view of the queue's live state. Time is the capture instant, so callers
 // derive age/wait durations themselves.
 type Snapshot struct {
 	Active      bool

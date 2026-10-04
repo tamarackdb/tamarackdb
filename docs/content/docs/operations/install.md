@@ -6,7 +6,7 @@ weight: 1
 ---
 
 Getting an instance running: on your own machine, in production with systemd, or in Docker. For building the binaries,
-see [Building from source](/docs/contributing/building-from-source/).
+see [CONTRIBUTING.md](https://github.com/tamarackdb/tamarackdb/blob/main/CONTRIBUTING.md#building-from-source).
 
 ## Local development
 
@@ -51,9 +51,8 @@ Check each point before an instance holds real data:
    mode](/docs/operations/dev-mode/)).
 7. **A sized queue.** Set `maxQueuedWrites` from how many writes the application sends at once (see [Sizing the write
    queue](/docs/operations/configuration/#sizing-the-write-queue)).
-8. **Monitoring.** Point a supervisor at `/health`, scrape `/metrics`, and keep `logLevel` at `warning` (see [Health
-   check](/docs/operations/health-check/), [Observability](/docs/operations/observability/), and
-   [Logs](/docs/operations/logs/)).
+8. **Monitoring.** Point a supervisor at `/health`, and keep `logLevel` at `warning` (see [Health
+   check](/docs/operations/health-check/) and [Logs](/docs/operations/logs/)).
 9. **Backups.** Schedule `tamarackdb-backup`. On the same host, it reads straight from the socket with `sourceSocket`;
    from another host, through a reverse proxy that handles TLS (see [Backup](/docs/operations/backup/)).
 
@@ -128,8 +127,7 @@ wrong `dataDir`, or a disk that isn't mounted, would otherwise get a new, empty 
 two.
 
 On every start, the server checks that the database's schema version matches the one built into the binary, and refuses
-to start if it doesn't; it never changes the schema on its own (see
-[Schema](/docs/server-internals/schema/#schema-version)). Once running, it logs one line per request to stdout (see
+to start if it doesn't; it never changes the schema on its own. Once running, it logs one line per request to stdout (see
 [Logs](/docs/operations/logs/)).
 
 ## Docker

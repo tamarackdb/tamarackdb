@@ -73,9 +73,6 @@ func TestWriteCountsEachOutcome(t *testing.T) {
 	if stats.Committed != 1 || stats.Rejected[RejectedCondition] != 1 || stats.Rejected[RejectedProjection] != 1 {
 		t.Errorf("Stats = %+v, want 1 committed, 1 rejected on a condition, 1 on a projection", stats)
 	}
-	if stats.Durations.Count != 3 {
-		t.Errorf("Durations.Count = %d, want 3", stats.Durations.Count)
-	}
 	if n := committedEvents(t, env.st); n != 1 {
 		t.Errorf("committed events = %d, want 1", n)
 	}

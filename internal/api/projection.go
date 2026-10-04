@@ -43,9 +43,6 @@ func toProjectionVersions(versions []string) []projectionVersion {
 // up to the writing application, the store never parses it.
 func (s *Server) handleGetProjection(w http.ResponseWriter, r *http.Request) {
 	typ, id := r.PathValue("type"), r.PathValue("id")
-
-	s.readHTTPOpen.Add(1)
-	defer s.readHTTPOpen.Add(-1)
 	p, err := s.st.GetProjection(r.Context(), typ, id)
 	if err != nil {
 		s.handleErr(w, r, err)
@@ -112,7 +109,6 @@ func validateProjections(w projection.Writes, maxProjectionSize int, path string
 // delete of every projection of that type, for a projection rebuild. It
 // waits for its turn in the FIFO.
 func (s *Server) handleDeleteProjectionsByType(w http.ResponseWriter, r *http.Request) {
-	defer s.trackWrite()()
 	if err := s.tm.RunInTurn(r.Context(), queue.KindProjections, func(ctx context.Context) error {
 		return s.st.DeleteProjectionsByType(ctx, r.PathValue("type"))
 	}); err != nil {
@@ -125,7 +121,6 @@ func (s *Server) handleDeleteProjectionsByType(w http.ResponseWriter, r *http.Re
 // handleDeleteAllProjections implements DELETE /projections: the same bulk
 // delete as handleDeleteProjectionsByType, widened to every type at once.
 func (s *Server) handleDeleteAllProjections(w http.ResponseWriter, r *http.Request) {
-	defer s.trackWrite()()
 	if err := s.tm.RunInTurn(r.Context(), queue.KindProjections, func(ctx context.Context) error {
 		return s.st.DeleteAllProjections(ctx)
 	}); err != nil {
