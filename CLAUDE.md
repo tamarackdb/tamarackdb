@@ -1,14 +1,14 @@
 # Documentation writing guidelines
 
-These rules apply to all documentation in this repo: `README.md`, every
-page under `docs/content/`, the home page template
-`docs/layouts/home.html`, and prose in Go doc comments.
+These rules apply to all documentation in this repo: `README.md`,
+`CONTRIBUTING.md`, every page under `docs/content/`, the home page
+template `docs/layouts/home.html`, and prose in Go comments.
 
 ## Style
 
 - Short sentences. Simple, direct English.
-- Avoid avoidable technical jargon and business buzzwords (leverage,
-  seamless, robust, best-in-class, synergy, etc.).
+- Avoid technical jargon that isn't needed, and business buzzwords
+  (leverage, seamless, robust, best-in-class, synergy, etc.).
 - Necessary technical terms stay (SQLite, WAL, MVCC, FIFO, goroutine,
   etc.): they are the real names of the things being described, not
   jargon to eliminate. Simplify sentence length and phrasing around them,
@@ -39,15 +39,16 @@ that restates it.
 
 Sections, relative to `docs/content/docs/`:
 
-- `quickstart.md`: a single page, the first entry, before Concepts, and the target of
-  the home page's "Get Started" button. It runs an instance, writes events
-  in a transaction, reads them back, and shows a commit refused by a stale
-  read, with `curl`. It shows working requests and their responses, and
-  links to the main page of every rule. When the API changes, its
-  examples change too.
+- `quickstart.md`: the first entry, before Concepts, and the target of
+  the home page's "Get Started" button. It runs an instance, writes
+  events in a transaction, reads them back, and shows a commit refused
+  by a stale read, with `curl`. It shows working requests and their
+  responses, and links to the main page of every rule. When the API
+  changes, its examples change too.
 - `concepts/`: what TamarackDB is and the ideas the rest builds on:
-  overview and terms, transactions, the mental model (the hall picture), events and
-  tags, the store ID, the Append Condition, projections and rebuilds.
+  overview and terms, transactions, the mental model (the hall
+  picture), events and tags, the store ID, the Append Condition,
+  projections and rebuilds.
 - `http-api/`: the wire contract: conventions (connecting, request
   bodies, the store ID header), query grammar, `QUERY /events`, the
   transaction endpoints (`/tx`), `POST /write`, projection endpoints,
@@ -61,12 +62,12 @@ Sections, relative to `docs/content/docs/`:
   observability (`GET /stats`), logs, backup (`tamarackdb-backup`: its
   settings, how a run works, restoring, scheduling), maintenance,
   development mode.
-- `README.md`: kept short: logo, badges, a one-paragraph intro, a short
+- `README.md`: kept short: logo, a one-paragraph intro, badges, a short
   feature list, a single link to the documentation site at
-  <https://tamarackdb.github.io/> without listing its pages, a contributing
-  note, and, after a horizontal rule, a closing paragraph in italics on
-  the name. No config tables, no
-  Docker examples, no build instructions live in the README itself.
+  <https://tamarackdb.github.io/> without listing its pages, a
+  contributing note, and, after a horizontal rule, a closing paragraph
+  in italics on the name. No config tables, no Docker examples, no build
+  instructions live in the README itself.
 
 The site serves two readers: whoever calls the API, and whoever runs an
 instance. How the server works inside is not on the site: it lives in Go
@@ -95,14 +96,13 @@ people at the counter. Rules for it:
 
 - A page opens with one or two sentences on what it covers.
 - Within a section: rules as a bulleted list, one rule per bullet, edge
-  cases included. Keep the reason for a rule in a short "**Why.**"
-  paragraph, in prose, when a rewrite might otherwise simplify it in the
-  wrong place.
-- Normative rules (what a client, a client library, or an application has
-  to do) use the RFC 2119 key words: MUST,
-  MUST NOT, SHOULD, SHOULD NOT, MAY. No SHALL, no RECOMMENDED.
-  Descriptions of how the server works stay ordinary sentences. A page
-  that uses the key words says so near the top, with a link to
+  cases included. Give the reason for a rule in a short "**Why.**"
+  paragraph, in prose, when the rule looks arbitrary without it.
+- Normative rules (what a client, a client library, or an application
+  has to do) use the RFC 2119 key words: MUST, MUST NOT, SHOULD,
+  SHOULD NOT, MAY. No SHALL, no RECOMMENDED. Descriptions of how the
+  server works stay ordinary sentences. A page that uses the key words
+  says so near the top, with a link to
   `/docs/concepts/overview/#key-words`.
 
 ## Server internals in Go comments
@@ -125,7 +125,7 @@ changes.
 
 `docs/` is a Hugo site using the Doks theme, published to
 <https://tamarackdb.github.io/> by `.github/workflows/docs.yml` on each
-`v*` tag.
+`v*` tag, or by hand (`gh workflow run docs.yml`).
 
 - Every page starts with front matter: `title`, `description`, `slug`,
   `weight`. The page title comes from `title`; don't add a `#` heading.
