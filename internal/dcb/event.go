@@ -249,6 +249,33 @@ type Event struct {
 	EventData
 }
 
+// PendingEvent is an event the server has received but not appended yet:
+// it has its time, and no Sequence Position until the append. The time
+// is always the server's (see Now), never one a client sent.
+type PendingEvent struct {
+	Time time.Time
+	EventData
+}
+
+// Now returns the server clock's current time, as an event's time: UTC,
+// truncated to the microsecond precision TimeLayout stores, so the value
+// a write returns is exactly the one a read returns later.
+func Now() time.Time {
+	return time.Now().UTC().Truncate(time.Microsecond)
+}
+
+// NewPendingEvents gives every event the same time t.
+func NewPendingEvents(events []EventData, t time.Time) []PendingEvent {
+	if events == nil {
+		return nil
+	}
+	out := make([]PendingEvent, len(events))
+	for i, e := range events {
+		out[i] = PendingEvent{Time: t, EventData: e}
+	}
+	return out
+}
+
 // TimeLayout is the one format of an event's time, everywhere: on the wire,
 // in the events table, and in a read's time bounds. It's ATOM format
 // (RFC 3339) with exactly 6 fractional digits, formatted from a UTC time

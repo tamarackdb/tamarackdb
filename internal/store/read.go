@@ -47,6 +47,50 @@ func (s *Store) Read(ctx context.Context, f ReadFilter) (*EventIterator, error) 
 	return it, nil
 }
 
+// ReadDecision runs the read a decision rests on, on the read pool: every
+// committed event q matches, with no page limit, since a decision must see
+// all of them. In the same SQLite snapshot it reads the store ID and the
+// position, the highest Sequence Position committed (0 for an empty
+// store): an Append Condition built from this read uses that position as
+// its afterSequence. For dcb.QueryNone it reads no event. The returned
+// *EventIterator holds the read transaction until it's closed; HasMore is
+// always false.
+func (s *Store) ReadDecision(ctx context.Context, q dcb.Query) (*EventIterator, error) {
+	tx, err := s.readDB.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, wrapf("begin read", err)
+	}
+	it, err := readDecision(ctx, tx, q)
+	if err != nil {
+		tx.Rollback()
+		return nil, err
+	}
+	it.tx = tx
+	return it, nil
+}
+
+func readDecision(ctx context.Context, tx *sql.Tx, q dcb.Query) (*EventIterator, error) {
+	storeID, err := readStoreID(ctx, tx)
+	if err != nil {
+		return nil, err
+	}
+	var position int64
+	if err := tx.QueryRowContext(ctx, "SELECT coalesce(max(sequence), 0) FROM events").Scan(&position); err != nil {
+		return nil, wrapf("read position", err)
+	}
+	it := &EventIterator{storeID: storeID, position: position}
+	if q.None() {
+		return it, nil
+	}
+	sqlStr, args := buildEventsSQL(q, 0)
+	rows, err := tx.QueryContext(ctx, sqlStr, args...)
+	if err != nil {
+		return nil, wrapf("ReadDecision", err)
+	}
+	it.rows = rows
+	return it, nil
+}
+
 // querier is what a read needs, satisfied by both *sql.DB and *sql.Tx.
 type querier interface {
 	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
@@ -66,26 +110,31 @@ func readEvents(ctx context.Context, q querier, f ReadFilter) (*EventIterator, e
 }
 
 func buildReadSQL(f ReadFilter) (string, []any) {
+	after := int64(0)
+	if f.AfterSequence != nil {
+		after = *f.AfterSequence
+	}
+	sqlStr, args := buildEventsSQL(f.Query, after)
+	return sqlStr + " LIMIT ?", append(args, f.Limit+1)
+}
+
+// buildEventsSQL selects the events q matches after Sequence Position
+// after, in ascending order, with no limit.
+func buildEventsSQL(q dcb.Query, after int64) (string, []any) {
 	var b strings.Builder
 	args := make([]any, 0, 6)
 	b.WriteString(`SELECT events.sequence, events.time, events.type, events.payload,
   events.identifiers, events.metadata
 FROM events
 WHERE events.sequence > ?`)
-
-	after := int64(0)
-	if f.AfterSequence != nil {
-		after = *f.AfterSequence
-	}
 	args = append(args, after)
 
-	if where, whereArgs := queryToSQL(f.Query); where != "" {
+	if where, whereArgs := queryToSQL(q); where != "" {
 		b.WriteString(" AND ")
 		b.WriteString(where)
 		args = append(args, whereArgs...)
 	}
-	b.WriteString(" ORDER BY events.sequence ASC LIMIT ?")
-	args = append(args, f.Limit+1)
+	b.WriteString(" ORDER BY events.sequence ASC")
 	return b.String(), args
 }
 
@@ -125,9 +174,9 @@ func scanEvent(rows *sql.Rows) (ReadEvent, error) {
 	}, nil
 }
 
-// EventIterator streams Read's result page one event at a time. Next
-// returns false once Limit events have been returned or the underlying
-// query is exhausted; HasMore is only meaningful after that point (i.e.
+// EventIterator streams Read's result page, or ReadDecision's result, one
+// event at a time. Next returns false once Limit events have been
+// returned (Read only) or the underlying query is exhausted; HasMore is only meaningful after that point (i.e.
 // once Next has returned false); before then it is always false.
 //
 // internal/api's QUERY /events handler drives this with Next()/Event()/Err(),
@@ -135,22 +184,27 @@ func scanEvent(rows *sql.Rows) (ReadEvent, error) {
 // query keeps the read transaction short-lived, to support live projection
 // rebuilds, never held open across pages.
 type EventIterator struct {
-	rows    *sql.Rows
-	tx      *sql.Tx // the read transaction Close ends
-	storeID string  // read in the same transaction as the page
-	limit   int
-	n       int
-	hasMore bool
-	err     error
-	cur     ReadEvent
-	closed  bool
+	rows     *sql.Rows // nil when the read selects no event at all
+	tx       *sql.Tx   // the read transaction Close ends
+	storeID  string    // read in the same transaction as the page
+	position int64     // ReadDecision only: the highest Sequence Position in the snapshot
+	limit    int       // 0: no limit (ReadDecision)
+	n        int
+	hasMore  bool
+	err      error
+	cur      ReadEvent
+	closed   bool
 }
 
 func (it *EventIterator) Next() bool {
 	if it.err != nil || it.closed {
 		return false
 	}
-	if it.n >= it.limit {
+	if it.rows == nil {
+		it.Close()
+		return false
+	}
+	if it.limit > 0 && it.n >= it.limit {
 		// The Limit+1-th row exists iff the underlying SQL (LIMIT
 		// Limit+1) has one more row buffered: peek it without decoding
 		// or exposing it.
@@ -187,6 +241,10 @@ func (it *EventIterator) HasMore() bool    { return it.hasMore }
 // StoreID returns the store ID read in the same snapshot as the page.
 func (it *EventIterator) StoreID() string { return it.storeID }
 
+// Position returns, for ReadDecision, the highest Sequence Position
+// committed in the snapshot the events were read from.
+func (it *EventIterator) Position() int64 { return it.position }
+
 // Close releases the underlying *sql.Rows, read transaction, and
 // connection. Safe to call more
 // than once, and safe to call before exhausting Next (e.g. a client
@@ -197,7 +255,10 @@ func (it *EventIterator) Close() error {
 		return nil
 	}
 	it.closed = true
-	err := it.rows.Close()
+	var err error
+	if it.rows != nil {
+		err = it.rows.Close()
+	}
 	if it.tx != nil {
 		// The transaction only read: rolling it back just ends it.
 		err = errors.Join(err, it.tx.Rollback())

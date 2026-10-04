@@ -29,7 +29,7 @@ func TestStalledReadFreesItsConnection(t *testing.T) {
 		for i := range batch {
 			batch[i] = dcb.EventData{Type: "t", Payload: payload}
 		}
-		if _, err := st.Append(context.Background(), batch, nil, projection.Writes{}); err != nil {
+		if _, err := st.Append(context.Background(), dcb.NewPendingEvents(batch, dcb.Now()), nil, projection.Writes{}); err != nil {
 			t.Fatal(err)
 		}
 	}

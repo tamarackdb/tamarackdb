@@ -87,7 +87,7 @@ func TestAppendEmptyConditionSameAsNil(t *testing.T) {
 	mustAppend(t, s, []dcb.EventData{eventWithIdentifier("t", "courseId", "123")}, nil)
 
 	// AppendCondition{} with both fields nil must perform no check at all.
-	_, err := s.Append(context.Background(), []dcb.EventData{eventWithIdentifier("t", "courseId", "123")}, []dcb.AppendCondition{{}}, projection.Writes{})
+	_, err := s.Append(context.Background(), dcb.NewPendingEvents([]dcb.EventData{eventWithIdentifier("t", "courseId", "123")}, dcb.Now()), []dcb.AppendCondition{{}}, projection.Writes{})
 	if err != nil {
 		t.Fatalf("Append() with empty AppendCondition{} error = %v, want nil", err)
 	}
@@ -103,7 +103,7 @@ func TestAppendConditionConflictOnMatchingQuery(t *testing.T) {
 	mustAppend(t, s, []dcb.EventData{eventWithIdentifier("t", "courseId", "123")}, nil)
 
 	q := dcb.NewQuery([]dcb.QueryItem{{Identifiers: []dcb.Identifier{{Name: "courseId", Value: "123"}}}})
-	_, err := s.Append(context.Background(), []dcb.EventData{eventWithIdentifier("t", "courseId", "999")}, []dcb.AppendCondition{{FailIfEventsMatch: &q}}, projection.Writes{})
+	_, err := s.Append(context.Background(), dcb.NewPendingEvents([]dcb.EventData{eventWithIdentifier("t", "courseId", "999")}, dcb.Now()), []dcb.AppendCondition{{FailIfEventsMatch: &q}}, projection.Writes{})
 	if !errors.Is(err, ErrConcurrencyConflict) {
 		t.Fatalf("Append() error = %v, want ErrConcurrencyConflict", err)
 	}
@@ -124,7 +124,7 @@ func TestAppendConditionAfterSequenceOnlyDefaultsToQueryAll(t *testing.T) {
 	// conflict against ANY event after afterSequence, even one that
 	// wouldn't match any real business query.
 	cond := dcb.AppendCondition{AfterSequence: &seq, Store: s.storeID}
-	_, err := s.Append(context.Background(), []dcb.EventData{{Type: "unrelated-append"}}, []dcb.AppendCondition{cond}, projection.Writes{})
+	_, err := s.Append(context.Background(), dcb.NewPendingEvents([]dcb.EventData{{Type: "unrelated-append"}}, dcb.Now()), []dcb.AppendCondition{cond}, projection.Writes{})
 	if !errors.Is(err, ErrConcurrencyConflict) {
 		t.Fatalf("Append() error = %v, want ErrConcurrencyConflict", err)
 	}
@@ -133,7 +133,7 @@ func TestAppendConditionAfterSequenceOnlyDefaultsToQueryAll(t *testing.T) {
 	// after it, so no conflict.
 	seqAfter := first[0].Sequence
 	condOK := dcb.AppendCondition{AfterSequence: &seqAfter, Store: s.storeID}
-	_, err = s.Append(context.Background(), []dcb.EventData{{Type: "unrelated-append"}}, []dcb.AppendCondition{condOK}, projection.Writes{})
+	_, err = s.Append(context.Background(), dcb.NewPendingEvents([]dcb.EventData{{Type: "unrelated-append"}}, dcb.Now()), []dcb.AppendCondition{condOK}, projection.Writes{})
 	if err != nil {
 		t.Fatalf("Append() error = %v, want nil", err)
 	}
@@ -203,7 +203,7 @@ func TestAppendConditionFullCheckWhenEventsExistSinceReadButNoMatch(t *testing.T
 
 	q := dcb.NewQuery([]dcb.QueryItem{{Identifiers: []dcb.Identifier{{Name: "courseId", Value: "123"}}}})
 	cond := dcb.AppendCondition{FailIfEventsMatch: &q, AfterSequence: &readSeq, Store: s.storeID}
-	if _, err := s.Append(context.Background(), []dcb.EventData{eventWithIdentifier("t", "courseId", "789")}, []dcb.AppendCondition{cond}, projection.Writes{}); err != nil {
+	if _, err := s.Append(context.Background(), dcb.NewPendingEvents([]dcb.EventData{eventWithIdentifier("t", "courseId", "789")}, dcb.Now()), []dcb.AppendCondition{cond}, projection.Writes{}); err != nil {
 		t.Fatalf("Append() error = %v, want nil: the event committed since the read doesn't match the protected query", err)
 	}
 }
@@ -237,7 +237,7 @@ func TestAppendFailedConditionLeavesNoGapInSequence(t *testing.T) {
 	first := mustAppend(t, s, []dcb.EventData{eventWithIdentifier("t", "courseId", "123")}, nil)
 
 	q := dcb.NewQuery([]dcb.QueryItem{{Identifiers: []dcb.Identifier{{Name: "courseId", Value: "123"}}}})
-	_, err := s.Append(context.Background(), []dcb.EventData{eventWithIdentifier("t", "courseId", "999")}, []dcb.AppendCondition{{FailIfEventsMatch: &q}}, projection.Writes{})
+	_, err := s.Append(context.Background(), dcb.NewPendingEvents([]dcb.EventData{eventWithIdentifier("t", "courseId", "999")}, dcb.Now()), []dcb.AppendCondition{{FailIfEventsMatch: &q}}, projection.Writes{})
 	if !errors.Is(err, ErrConcurrencyConflict) {
 		t.Fatalf("Append() error = %v, want ErrConcurrencyConflict", err)
 	}
@@ -306,7 +306,7 @@ func TestAppendSeveralConditionsMustAllHold(t *testing.T) {
 
 	course := dcb.NewQuery([]dcb.QueryItem{{Identifiers: []dcb.Identifier{{Name: "courseId", Value: "123"}}}})
 	after := a[0].Sequence
-	got, err := s.Append(context.Background(), []dcb.EventData{{Type: "enrolled"}}, []dcb.AppendCondition{
+	got, err := s.Append(context.Background(), dcb.NewPendingEvents([]dcb.EventData{{Type: "enrolled"}}, dcb.Now()), []dcb.AppendCondition{
 		{FailIfEventsMatch: &course, AfterSequence: &after, Store: s.storeID},
 		{FailIfEventsMatch: &course},
 	}, projection.Writes{})
@@ -316,7 +316,7 @@ func TestAppendSeveralConditionsMustAllHold(t *testing.T) {
 	assertConditionConflict(t, err, 1, false)
 
 	student := dcb.NewQuery([]dcb.QueryItem{{Identifiers: []dcb.Identifier{{Name: "studentId", Value: "8"}}}})
-	got, err = s.Append(context.Background(), []dcb.EventData{{Type: "enrolled"}}, []dcb.AppendCondition{
+	got, err = s.Append(context.Background(), dcb.NewPendingEvents([]dcb.EventData{{Type: "enrolled"}}, dcb.Now()), []dcb.AppendCondition{
 		{FailIfEventsMatch: &course, AfterSequence: &after, Store: s.storeID},
 		{FailIfEventsMatch: &student},
 	}, projection.Writes{})
@@ -338,7 +338,7 @@ func TestAppendFailedConditionWritesNothing(t *testing.T) {
 	q := dcb.NewQuery([]dcb.QueryItem{{Identifiers: []dcb.Identifier{{Name: "courseId", Value: "123"}}}})
 	zero := int64(0)
 	_, err := s.Append(context.Background(),
-		[]dcb.EventData{{Type: "a"}, {Type: "b"}},
+		dcb.NewPendingEvents([]dcb.EventData{{Type: "a"}, {Type: "b"}}, dcb.Now()),
 		[]dcb.AppendCondition{
 			{FailIfEventsMatch: &q, AfterSequence: &first[0].Sequence, Store: s.storeID},
 			{FailIfEventsMatch: &q, AfterSequence: &zero, Store: s.storeID},
@@ -360,7 +360,7 @@ func TestAppendFailedConditionWritesNothing(t *testing.T) {
 func TestAppendConditionOnAnotherStoreConflicts(t *testing.T) {
 	s := openTestStore(t)
 	zero := int64(0)
-	_, err := s.Append(context.Background(), []dcb.EventData{{Type: "a"}},
+	_, err := s.Append(context.Background(), dcb.NewPendingEvents([]dcb.EventData{{Type: "a"}}, dcb.Now()),
 		[]dcb.AppendCondition{{}, {AfterSequence: &zero, Store: "5b0c7e2a-1f4d-4a9b-8c3e-6d2f1a0b9e47"}},
 		projection.Writes{})
 	assertConditionConflict(t, err, 1, true)
@@ -377,7 +377,7 @@ func TestAppendConditionReadBeforeResetConflicts(t *testing.T) {
 		t.Fatalf("Reset() error = %v", err)
 	}
 
-	_, err := s.Append(context.Background(), []dcb.EventData{{Type: "b"}}, []dcb.AppendCondition{cond}, projection.Writes{})
+	_, err := s.Append(context.Background(), dcb.NewPendingEvents([]dcb.EventData{{Type: "b"}}, dcb.Now()), []dcb.AppendCondition{cond}, projection.Writes{})
 	assertConditionConflict(t, err, 0, true)
 }
 
@@ -408,7 +408,7 @@ func TestAppendChecksConditionsWithNothingElseToWrite(t *testing.T) {
 func TestAppendReturnsTheStoreID(t *testing.T) {
 	s := openTestStore(t)
 	for _, events := range [][]dcb.EventData{nil, {{Type: "a"}}} {
-		got, err := s.Append(context.Background(), events, nil, projection.Writes{})
+		got, err := s.Append(context.Background(), dcb.NewPendingEvents(events, dcb.Now()), nil, projection.Writes{})
 		if err != nil {
 			t.Fatalf("Append() error = %v", err)
 		}
@@ -425,7 +425,7 @@ func TestAppendProjectionConflictWritesNothing(t *testing.T) {
 	s := openTestStore(t)
 	first := mustAppend(t, s, []dcb.EventData{{Type: "a"}}, nil)
 
-	_, err := s.Append(context.Background(), []dcb.EventData{{Type: "b"}}, nil, projection.Writes{
+	_, err := s.Append(context.Background(), dcb.NewPendingEvents([]dcb.EventData{{Type: "b"}}, dcb.Now()), nil, projection.Writes{
 		Replace: []projection.Replace{{Type: "user-profile", ID: "123", Version: "missing", Payload: strPtr("x")}},
 	})
 	var pe *ProjectionConflictError
@@ -461,7 +461,7 @@ func TestAppendPanicPutsTheCounterBack(t *testing.T) {
 				t.Fatal("Append() didn't panic")
 			}
 		}()
-		s.Append(context.Background(), []dcb.EventData{{Type: "b"}}, nil, projection.Writes{})
+		s.Append(context.Background(), dcb.NewPendingEvents([]dcb.EventData{{Type: "b"}}, dcb.Now()), nil, projection.Writes{})
 	}()
 	afterReserve = nil
 
@@ -482,7 +482,7 @@ func TestAppendFailedInsertPutsTheCounterBack(t *testing.T) {
 		t.Fatalf("insert squatter row: %v", err)
 	}
 
-	if _, err := s.Append(context.Background(), []dcb.EventData{{Type: "b"}}, nil, projection.Writes{}); err == nil {
+	if _, err := s.Append(context.Background(), dcb.NewPendingEvents([]dcb.EventData{{Type: "b"}}, dcb.Now()), nil, projection.Writes{}); err == nil {
 		t.Fatal("Append() error = nil, want the insert to fail")
 	}
 	if got := s.peekLastAssigned(); got != before {

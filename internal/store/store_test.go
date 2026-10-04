@@ -23,7 +23,7 @@ func openTestStore(t *testing.T) *Store {
 
 func mustAppend(t *testing.T, s *Store, events []dcb.EventData, conditions []dcb.AppendCondition) []dcb.Event {
 	t.Helper()
-	got, err := s.Append(context.Background(), events, conditions, projection.Writes{})
+	got, err := s.Append(context.Background(), dcb.NewPendingEvents(events, dcb.Now()), conditions, projection.Writes{})
 	if err != nil {
 		t.Fatalf("Append() error = %v", err)
 	}

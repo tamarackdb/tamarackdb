@@ -104,7 +104,7 @@ func appendEvents(ctx context.Context, st *store.Store, rng *rand.Rand, total in
 		for i := range batch {
 			batch[i] = generateEvent(rng)
 		}
-		if _, err := st.Append(ctx, batch, nil, projection.Writes{}); err != nil {
+		if _, err := st.Append(ctx, dcb.NewPendingEvents(batch, dcb.Now()), nil, projection.Writes{}); err != nil {
 			log.Fatalf("tamarackdb-demo: %v", err)
 		}
 		appended += batchSize

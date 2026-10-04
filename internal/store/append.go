@@ -4,8 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"strings"
-	"time"
 
 	"github.com/tamarackdb/tamarackdb/internal/dcb"
 	"github.com/tamarackdb/tamarackdb/internal/projection"
@@ -27,6 +27,10 @@ type AppendResult struct {
 // hold returns a *ConditionConflictError, and the first projection write
 // that doesn't hold a *ProjectionConflictError.
 //
+// Each event keeps the time it carries: the caller sets it, from the
+// server's clock (dcb.Now). An event with a zero time is refused before
+// anything is written.
+//
 // events and projections are assumed already validated by the caller
 // (dcb.EventData.Validate, projection.Data.Validate, the per-call caps),
 // and conditions too (dcb.AppendCondition.Validate and ValidateStore):
@@ -35,7 +39,12 @@ type AppendResult struct {
 //
 // ctx governs the whole transaction: database/sql rolls it back if ctx is
 // cancelled before the commit.
-func (s *Store) Append(ctx context.Context, events []dcb.EventData, conditions []dcb.AppendCondition, projections projection.Writes) (AppendResult, error) {
+func (s *Store) Append(ctx context.Context, events []dcb.PendingEvent, conditions []dcb.AppendCondition, projections projection.Writes) (AppendResult, error) {
+	for i, e := range events {
+		if e.Time.IsZero() {
+			return AppendResult{}, fmt.Errorf("store: Append: events[%d] has no time", i)
+		}
+	}
 	if len(events) == 0 && len(conditions) == 0 && projections.Len() == 0 {
 		return AppendResult{StoreID: s.currentStoreID()}, nil
 	}
@@ -125,25 +134,20 @@ func (s *Store) checkCondition(ctx context.Context, tx *sql.Tx, c dcb.AppendCond
 }
 
 // insertEvents gives events the Sequence Positions from start on, and
-// their time, and inserts them inside tx. The caller must only call it
-// once the write is confirmed to happen: every condition has already been
-// checked.
-func insertEvents(ctx context.Context, tx *sql.Tx, events []dcb.EventData, start int64) ([]dcb.Event, error) {
+// inserts them inside tx with the time each one carries. The caller must
+// only call it once the write is confirmed to happen: every condition has
+// already been checked.
+func insertEvents(ctx context.Context, tx *sql.Tx, events []dcb.PendingEvent, start int64) ([]dcb.Event, error) {
 	if len(events) == 0 {
 		return nil, nil
 	}
 
-	// One time for the whole append: every event in it is appended at the
-	// same moment. Order within the append comes from Sequence. Truncated
-	// to the stored microsecond precision, so the value returned here is
-	// exactly the one a read returns later.
-	now := time.Now().UTC().Truncate(time.Microsecond)
 	result := make([]dcb.Event, len(events))
-	for i, ed := range events {
+	for i, e := range events {
 		result[i] = dcb.Event{
 			Sequence:  start + int64(i),
-			Time:      now,
-			EventData: ed,
+			Time:      e.Time,
+			EventData: e.EventData,
 		}
 	}
 

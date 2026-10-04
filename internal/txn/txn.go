@@ -51,7 +51,9 @@ func (m *Manager) Write(ctx context.Context, events []dcb.EventData, conditions 
 	var result store.AppendResult
 	err := m.RunInTurn(ctx, queue.KindWrite, func(ctx context.Context) error {
 		var err error
-		result, err = m.st.Append(ctx, events, conditions, projections)
+		// The time is read in the turn: a write's events get the time
+		// it's committed.
+		result, err = m.st.Append(ctx, dcb.NewPendingEvents(events, dcb.Now()), conditions, projections)
 		m.record(err)
 		return err
 	})

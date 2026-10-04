@@ -25,7 +25,7 @@ func TestConcurrentAppendsNoConditions(t *testing.T) {
 	for i := 0; i < goroutines; i++ {
 		go func() {
 			defer wg.Done()
-			got, err := s.Append(context.Background(), []dcb.EventData{{Type: "concurrent"}}, nil, projection.Writes{})
+			got, err := s.Append(context.Background(), dcb.NewPendingEvents([]dcb.EventData{{Type: "concurrent"}}, dcb.Now()), nil, projection.Writes{})
 			if err != nil {
 				t.Errorf("Append() error = %v", err)
 				return
@@ -69,7 +69,7 @@ func TestConcurrentAppendsConflictingCondition(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			cond := dcb.AppendCondition{FailIfEventsMatch: &q}
-			_, err := s.Append(context.Background(), []dcb.EventData{eventWithIdentifier("t", "lockId", "shared")}, []dcb.AppendCondition{cond}, projection.Writes{})
+			_, err := s.Append(context.Background(), dcb.NewPendingEvents([]dcb.EventData{eventWithIdentifier("t", "lockId", "shared")}, dcb.Now()), []dcb.AppendCondition{cond}, projection.Writes{})
 			switch {
 			case err == nil:
 				successes.Add(1)

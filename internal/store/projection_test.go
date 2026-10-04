@@ -189,7 +189,7 @@ func TestRecreatedProjectionGetsANewVersion(t *testing.T) {
 func TestAppendEventsAndProjectionsTogether(t *testing.T) {
 	s := openTestStore(t)
 	got, err := s.Append(context.Background(),
-		[]dcb.EventData{{Type: "user-created"}}, nil,
+		dcb.NewPendingEvents([]dcb.EventData{{Type: "user-created"}}, dcb.Now()), nil,
 		projection.Writes{Create: []projection.Create{create("user-profile", "123", "v1")}})
 	if err != nil {
 		t.Fatalf("Append() error = %v", err)
@@ -211,7 +211,7 @@ func TestFailedConditionRollsBackProjectionsToo(t *testing.T) {
 
 	zero := int64(0)
 	_, err := s.Append(context.Background(),
-		[]dcb.EventData{{Type: "user-created"}},
+		dcb.NewPendingEvents([]dcb.EventData{{Type: "user-created"}}, dcb.Now()),
 		[]dcb.AppendCondition{{AfterSequence: &zero, Store: s.storeID}},
 		projection.Writes{Create: []projection.Create{create("user-profile", "123", "v1")}})
 	if !errors.Is(err, ErrConcurrencyConflict) {

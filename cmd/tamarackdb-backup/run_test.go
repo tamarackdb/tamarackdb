@@ -160,11 +160,11 @@ func TestRunCopiesAllEventsAcrossMultiplePages(t *testing.T) {
 
 	var sourceTimes []time.Time
 	for i := 0; i < 7; i++ {
-		appended, err := sourceStore.Append(context.Background(), []dcb.EventData{{
+		appended, err := sourceStore.Append(context.Background(), dcb.NewPendingEvents([]dcb.EventData{{
 			Type:        "Seeded",
 			Identifiers: dcb.IdentifierSet{{Name: "n", Value: fmt.Sprintf("%d", i)}},
 			Payload:     fmt.Sprintf(`{"i":%d}`, i),
-		}}, nil, projection.Writes{})
+		}}, dcb.Now()), nil, projection.Writes{})
 		if err != nil {
 			t.Fatalf("Append() error = %v", err)
 		}
@@ -207,7 +207,7 @@ func TestRunResumesFromLastImportedSequence(t *testing.T) {
 
 	mustSourceAppend := func(n int) {
 		for i := 0; i < n; i++ {
-			if _, err := sourceStore.Append(context.Background(), []dcb.EventData{{Type: "Seeded"}}, nil, projection.Writes{}); err != nil {
+			if _, err := sourceStore.Append(context.Background(), dcb.NewPendingEvents([]dcb.EventData{{Type: "Seeded"}}, dcb.Now()), nil, projection.Writes{}); err != nil {
 				t.Fatalf("Append() error = %v", err)
 			}
 		}
@@ -268,7 +268,7 @@ func TestRunFailsWithoutTouchingAlreadyImportedPages(t *testing.T) {
 		t.Fatalf("Open() error = %v", err)
 	}
 	defer sourceStore.Close()
-	if _, err := sourceStore.Append(context.Background(), []dcb.EventData{{Type: "Seeded"}}, nil, projection.Writes{}); err != nil {
+	if _, err := sourceStore.Append(context.Background(), dcb.NewPendingEvents([]dcb.EventData{{Type: "Seeded"}}, dcb.Now()), nil, projection.Writes{}); err != nil {
 		t.Fatalf("Append() error = %v", err)
 	}
 
@@ -299,10 +299,10 @@ func TestRunCopiesAllEventsThroughUnixSocket(t *testing.T) {
 	}
 	defer sourceStore.Close()
 	for i := range 5 {
-		if _, err := sourceStore.Append(context.Background(), []dcb.EventData{{
+		if _, err := sourceStore.Append(context.Background(), dcb.NewPendingEvents([]dcb.EventData{{
 			Type:    "Seeded",
 			Payload: fmt.Sprintf(`{"i":%d}`, i),
-		}}, nil, projection.Writes{}); err != nil {
+		}}, dcb.Now()), nil, projection.Writes{}); err != nil {
 			t.Fatalf("Append() error = %v", err)
 		}
 	}
@@ -384,7 +384,7 @@ func TestRunStartsANewFileAfterAReset(t *testing.T) {
 	sourceStore := openSource(t)
 	appendSeeded := func(n int) {
 		for range n {
-			if _, err := sourceStore.Append(context.Background(), []dcb.EventData{{Type: "Seeded"}}, nil, projection.Writes{}); err != nil {
+			if _, err := sourceStore.Append(context.Background(), dcb.NewPendingEvents([]dcb.EventData{{Type: "Seeded"}}, dcb.Now()), nil, projection.Writes{}); err != nil {
 				t.Fatalf("Append() error = %v", err)
 			}
 		}
