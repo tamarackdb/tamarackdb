@@ -46,6 +46,15 @@ type Replace struct {
 	Payload *string `json:"payload"`
 }
 
+// Key names a projection to delete in a transaction, where the server
+// knows the version read.
+type Key struct {
+	Type string `json:"type"`
+	ID   string `json:"id"`
+}
+
+func (k Key) Validate() error { return validateKey(k.Type, k.ID) }
+
 // Delete is a projection to delete. Version is the one the client read;
 // the delete fails if the stored projection no longer has it, or no longer
 // exists.

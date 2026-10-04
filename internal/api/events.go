@@ -68,28 +68,35 @@ func (s *Server) handleReadEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set(StoreHeader, it.StoreID())
-	// A read holds a read connection, and pins its SQLite snapshot, until
-	// the page is fully sent. A client that stops reading would hold both
-	// forever: each line gets readStallTimeout to go out, renewed on every
-	// line, so a page that keeps moving is never cut, and a stalled one
-	// frees its connection.
+	renew, done := s.stallDeadline(w)
+	defer done()
+	if err := streamEvents(w, it, renew); err != nil {
+		s.handleErr(w, r, err)
+	}
+}
+
+// stallDeadline bounds how long each line of a streamed read may take to
+// go out. A read holds a read connection, and pins its SQLite snapshot,
+// until it's fully sent. A client that stops reading would hold both
+// forever: each line gets readStallTimeout to go out, renewed by calling
+// renew before each one, so a read that keeps moving is never cut, and a
+// stalled one frees its connection. The caller defers done.
+func (s *Server) stallDeadline(w http.ResponseWriter) (renew, done func()) {
 	rc := http.NewResponseController(w)
-	renew := func() { _ = rc.SetWriteDeadline(time.Now().Add(readStallTimeout)) }
-	defer func() {
+	renew = func() { _ = rc.SetWriteDeadline(time.Now().Add(readStallTimeout)) }
+	done = func() {
 		// Send what's still buffered under the deadline too, then clear
 		// it, so it never carries over to the next request on the
 		// connection.
 		renew()
 		_ = rc.Flush()
 		_ = rc.SetWriteDeadline(time.Time{})
-	}()
-	if err := streamEvents(w, it, renew); err != nil {
-		s.handleErr(w, r, err)
 	}
+	return renew, done
 }
 
-// readStallTimeout is how long a line of a QUERY /events page may take to
-// go out before the server gives up on the client. A variable, not a
+// readStallTimeout is how long a line of a streamed read may take to go
+// out before the server gives up on the client. A variable, not a
 // constant, so tests can shorten it.
 var readStallTimeout = 30 * time.Second
 
@@ -152,16 +159,7 @@ func streamEvents(w http.ResponseWriter, it *store.EventIterator, beforeWrite fu
 	nw := ndjson.NewWriter(w)
 	for it.Next() {
 		beforeWrite()
-		ev := it.Event()
-		wire := readEventWire{
-			Sequence:    ev.Sequence,
-			Time:        ev.Time,
-			Type:        ev.Type,
-			Identifiers: ev.Identifiers,
-			Metadata:    ev.Metadata,
-			Payload:     ev.Payload,
-		}
-		if err := nw.WriteValue(wire); err != nil {
+		if err := nw.WriteValue(toReadEventWire(it.Event())); err != nil {
 			// The client is almost certainly gone (a broken pipe from a
 			// dropped connection): nothing left to write to.
 			return err

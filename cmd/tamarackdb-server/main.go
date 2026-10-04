@@ -23,6 +23,7 @@ import (
 	"github.com/tamarackdb/tamarackdb/internal/buildinfo"
 	"github.com/tamarackdb/tamarackdb/internal/config"
 	"github.com/tamarackdb/tamarackdb/internal/store"
+	"github.com/tamarackdb/tamarackdb/internal/tx"
 	"github.com/tamarackdb/tamarackdb/internal/writer"
 )
 
@@ -78,7 +79,8 @@ func main() {
 	fmt.Printf("maxProjectionsPerWrite: %d\n", cfg.MaxProjectionsPerWrite)
 	fmt.Printf("maxRequestBodySize: %d\n", cfg.MaxRequestBodySize)
 	fmt.Printf("maxQueuedWrites: %d\n", cfg.MaxQueuedWrites)
-	fmt.Printf("readPoolSize: %d\n\n", cfg.ReadPoolSize)
+	fmt.Printf("readPoolSize: %d\n", cfg.ReadPoolSize)
+	fmt.Printf("txIdleTimeout: %d\n\n", cfg.TxIdleTimeout)
 
 	if err := requireDatabase(*cfg); err != nil {
 		log.Fatalf("tamarackdb-server: %v", err)
@@ -91,9 +93,14 @@ func main() {
 	// not left to main's return.
 
 	wr := writer.New(st, writer.Config{MaxQueued: cfg.MaxQueuedWrites})
+	txs := tx.New(st, wr, tx.Config{
+		IdleTimeout:            time.Duration(cfg.TxIdleTimeout) * time.Second,
+		MaxEventsPerWrite:      cfg.MaxEventsPerWrite,
+		MaxProjectionsPerWrite: cfg.MaxProjectionsPerWrite,
+	})
 
 	fatalCh := make(chan error, 1)
-	srv := api.New(wr, st, api.Options{
+	srv := api.New(wr, txs, st, api.Options{
 		Version:                buildinfo.Version,
 		EnableAuth:             cfg.EnableAuth,
 		AuthToken:              cfg.AuthToken,
@@ -194,6 +201,7 @@ func main() {
 		log.Printf("tamarackdb-server: graceful shutdown error: %v", err)
 	}
 	wr.Close() // already started by Shutdown; a no-op by now
+	txs.Close()
 	if err := st.Close(); err != nil {
 		log.Printf("tamarackdb-server: store close error: %v", err)
 	}
@@ -276,6 +284,7 @@ const defaultConfigTemplate = `[server]
 # maxRequestBodySize = %d # bytes
 # maxQueuedWrites = %d
 # readPoolSize = %d
+# txIdleTimeout = %d # seconds
 `
 
 // printDefaultConfig writes defaultConfigTemplate to stdout, with its
@@ -287,7 +296,7 @@ func printDefaultConfig() {
 		config.DefaultEventsPerPage, config.DefaultMaxEventsPerPage, config.DefaultEventSize,
 		config.DefaultProjectionSize,
 		config.DefaultMaxEventsPerWrite, config.DefaultMaxProjectionsPerWrite, config.DefaultMaxRequestBodySize,
-		config.DefaultMaxQueuedWrites, config.DefaultReadPoolSize)
+		config.DefaultMaxQueuedWrites, config.DefaultReadPoolSize, config.DefaultTxIdleTimeout)
 }
 
 // requireDatabase checks that the database file already exists: only

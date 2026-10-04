@@ -18,6 +18,7 @@ import (
 	"github.com/tamarackdb/tamarackdb/internal/dcb"
 	"github.com/tamarackdb/tamarackdb/internal/projection"
 	"github.com/tamarackdb/tamarackdb/internal/store"
+	"github.com/tamarackdb/tamarackdb/internal/tx"
 	"github.com/tamarackdb/tamarackdb/internal/writer"
 )
 
@@ -26,7 +27,9 @@ func newSourceAPI(t *testing.T, st *store.Store) http.Handler {
 	t.Helper()
 	wr := writer.New(st, writer.Config{})
 	t.Cleanup(wr.Close)
-	return api.New(wr, st, api.Options{
+	txs := tx.New(st, wr, tx.Config{IdleTimeout: time.Minute, MaxEventsPerWrite: 100, MaxProjectionsPerWrite: 500})
+	t.Cleanup(txs.Close)
+	return api.New(wr, txs, st, api.Options{
 		DefaultEventsPerPage: 1000, MaxEventsPerPage: 10000, MaxEventSize: 65536, MaxProjectionSize: 65536,
 		MaxEventsPerWrite: 100, MaxProjectionsPerWrite: 500, MaxRequestBodySize: 8 << 20,
 		LogLevel: "debug",

@@ -7,8 +7,11 @@ package api
 import (
 	"net/http"
 	"net/http/pprof"
+	"sync/atomic"
+	"time"
 
 	"github.com/tamarackdb/tamarackdb/internal/store"
+	"github.com/tamarackdb/tamarackdb/internal/tx"
 	"github.com/tamarackdb/tamarackdb/internal/writer"
 )
 
@@ -85,8 +88,13 @@ type Options struct {
 // main.go can pass the result of New straight to http.Server.
 type Server struct {
 	wr   *writer.Writer
+	txs  *tx.Registry
 	st   *store.Store
 	opts Options
+
+	// startedAt and internalErrors are for GET /stats.
+	startedAt      time.Time
+	internalErrors atomic.Uint64
 
 	// logThreshold is Options.LogLevel parsed once at construction; see
 	// withLogging.
@@ -95,7 +103,7 @@ type Server struct {
 	handler http.Handler
 }
 
-// New builds a Server ready to serve traffic. wr and st must already be
+// New builds a Server ready to serve traffic. wr, txs, and st must already be
 // constructed and are not owned by the returned Server; the caller
 // remains responsible for closing both.
 //
@@ -104,11 +112,13 @@ type Server struct {
 // wr/st): these are startup wiring bugs, not request-time conditions, the
 // same "fail loud and immediately" treatment store.Open gives a bad
 // database file.
-func New(wr *writer.Writer, st *store.Store, opts Options) *Server {
+func New(wr *writer.Writer, txs *tx.Registry, st *store.Store, opts Options) *Server {
 	logThreshold, validLogLevel := parseLevel(opts.LogLevel)
 	switch {
 	case wr == nil:
 		panic("api: New: wr must not be nil")
+	case txs == nil:
+		panic("api: New: txs must not be nil")
 	case st == nil:
 		panic("api: New: st must not be nil")
 	case opts.DefaultEventsPerPage <= 0:
@@ -131,7 +141,7 @@ func New(wr *writer.Writer, st *store.Store, opts Options) *Server {
 		panic(`api: New: Options.LogLevel must be one of "debug", "info", "warning", "error"`)
 	}
 
-	s := &Server{wr: wr, st: st, opts: opts, logThreshold: logThreshold}
+	s := &Server{wr: wr, txs: txs, st: st, opts: opts, logThreshold: logThreshold, startedAt: time.Now()}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /write", s.handleWrite)
@@ -139,7 +149,15 @@ func New(wr *writer.Writer, st *store.Store, opts Options) *Server {
 	mux.HandleFunc("GET /projections/{type}/{id}", s.handleGetProjection)
 	mux.HandleFunc("DELETE /projections/{type}", s.handleDeleteProjectionsByType)
 	mux.HandleFunc("DELETE /projections", s.handleDeleteAllProjections)
+	mux.HandleFunc("POST /tx", s.handleTxBegin)
+	mux.HandleFunc("QUERY /tx/{txId}/events", s.handleTxReadEvents)
+	mux.HandleFunc("POST /tx/{txId}/events", s.handleTxWriteEvents)
+	mux.HandleFunc("GET /tx/{txId}/projections/{type}/{id}", s.handleTxGetProjection)
+	mux.HandleFunc("POST /tx/{txId}/projections", s.handleTxWriteProjections)
+	mux.HandleFunc("POST /tx/{txId}/commit", s.handleTxCommit)
+	mux.HandleFunc("DELETE /tx/{txId}", s.handleTxAbandon)
 	mux.HandleFunc("GET /health", s.handleHealth)
+	mux.HandleFunc("GET /stats", s.handleStats)
 	// Deliberately no catch-all "/" route: registering one would live in
 	// ServeMux's method-agnostic subtree and match any method on any
 	// path, silently swallowing the mux's built-in 405 detection (which

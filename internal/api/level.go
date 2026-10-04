@@ -56,6 +56,7 @@ func parseLevel(s string) (level, bool) {
 // was supposed to do.
 var codeLevel = map[string]level{
 	"ProjectionNotFound":   levelDebug,   // 404, exactly as designed
+	"TransactionNotFound":  levelInfo,    // 404, client-side noise, often an expired transaction
 	"ConcurrencyException": levelDebug,   // 409, exactly as designed
 	"InvalidRequest":       levelInfo,    // 400, client-side noise
 	"PayloadTooLarge":      levelInfo,    // 413, client-side noise

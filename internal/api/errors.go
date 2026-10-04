@@ -11,6 +11,7 @@ import (
 	"github.com/tamarackdb/tamarackdb/internal/projection"
 	"github.com/tamarackdb/tamarackdb/internal/queue"
 	"github.com/tamarackdb/tamarackdb/internal/store"
+	"github.com/tamarackdb/tamarackdb/internal/tx"
 	"github.com/tamarackdb/tamarackdb/internal/writer"
 )
 
@@ -48,6 +49,7 @@ func (s *Server) handleErr(w http.ResponseWriter, r *http.Request, err error) {
 	}
 	var pe *store.ProjectionConflictError
 	var ce *store.ConditionConflictError
+	var txe *tx.ConflictError
 
 	// If the request's own context is already Done, the connection may
 	// already be gone, and any response now is best-effort at best.
@@ -91,6 +93,10 @@ func (s *Server) handleErr(w http.ResponseWriter, r *http.Request, err error) {
 		writeError(w, http.StatusConflict, "ConcurrencyException", err.Error())
 	case errors.As(err, &ce):
 		writeError(w, http.StatusConflict, "ConcurrencyException", ce.Error())
+	case errors.As(err, &txe):
+		writeError(w, http.StatusConflict, "ConcurrencyException", txe.Error())
+	case errors.Is(err, tx.ErrNotFound):
+		writeError(w, http.StatusNotFound, "TransactionNotFound", "")
 	case errors.Is(err, queue.ErrFull):
 		writeError(w, http.StatusServiceUnavailable, "WriteQueueFull", "")
 	case errors.Is(err, writer.ErrClosed), errors.Is(err, queue.ErrClosed):
@@ -100,6 +106,7 @@ func (s *Server) handleErr(w http.ResponseWriter, r *http.Request, err error) {
 	default:
 		// Everything else: any unexpected error, including fatal storage
 		// errors.
+		s.internalErrors.Add(1)
 		writeError(w, http.StatusInternalServerError, "InternalError", "an unexpected error occurred")
 	}
 }

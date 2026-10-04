@@ -18,6 +18,14 @@ func TestAuthRejectsEveryRoute(t *testing.T) {
 		{"DELETE", "/projections/user-profile", ""},
 		{"DELETE", "/projections", ""},
 		{"GET", "/health", ""},
+		{"GET", "/stats", ""},
+		{"POST", "/tx", ""},
+		{"QUERY", "/tx/x/events", `{"query":"none"}`},
+		{"POST", "/tx/x/events", `{"events":[]}`},
+		{"GET", "/tx/x/projections/p/1", ""},
+		{"POST", "/tx/x/projections", `{"delete":[{"type":"p","id":"1"}]}`},
+		{"POST", "/tx/x/commit", ""},
+		{"DELETE", "/tx/x", ""},
 	}
 
 	for _, route := range routes {

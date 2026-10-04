@@ -13,6 +13,7 @@ import (
 
 	"github.com/tamarackdb/tamarackdb/internal/dcb"
 	"github.com/tamarackdb/tamarackdb/internal/store"
+	"github.com/tamarackdb/tamarackdb/internal/tx"
 	"github.com/tamarackdb/tamarackdb/internal/writer"
 )
 
@@ -22,8 +23,9 @@ const testToken = "test-token"
 // defaults below.
 type testOptions struct {
 	devMode   bool
-	logLevel  string // default: debug
-	maxQueued int    // default: uncapped
+	logLevel  string        // default: debug
+	maxQueued int           // default: uncapped
+	txIdle    time.Duration // default: a minute
 }
 
 func newTestServer(t *testing.T) (*Server, *writer.Writer, *store.Store) {
@@ -44,7 +46,12 @@ func newTestServerWith(t *testing.T, o testOptions) (*Server, *writer.Writer, *s
 	t.Cleanup(func() { st.Close() })
 	wr := writer.New(st, writer.Config{MaxQueued: o.maxQueued})
 	t.Cleanup(wr.Close) // runs before st.Close
-	srv := New(wr, st, Options{
+	if o.txIdle == 0 {
+		o.txIdle = time.Minute
+	}
+	txs := tx.New(st, wr, tx.Config{IdleTimeout: o.txIdle, MaxEventsPerWrite: 100, MaxProjectionsPerWrite: 500})
+	t.Cleanup(txs.Close)
+	srv := New(wr, txs, st, Options{
 		EnableAuth:             true,
 		AuthToken:              testToken,
 		DefaultEventsPerPage:   1000,
