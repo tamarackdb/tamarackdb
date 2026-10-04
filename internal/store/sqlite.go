@@ -1,6 +1,3 @@
-// Package store is TamarackDB's SQLite storage layer: schema management,
-// the DCB Query→SQL translation, and the read/append operations. It has no
-// knowledge of HTTP, JSON envelopes, configuration, or internal/queue.
 package store
 
 import (

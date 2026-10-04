@@ -1,8 +1,3 @@
-// Package queue implements TamarackDB's FIFO: strict arrival-order
-// admission to the single active turn on the write connection, with no
-// awareness of what a turn will do with it. Exactly two states exist:
-// Active (at most one turn at a time) and Queued (every other request,
-// waiting in arrival order). Package writer runs the writes on top of it.
 package queue
 
 import (

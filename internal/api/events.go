@@ -30,10 +30,9 @@ type readRequest struct {
 // {"hasMore":true|false}. Defined here, not in internal/ndjson, since
 // hasMore is a TamarackDB wire concept, not something a generic NDJSON
 // writer should know about. Its absence is meaningful: the response is
-// streamed as each event is scanned (see handleReadEvents), so a failure partway
-// through a page simply ends the response with no trailer line, the same
-// signal a client already has to handle for a plain dropped connection
-// (see docs/content/docs/guides/integration.md's Pagination section).
+// streamed as each event is scanned (see handleReadEvents), so a failure
+// partway through a page ends the response with no trailer line, the same
+// signal a client already handles for a dropped connection.
 type readTrailer struct {
 	HasMore bool `json:"hasMore"`
 }

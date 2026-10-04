@@ -1,9 +1,3 @@
-// Package projection defines the shape of a TamarackDB projection: the
-// current state computed from events by a projector, identified by
-// type+id with an opaque payload, written atomically alongside events, and
-// read through GET /projections/{type}/{id}. It does not reuse dcb's
-// types: a projection has no matching predicate and no condition, just a
-// key, a version, and a payload.
 package projection
 
 import "errors"

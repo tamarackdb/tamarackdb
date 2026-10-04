@@ -1,9 +1,3 @@
-// Package ndjson writes NDJSON: one JSON value per line, written straight
-// to the destination as each value comes in, with no buffering. It has no
-// knowledge of dcb.Event, HTTP, the queue manager, or store, or of what any
-// particular line means (a header, a trailer, a body row): callers supply
-// arbitrary JSON-marshalable values, so this package is reusable and
-// testable entirely on its own.
 package ndjson
 
 import (

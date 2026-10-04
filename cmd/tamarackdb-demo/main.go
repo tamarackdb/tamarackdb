@@ -1,10 +1,3 @@
-// Command tamarackdb-demo seeds a TamarackDB data directory with a large
-// synthetic, schema-agnostic dataset. Each event has a random type, 1 or 2
-// identifiers, a tenant metadata entry, and a garbage-text payload. Each
-// projection has a random type, a numeric id, and a longer garbage-text
-// payload. It exists to exercise /events, /projections and storage at scale
-// rather than to model any particular domain. Build it via
-// `make tamarackdb-demo`, producing bin/tamarackdb-demo.
 package main
 
 import (

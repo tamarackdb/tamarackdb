@@ -1,15 +1,3 @@
-// Package config loads TamarackDB's startup configuration: socket path or
-// bind address/port, auth token, data directory, and pagination, size,
-// and queue limits.
-//
-// Values come from a TOML file when present, with any field it omits (or
-// the whole file, if missing) filled in from TAMARACKDB_* environment
-// variables, and finally from built-in defaults. The TOML file always wins
-// over the environment when both set the same field.
-//
-// The file may also hold a [backup] section for tamarackdb-backup's own
-// configuration (see BackupConfig): Load reads only [server], so the two
-// binaries can share one file or use separate ones.
 package config
 
 import (

@@ -1,19 +1,3 @@
-// Package tx keeps TamarackDB's transactions. A transaction lives in
-// memory, private to the client that began it, and touches SQLite only
-// to read, and once more at commit, in its turn in the FIFO (see package
-// writer). Nothing is locked while it lives: a conflict with another write
-// is found at commit, by the Append Conditions its reads opened and by
-// the versions of the projections it read.
-//
-// A transaction follows one rule: a decision is one read and one write.
-// A read of events opens a condition, and the write of events that
-// follows closes it, with events or with none. Projections are read and
-// written only while no condition is open. A call that breaks a rule ends
-// the transaction, like any other error.
-//
-// A transaction is lost when the server stops, and expires after
-// Config.IdleTimeout without a call. Nothing about it is ever written
-// until its commit.
 package tx
 
 import (

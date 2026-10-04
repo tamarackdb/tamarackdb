@@ -8,7 +8,15 @@ import (
 
 const schemaVersion = 1
 
+// schemaDDL creates the schema of a new database file. Comments in it are
+// SQLite comments, kept in the file with the schema.
 const schemaDDL = `
+-- One row per event. sequence is set by the store, from its counter, not
+-- by AUTOINCREMENT. time is text in dcb.TimeLayout, passed straight
+-- through by a read; no index covers it, since nothing filters or orders
+-- on it. identifiers and metadata hold the event's tags again, in the
+-- compact object shape the HTTP API returns: a read hands them to the
+-- client as stored, with no decoding and no join on the tag tables.
 CREATE TABLE events (
     sequence    INTEGER PRIMARY KEY,
     time        TEXT NOT NULL,
@@ -18,8 +26,13 @@ CREATE TABLE events (
     metadata    TEXT NOT NULL
 );
 
+-- Serves the types of a query.
 CREATE INDEX idx_events_type ON events(type);
 
+-- One row per identifier of an event. A tag is a structured pair, not a
+-- delimited string like "courseId:123": no escaping problem, and a direct
+-- index on name and value. WITHOUT ROWID: a pure link row, where a rowid
+-- would only add a b-tree.
 CREATE TABLE identifiers (
     event_sequence INTEGER NOT NULL REFERENCES events(sequence),
     name           TEXT NOT NULL,
@@ -27,8 +40,11 @@ CREATE TABLE identifiers (
     PRIMARY KEY (event_sequence, name, value)
 ) WITHOUT ROWID;
 
+-- Serves query matching: event_sequence is in it, so the index alone
+-- answers the scan.
 CREATE INDEX idx_identifiers_name_value ON identifiers(name, value, event_sequence);
 
+-- One row per metadata entry of an event, shaped like identifiers.
 CREATE TABLE metadata (
     event_sequence INTEGER NOT NULL REFERENCES events(sequence),
     name           TEXT NOT NULL,
@@ -36,8 +52,12 @@ CREATE TABLE metadata (
     PRIMARY KEY (event_sequence, name, value)
 ) WITHOUT ROWID;
 
+-- Serves query matching, like idx_identifiers_name_value.
 CREATE INDEX idx_metadata_name_value ON metadata(name, value, event_sequence);
 
+-- One row per projection. A projection has no history, so its natural key
+-- is its only key. The same key serves a bulk delete of one type, as a
+-- prefix.
 CREATE TABLE projections (
     type    TEXT NOT NULL,
     id      TEXT NOT NULL,
@@ -46,6 +66,9 @@ CREATE TABLE projections (
     PRIMARY KEY (type, id)
 ) WITHOUT ROWID;
 
+-- A single row holding the store ID: the CHECK keeps a second row out.
+-- It's written with the rest of the schema, in the same transaction, and
+-- changed only by a reset.
 CREATE TABLE store (
     singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
     id        TEXT NOT NULL

@@ -1,7 +1,3 @@
-// Package api is TamarackDB's HTTP layer: routing, authentication, request
-// validation, and the error envelope around internal/writer and
-// internal/store. It has no knowledge of internal/config; callers pass an
-// already-resolved Options.
 package api
 
 import (

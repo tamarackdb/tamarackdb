@@ -1,7 +1,3 @@
-// Command tamarackdb-server runs the TamarackDB HTTP server: it loads the TOML
-// configuration file, opens the SQLite store, starts the write manager,
-// and serves the HTTP API until an OS shutdown signal or a fatal
-// storage error is observed.
 package main
 
 import (
@@ -129,7 +125,7 @@ func main() {
 		IdleTimeout: 2 * time.Minute,
 	}
 	// Shutdown waits for every request in flight, and a request waiting in
-	// the FIFO only ends once it gets its turn. Closing the write manager
+	// the FIFO only ends once it gets its turn. Closing the writer
 	// as soon as Shutdown starts turns those requests away right away; a
 	// write already running finishes.
 	httpServer.RegisterOnShutdown(wr.Close)

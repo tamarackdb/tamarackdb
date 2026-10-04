@@ -1,7 +1,3 @@
-// Command init creates a new TamarackDB data directory: an empty database
-// with its schema already applied, ready for tamarackdb-server. It is a
-// thin wrapper around store.Open, which creates the file and its schema as
-// a side effect of opening it.
 package main
 
 import (

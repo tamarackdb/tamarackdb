@@ -1,7 +1,3 @@
-// Package writer runs TamarackDB's writes on top of the FIFO in package
-// queue and the store in package store. A write waits for its turn in the
-// FIFO, runs alone on the write connection, in a SQLite transaction of
-// its own, then gives the turn to the next request.
 package writer
 
 import (
