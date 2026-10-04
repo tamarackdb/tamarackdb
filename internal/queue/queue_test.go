@@ -18,17 +18,24 @@ func joinResultChan(t *testing.T, m *Manager, ctx context.Context) <-chan joinOu
 	t.Helper()
 	ch := make(chan joinOutcome, 1)
 	go func() {
-		turn, err := m.Join(ctx, KindWrite)
+		turn, err := m.Join(ctx)
 		ch <- joinOutcome{turn: turn, err: err}
 	}()
 	return ch
+}
+
+// isActive reports whether a request holds the turn.
+func isActive(m *Manager) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.active
 }
 
 func mustJoin(t *testing.T, m *Manager) *Turn {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
-	turn, err := m.Join(ctx, KindWrite)
+	turn, err := m.Join(ctx)
 	if err != nil {
 		t.Fatalf("Join() error = %v", err)
 	}
@@ -42,12 +49,11 @@ func TestJoinAdmitsImmediatelyWhenIdle(t *testing.T) {
 	turn := mustJoin(t, m)
 	defer turn.Done()
 
-	snap := m.Snapshot()
-	if !snap.Active {
-		t.Errorf("Snapshot().Active = false, want true")
+	if !isActive(m) {
+		t.Errorf("active = false, want true")
 	}
-	if len(snap.Queued) != 0 {
-		t.Errorf("Snapshot().Queued = %+v, want empty", snap.Queued)
+	if n := m.Waiting(); n != 0 {
+		t.Errorf("Waiting() = %d, want 0", n)
 	}
 }
 
@@ -155,9 +161,8 @@ func TestJoinContextCancellationWhileQueued(t *testing.T) {
 		t.Fatal("Join() did not return promptly after context cancellation")
 	}
 
-	snap := m.Snapshot()
-	if len(snap.Queued) != 0 {
-		t.Errorf("Snapshot().Queued = %+v, want empty after cancelled entry was removed", snap.Queued)
+	if n := m.Waiting(); n != 0 {
+		t.Errorf("Waiting() = %d, want 0 after the cancelled entry was removed", n)
 	}
 }
 
@@ -215,7 +220,7 @@ func TestCloseIsIdempotentAndUnblocksCallers(t *testing.T) {
 	m.Close()
 	m.Close() // must not block or panic
 
-	if _, err := m.Join(context.Background(), KindWrite); err != ErrClosed {
+	if _, err := m.Join(context.Background()); err != ErrClosed {
 		t.Errorf("Join() after Close() error = %v, want ErrClosed", err)
 	}
 }
@@ -238,7 +243,7 @@ func TestJoinRejectsWhenQueueFull(t *testing.T) {
 		}
 	}()
 
-	if _, err := m.Join(context.Background(), KindWrite); err != ErrFull {
+	if _, err := m.Join(context.Background()); err != ErrFull {
 		t.Errorf("Join() with a full queue error = %v, want ErrFull", err)
 	}
 }
@@ -260,15 +265,14 @@ func TestJoinUncappedWhenMaxQueuedZero(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 		defer cancel()
 		go func() {
-			turn, err := m.Join(ctx, KindWrite)
+			turn, err := m.Join(ctx)
 			results <- joinOutcome{turn: turn, err: err}
 		}()
 	}
 	time.Sleep(30 * time.Millisecond) // ensure all 50 are queued, not rejected
 
-	snap := m.Snapshot()
-	if len(snap.Queued) != waiters {
-		t.Fatalf("Snapshot().Queued has %d entries, want %d", len(snap.Queued), waiters)
+	if n := m.Waiting(); n != waiters {
+		t.Fatalf("Waiting() = %d, want %d", n, waiters)
 	}
 
 	holder.Done()
@@ -299,7 +303,7 @@ func TestConcurrentStress(t *testing.T) {
 			defer wg.Done()
 			for j := 0; j < itersEach; j++ {
 				ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
-				turn, err := m.Join(ctx, KindWrite)
+				turn, err := m.Join(ctx)
 				cancel()
 				if err != nil {
 					t.Errorf("Join() error = %v", err)
@@ -311,45 +315,7 @@ func TestConcurrentStress(t *testing.T) {
 	}
 	wg.Wait()
 
-	snap := m.Snapshot()
-	if snap.Active || len(snap.Queued) != 0 {
-		t.Errorf("Snapshot() = %+v, want !Active and empty Queued once all goroutines finished (leak)", snap)
+	if isActive(m) || m.Waiting() != 0 {
+		t.Errorf("active = %v, Waiting() = %d, want false and 0 once all goroutines finished (leak)", isActive(m), m.Waiting())
 	}
-}
-
-func TestSnapshotReportsKinds(t *testing.T) {
-	m := New(0)
-	defer m.Close()
-
-	holder, err := m.Join(context.Background(), KindOptimize)
-	if err != nil {
-		t.Fatalf("Join() error = %v", err)
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
-	defer cancel()
-	ch := make(chan joinOutcome, 1)
-	go func() {
-		turn, err := m.Join(ctx, KindProjections)
-		ch <- joinOutcome{turn: turn, err: err}
-	}()
-	time.Sleep(30 * time.Millisecond) // ensure it's queued
-
-	snap := m.Snapshot()
-	if !snap.Active || snap.ActiveKind != KindOptimize {
-		t.Errorf("Snapshot() active = %v %q, want true %q", snap.Active, snap.ActiveKind, KindOptimize)
-	}
-	if len(snap.Queued) != 1 || snap.Queued[0].Kind != KindProjections {
-		t.Errorf("Snapshot().Queued = %+v, want one projections", snap.Queued)
-	}
-
-	holder.Done()
-	out := <-ch
-	if out.err != nil {
-		t.Fatalf("queued Join() error = %v", out.err)
-	}
-	if snap := m.Snapshot(); snap.ActiveKind != KindProjections {
-		t.Errorf("Snapshot().ActiveKind = %q after promotion, want %q", snap.ActiveKind, KindProjections)
-	}
-	out.turn.Done()
 }

@@ -90,19 +90,19 @@ func TestAccessLogLevelPerOutcome(t *testing.T) {
 			return rec
 		}},
 		{"WriteQueueFull", "WARNING", func(t *testing.T) *httptest.ResponseRecorder {
-			srv, tm, _ := newTestServerWith(t, testOptions{maxQueued: 1})
-			release := holdTurn(t, tm)
+			srv, wr, _ := newTestServerWith(t, testOptions{maxQueued: 1})
+			release := holdTurn(t, wr)
 			queued := make(chan struct{})
 			go func() { doRequest(t, srv, "DELETE", "/projections", ""); close(queued) }()
-			waitQueued(t, tm, 1)
+			waitQueued(t, wr, 1)
 			rec := doRequest(t, srv, "POST", "/write", `{"events":[{"type":"t","payload":""}]}`)
 			release()
 			<-queued
 			return rec
 		}},
 		{"ShuttingDown", "INFO", func(t *testing.T) *httptest.ResponseRecorder {
-			srv, tm, _ := newTestServer(t)
-			tm.Close() // the FIFO now turns every write away
+			srv, wr, _ := newTestServer(t)
+			wr.Close() // the FIFO now turns every write away
 			return doRequest(t, srv, "POST", "/write", `{"events":[{"type":"t","payload":""}]}`)
 		}},
 		{"InternalError", "ERROR", func(t *testing.T) *httptest.ResponseRecorder {
@@ -154,11 +154,11 @@ func TestAccessLogBelowThresholdIsSuppressed(t *testing.T) {
 }
 
 func TestAccessLogAtOrAboveThresholdIsLogged(t *testing.T) {
-	srv, tm, _ := newTestServerWith(t, testOptions{logLevel: "warning", maxQueued: 1})
-	release := holdTurn(t, tm)
+	srv, wr, _ := newTestServerWith(t, testOptions{logLevel: "warning", maxQueued: 1})
+	release := holdTurn(t, wr)
 	queued := make(chan int, 1)
 	go func() { queued <- doRequest(t, srv, "DELETE", "/projections", "").Code }()
-	waitQueued(t, tm, 1)
+	waitQueued(t, wr, 1)
 	buf := captureLog(t)
 
 	doRequest(t, srv, "POST", "/write", `{"events":[{"type":"t","payload":""}]}`) // 503 WriteQueueFull, WARNING

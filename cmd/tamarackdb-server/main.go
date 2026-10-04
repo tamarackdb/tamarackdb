@@ -23,7 +23,7 @@ import (
 	"github.com/tamarackdb/tamarackdb/internal/buildinfo"
 	"github.com/tamarackdb/tamarackdb/internal/config"
 	"github.com/tamarackdb/tamarackdb/internal/store"
-	"github.com/tamarackdb/tamarackdb/internal/txn"
+	"github.com/tamarackdb/tamarackdb/internal/writer"
 )
 
 // banner is printed to stdout on startup, generated with `figlet TamarackDB`
@@ -35,7 +35,7 @@ const banner = " _____                                    _    ____  ____\n" +
 	"  |_|\\__,_|_| |_| |_|\\__,_|_|  \\__,_|\\___|_|\\_\\____/|____/\n"
 
 // optimizeInterval is how often the server runs PRAGMA optimize against the
-// write connection, through the FIFO (see txn.Manager.Optimize).
+// write connection, through the FIFO (see writer.Writer.Optimize).
 const optimizeInterval = time.Hour
 
 func main() {
@@ -90,10 +90,10 @@ func main() {
 	// st.Close() is not deferred: shutdown is ordered explicitly below,
 	// not left to main's return.
 
-	tm := txn.New(st, txn.Config{MaxQueued: cfg.MaxQueuedWrites})
+	wr := writer.New(st, writer.Config{MaxQueued: cfg.MaxQueuedWrites})
 
 	fatalCh := make(chan error, 1)
-	srv := api.New(tm, st, api.Options{
+	srv := api.New(wr, st, api.Options{
 		Version:                buildinfo.Version,
 		EnableAuth:             cfg.EnableAuth,
 		AuthToken:              cfg.AuthToken,
@@ -125,7 +125,7 @@ func main() {
 	// the FIFO only ends once it gets its turn. Closing the write manager
 	// as soon as Shutdown starts turns those requests away right away; a
 	// write already running finishes.
-	httpServer.RegisterOnShutdown(tm.Close)
+	httpServer.RegisterOnShutdown(wr.Close)
 
 	var listener net.Listener
 	if cfg.SocketPath != "" {
@@ -167,7 +167,7 @@ func main() {
 			case <-signalCtx.Done():
 				return
 			case <-optimizeTicker.C:
-				if err := tm.Optimize(signalCtx); err != nil {
+				if err := wr.Optimize(signalCtx); err != nil {
 					log.Printf("tamarackdb-server: PRAGMA optimize: %v", err)
 				}
 			}
@@ -193,7 +193,7 @@ func main() {
 	if err := httpServer.Shutdown(shutdownCtx); err != nil {
 		log.Printf("tamarackdb-server: graceful shutdown error: %v", err)
 	}
-	tm.Close() // already started by Shutdown; a no-op by now
+	wr.Close() // already started by Shutdown; a no-op by now
 	if err := st.Close(); err != nil {
 		log.Printf("tamarackdb-server: store close error: %v", err)
 	}

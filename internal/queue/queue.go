@@ -2,14 +2,13 @@
 // admission to the single active turn on the write connection, with no
 // awareness of what a turn will do with it. Exactly two states exist:
 // Active (at most one turn at a time) and Queued (every other request,
-// waiting in arrival order). Package txn runs the writes on top of it.
+// waiting in arrival order). Package writer runs the writes on top of it.
 package queue
 
 import (
 	"context"
 	"errors"
 	"sync"
-	"time"
 )
 
 // ErrClosed is returned by Join once the Manager has been Closed.
@@ -18,17 +17,6 @@ var ErrClosed = errors.New("queue: closed")
 // ErrFull is returned by Join when the queue is already at its configured
 // maxQueued depth; the caller never joins the queue in that case.
 var ErrFull = errors.New("queue: full")
-
-// Kind says what a request waits for. The queue itself treats every
-// kind the same way.
-type Kind string
-
-const (
-	KindWrite       Kind = "write"       // POST /write
-	KindProjections Kind = "projections" // a bulk delete of projections
-	KindReset       Kind = "reset"       // POST /reset
-	KindOptimize    Kind = "optimize"    // the hourly PRAGMA optimize
-)
 
 // Manager is TamarackDB's FIFO. A new arrival has no multi-entry decision
 // to make: it either finds the manager idle (becomes active immediately)
@@ -40,34 +28,14 @@ type Manager struct {
 	closedCh  chan struct{}
 	closeOnce sync.Once
 
-	active      bool
-	activeKind  Kind
-	activeSince time.Time
-	queue       []*waiter
-	maxQueued   int // 0 means uncapped
+	active    bool
+	queue     []*waiter
+	maxQueued int // 0 means uncapped
 }
 
 // waiter is the internal bookkeeping for one request waiting in the queue.
 type waiter struct {
-	readyCh  chan struct{} // closed exactly once, when this waiter becomes active
-	kind     Kind
-	queuedAt time.Time
-}
-
-// Snapshot is a point-in-time view of the queue's live state. Time is the capture instant, so callers
-// derive age/wait durations themselves.
-type Snapshot struct {
-	Active      bool
-	ActiveKind  Kind      // empty when !Active
-	ActiveSince time.Time // zero value when !Active
-	Queued      []Queued  // oldest first, never nil
-	Time        time.Time
-}
-
-// Queued describes one request currently waiting in the queue.
-type Queued struct {
-	Kind     Kind
-	QueuedAt time.Time
+	readyCh chan struct{} // closed exactly once, when this waiter becomes active
 }
 
 // New creates a Manager. maxQueued caps how many requests may wait at
@@ -102,7 +70,7 @@ func (m *Manager) Close() {
 //
 // On success, the returned *Turn's Done must be called exactly once, when
 // the caller is finished with the write connection.
-func (m *Manager) Join(ctx context.Context, kind Kind) (*Turn, error) {
+func (m *Manager) Join(ctx context.Context) (*Turn, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -113,7 +81,7 @@ func (m *Manager) Join(ctx context.Context, kind Kind) (*Turn, error) {
 		return nil, ErrClosed
 	}
 	if !m.active {
-		m.admitLocked(kind)
+		m.active = true
 		m.mu.Unlock()
 		return &Turn{m: m}, nil
 	}
@@ -121,7 +89,7 @@ func (m *Manager) Join(ctx context.Context, kind Kind) (*Turn, error) {
 		m.mu.Unlock()
 		return nil, ErrFull
 	}
-	w := &waiter{readyCh: make(chan struct{}), kind: kind, queuedAt: time.Now()}
+	w := &waiter{readyCh: make(chan struct{})}
 	m.queue = append(m.queue, w)
 	m.mu.Unlock()
 
@@ -150,16 +118,8 @@ func (m *Manager) leave(w *waiter, err error) (*Turn, error) {
 		}
 	}
 	m.mu.Unlock()
-	<-w.readyCh // already promoted; admitLocked has already run by the time this closes
+	<-w.readyCh // already promoted: done has handed it the turn
 	return &Turn{m: m}, nil
-}
-
-// admitLocked marks the manager active for a request of kind. Callers must
-// hold mu.
-func (m *Manager) admitLocked(kind Kind) {
-	m.active = true
-	m.activeKind = kind
-	m.activeSince = time.Now()
 }
 
 // done releases the active turn, promoting the next queued request, if any.
@@ -167,32 +127,20 @@ func (m *Manager) done() {
 	m.mu.Lock()
 	if len(m.queue) == 0 {
 		m.active = false
-		m.activeKind = ""
 		m.mu.Unlock()
 		return
 	}
+	// The turn passes straight to the head: active stays true.
 	head := m.queue[0]
 	m.queue = m.queue[1:]
-	m.admitLocked(head.kind)
 	m.mu.Unlock()
 	close(head.readyCh)
 }
 
-// Snapshot returns a point-in-time view of live queue state. It never
-// blocks meaningfully (a short mutex critical section) and never errors.
-func (m *Manager) Snapshot() Snapshot {
+// Waiting returns how many requests are waiting for their turn, not
+// counting the one that holds it.
+func (m *Manager) Waiting() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	snap := Snapshot{
-		Active: m.active,
-		Queued: make([]Queued, len(m.queue)),
-		Time:   time.Now(),
-	}
-	if m.active {
-		snap.ActiveKind, snap.ActiveSince = m.activeKind, m.activeSince
-	}
-	for i, w := range m.queue {
-		snap.Queued[i] = Queued{Kind: w.kind, QueuedAt: w.queuedAt}
-	}
-	return snap
+	return len(m.queue)
 }

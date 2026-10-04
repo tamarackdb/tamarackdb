@@ -12,9 +12,8 @@ import (
 	"time"
 
 	"github.com/tamarackdb/tamarackdb/internal/dcb"
-	"github.com/tamarackdb/tamarackdb/internal/queue"
 	"github.com/tamarackdb/tamarackdb/internal/store"
-	"github.com/tamarackdb/tamarackdb/internal/txn"
+	"github.com/tamarackdb/tamarackdb/internal/writer"
 )
 
 const testToken = "test-token"
@@ -27,12 +26,12 @@ type testOptions struct {
 	maxQueued int    // default: uncapped
 }
 
-func newTestServer(t *testing.T) (*Server, *txn.Manager, *store.Store) {
+func newTestServer(t *testing.T) (*Server, *writer.Writer, *store.Store) {
 	t.Helper()
 	return newTestServerWith(t, testOptions{})
 }
 
-func newTestServerWith(t *testing.T, o testOptions) (*Server, *txn.Manager, *store.Store) {
+func newTestServerWith(t *testing.T, o testOptions) (*Server, *writer.Writer, *store.Store) {
 	t.Helper()
 	if o.logLevel == "" {
 		o.logLevel = "debug"
@@ -43,9 +42,9 @@ func newTestServerWith(t *testing.T, o testOptions) (*Server, *txn.Manager, *sto
 		t.Fatalf("store.Open() error = %v", err)
 	}
 	t.Cleanup(func() { st.Close() })
-	tm := txn.New(st, txn.Config{MaxQueued: o.maxQueued})
-	t.Cleanup(tm.Close) // runs before st.Close
-	srv := New(tm, st, Options{
+	wr := writer.New(st, writer.Config{MaxQueued: o.maxQueued})
+	t.Cleanup(wr.Close) // runs before st.Close
+	srv := New(wr, st, Options{
 		EnableAuth:             true,
 		AuthToken:              testToken,
 		DefaultEventsPerPage:   1000,
@@ -58,7 +57,7 @@ func newTestServerWith(t *testing.T, o testOptions) (*Server, *txn.Manager, *sto
 		LogLevel:               o.logLevel,
 		DevMode:                o.devMode,
 	})
-	return srv, tm, st
+	return srv, wr, st
 }
 
 // doRequest issues an authenticated request against srv and returns the
@@ -86,13 +85,13 @@ func appendCommitted(t *testing.T, srv *Server, body string) writeResponse {
 // holdTurn takes the FIFO's turn with a write that waits until release is
 // called, so a test can queue requests behind it. release is also called
 // when the test ends, before the server closes.
-func holdTurn(t *testing.T, tm *txn.Manager) (release func()) {
+func holdTurn(t *testing.T, wr *writer.Writer) (release func()) {
 	t.Helper()
 	held := make(chan struct{})
 	free := make(chan struct{})
 	done := make(chan error, 1)
 	go func() {
-		done <- tm.RunInTurn(context.Background(), queue.KindWrite, func(context.Context) error {
+		done <- wr.RunInTurn(context.Background(), func(context.Context) error {
 			close(held)
 			<-free
 			return nil

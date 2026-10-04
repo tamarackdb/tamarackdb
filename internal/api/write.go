@@ -48,7 +48,7 @@ func (s *Server) handleWrite(w http.ResponseWriter, r *http.Request) {
 			// wait for.
 			result, err = s.st.Append(r.Context(), nil, nil, projection.Writes{})
 		} else {
-			result, err = s.tm.Write(r.Context(), eventData(req.Events), req.Conditions, req.Projections)
+			result, err = s.wr.Write(r.Context(), eventData(req.Events), req.Conditions, req.Projections)
 		}
 	}
 	if err != nil {

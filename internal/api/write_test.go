@@ -8,9 +8,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/tamarackdb/tamarackdb/internal/queue"
-	"github.com/tamarackdb/tamarackdb/internal/txn"
 )
 
 // userCondition is an Append Condition on userId 123, read after
@@ -87,8 +84,8 @@ func TestWriteEventsAndProjections(t *testing.T) {
 // TestWriteEmptyBodyWritesNothing checks that a write with nothing in it
 // succeeds at once, without waiting for a turn, and reports the store.
 func TestWriteEmptyBodyWritesNothing(t *testing.T) {
-	srv, tm, _ := newTestServer(t)
-	holdTurn(t, tm)
+	srv, wr, _ := newTestServer(t)
+	holdTurn(t, wr)
 
 	resp, rec := doWrite(t, srv, `{}`)
 	storeHeader(t, rec, "POST /write")
@@ -98,7 +95,7 @@ func TestWriteEmptyBodyWritesNothing(t *testing.T) {
 	if len(resp.Events) != 0 {
 		t.Errorf("events = %+v, want none", resp.Events)
 	}
-	if n := len(tm.Snapshot().Queue.Queued); n != 0 {
+	if n := wr.Waiting(); n != 0 {
 		t.Errorf("FIFO has %d requests waiting, want 0", n)
 	}
 }
@@ -106,7 +103,7 @@ func TestWriteEmptyBodyWritesNothing(t *testing.T) {
 // TestWriteIsAtomic checks that a projection conflict writes nothing, the
 // events included, and that the 409 names the projection by its path.
 func TestWriteIsAtomic(t *testing.T) {
-	srv, tm, _ := newTestServer(t)
+	srv, wr, _ := newTestServer(t)
 	writeProjectionsCommitted(t, srv, `{"create":[{"type":"user-profile","id":"123","payload":"x"}]}`)
 
 	rec := doRequest(t, srv, "POST", "/write", `{
@@ -121,14 +118,13 @@ func TestWriteIsAtomic(t *testing.T) {
 	if n := countEvents(t, srv); n != 0 {
 		t.Errorf("store holds %d events, want 0: the write must be all or nothing", n)
 	}
-	rejected := tm.Snapshot().Stats.Rejected
-	if cond, proj := rejected[txn.RejectedCondition], rejected[txn.RejectedProjection]; cond != 0 || proj != 1 {
-		t.Errorf("rejected on a condition = %d, on a projection = %d, want 0 and 1: a projection conflict isn't a failed Append Condition", cond, proj)
+	if s := wr.Stats(); s.ConditionConflicts != 0 || s.ProjectionConflicts != 1 {
+		t.Errorf("conflicts on a condition = %d, on a projection = %d, want 0 and 1: a projection conflict isn't a failed Append Condition", s.ConditionConflicts, s.ProjectionConflicts)
 	}
 }
 
 func TestWriteConditions(t *testing.T) {
-	srv, tm, _ := newTestServer(t)
+	srv, wr, _ := newTestServer(t)
 	store := currentStore(t, srv)
 	doWrite(t, srv, `{"events":[{"type":"user-created","identifiers":{"userId":"123"},"payload":""}]}`)
 
@@ -162,8 +158,8 @@ func TestWriteConditions(t *testing.T) {
 	if n := countEvents(t, srv); n != 2 {
 		t.Errorf("store holds %d events, want 2: failed writes must write nothing", n)
 	}
-	if got := tm.Snapshot().Stats.Rejected[txn.RejectedCondition]; got != 2 {
-		t.Errorf("rejected on a condition = %d, want 2", got)
+	if got := wr.Stats().ConditionConflicts; got != 2 {
+		t.Errorf("conflicts on a condition = %d, want 2", got)
 	}
 }
 
@@ -243,28 +239,25 @@ func TestWriteRejectsInvalidRequests(t *testing.T) {
 // TestInvalidWriteGets400WithoutWaiting checks that the body is checked
 // before joining the FIFO.
 func TestInvalidWriteGets400WithoutWaiting(t *testing.T) {
-	srv, tm, _ := newTestServer(t)
-	holdTurn(t, tm)
+	srv, wr, _ := newTestServer(t)
+	holdTurn(t, wr)
 
 	rec := doRequest(t, srv, "POST", "/write", `{"events":[{"payload":""}]}`)
 	if rec.Code != 400 || errorCode(t, rec) != "InvalidRequest" {
 		t.Fatalf("status = %d, body = %s, want 400 InvalidRequest", rec.Code, rec.Body.String())
 	}
-	if n := len(tm.Snapshot().Queue.Queued); n != 0 {
+	if n := wr.Waiting(); n != 0 {
 		t.Errorf("FIFO has %d requests waiting, want 0", n)
 	}
 }
 
 func TestWriteWaitsForItsTurn(t *testing.T) {
-	srv, tm, _ := newTestServer(t)
-	release := holdTurn(t, tm)
+	srv, wr, _ := newTestServer(t)
+	release := holdTurn(t, wr)
 
 	done := make(chan *httptest.ResponseRecorder, 1)
 	go func() { done <- doRequest(t, srv, "POST", "/write", `{"events":[{"type":"t","payload":""}]}`) }()
-	waitQueued(t, tm, 1)
-	if kind := tm.Snapshot().Queue.Queued[0].Kind; kind != queue.KindWrite {
-		t.Errorf("queued kind = %q, want %q", kind, queue.KindWrite)
-	}
+	waitQueued(t, wr, 1)
 	select {
 	case rec := <-done:
 		t.Fatalf("returned %d while another write held the turn", rec.Code)
@@ -278,12 +271,12 @@ func TestWriteWaitsForItsTurn(t *testing.T) {
 }
 
 func TestWriteReturns503WhenQueueFull(t *testing.T) {
-	srv, tm, _ := newTestServerWith(t, testOptions{maxQueued: 1})
-	release := holdTurn(t, tm)
+	srv, wr, _ := newTestServerWith(t, testOptions{maxQueued: 1})
+	release := holdTurn(t, wr)
 
 	queued := make(chan int, 1)
 	go func() { queued <- doRequest(t, srv, "POST", "/write", `{"events":[{"type":"t","payload":""}]}`).Code }()
-	waitQueued(t, tm, 1)
+	waitQueued(t, wr, 1)
 
 	rec := doRequest(t, srv, "POST", "/write", `{"events":[{"type":"t","payload":""}]}`)
 	if rec.Code != 503 || errorCode(t, rec) != "WriteQueueFull" {
@@ -299,8 +292,8 @@ func TestWriteReturns503WhenQueueFull(t *testing.T) {
 // TestWriteLeavesTheFIFOWhenTheClientLeaves checks that a client gone
 // before its turn writes nothing.
 func TestWriteLeavesTheFIFOWhenTheClientLeaves(t *testing.T) {
-	srv, tm, _ := newTestServer(t)
-	release := holdTurn(t, tm)
+	srv, wr, _ := newTestServer(t)
+	release := holdTurn(t, wr)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
@@ -310,7 +303,7 @@ func TestWriteLeavesTheFIFOWhenTheClientLeaves(t *testing.T) {
 		req.Header.Set("Authorization", "Bearer "+testToken)
 		srv.ServeHTTP(httptest.NewRecorder(), req)
 	}()
-	waitQueued(t, tm, 1)
+	waitQueued(t, wr, 1)
 	cancel()
 	<-done
 

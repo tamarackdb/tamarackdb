@@ -7,17 +7,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tamarackdb/tamarackdb/internal/queue"
-	"github.com/tamarackdb/tamarackdb/internal/txn"
+	"github.com/tamarackdb/tamarackdb/internal/writer"
 )
 
-// waitQueued waits until n requests are waiting in tm's FIFO.
-func waitQueued(t *testing.T, tm *txn.Manager, n int) {
+// waitQueued waits until n requests are waiting in wr's FIFO.
+func waitQueued(t *testing.T, wr *writer.Writer, n int) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
-	for len(tm.Snapshot().Queue.Queued) != n {
+	for wr.Waiting() != n {
 		if time.Now().After(deadline) {
-			t.Fatalf("FIFO has %d requests waiting, want %d", len(tm.Snapshot().Queue.Queued), n)
+			t.Fatalf("FIFO has %d requests waiting, want %d", wr.Waiting(), n)
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
@@ -80,7 +79,7 @@ func TestWriteProjectionCreateReplaceDelete(t *testing.T) {
 // longer the stored one gets 409 ConcurrencyException naming its position,
 // and writes nothing: not even the create next to it.
 func TestStaleVersionGets409(t *testing.T) {
-	srv, tm, _ := newTestServer(t)
+	srv, wr, _ := newTestServer(t)
 	v1 := writeProjectionsCommitted(t, srv, `{"create":[{"type":"user-profile","id":"123","payload":"v1"}]}`).Create[0].Version
 	writeProjectionsCommitted(t, srv, fmt.Sprintf(
 		`{"replace":[{"type":"user-profile","id":"123","version":%q,"payload":"v2"}]}`, v1))
@@ -100,9 +99,8 @@ func TestStaleVersionGets409(t *testing.T) {
 	}
 	getProjection(t, srv, "user-profile", "456", 404)
 
-	rejected := tm.Snapshot().Stats.Rejected
-	if cond, proj := rejected[txn.RejectedCondition], rejected[txn.RejectedProjection]; cond != 0 || proj != 1 {
-		t.Errorf("rejected on a condition = %d, on a projection = %d, want 0 and 1: a projection conflict isn't a failed Append Condition", cond, proj)
+	if s := wr.Stats(); s.ConditionConflicts != 0 || s.ProjectionConflicts != 1 {
+		t.Errorf("conflicts on a condition = %d, on a projection = %d, want 0 and 1: a projection conflict isn't a failed Append Condition", s.ConditionConflicts, s.ProjectionConflicts)
 	}
 }
 
@@ -114,15 +112,12 @@ func TestBulkDeletesWaitForTheirTurn(t *testing.T) {
 		{"DELETE", "/projections", ""},
 	} {
 		t.Run(call.method+" "+call.path, func(t *testing.T) {
-			srv, tm, _ := newTestServer(t)
-			release := holdTurn(t, tm)
+			srv, wr, _ := newTestServer(t)
+			release := holdTurn(t, wr)
 
 			done := make(chan *httptest.ResponseRecorder, 1)
 			go func() { done <- doRequest(t, srv, call.method, call.path, call.body) }()
-			waitQueued(t, tm, 1)
-			if kind := tm.Snapshot().Queue.Queued[0].Kind; kind != queue.KindProjections {
-				t.Errorf("queued kind = %q, want %q", kind, queue.KindProjections)
-			}
+			waitQueued(t, wr, 1)
 			select {
 			case rec := <-done:
 				t.Fatalf("returned %d while another write held the turn", rec.Code)
@@ -138,12 +133,12 @@ func TestBulkDeletesWaitForTheirTurn(t *testing.T) {
 }
 
 func TestBulkDeleteReturns503WhenQueueFull(t *testing.T) {
-	srv, tm, _ := newTestServerWith(t, testOptions{maxQueued: 1})
-	release := holdTurn(t, tm)
+	srv, wr, _ := newTestServerWith(t, testOptions{maxQueued: 1})
+	release := holdTurn(t, wr)
 
 	queued := make(chan int, 1)
 	go func() { queued <- doRequest(t, srv, "DELETE", "/projections", "").Code }()
-	waitQueued(t, tm, 1)
+	waitQueued(t, wr, 1)
 
 	rec := doRequest(t, srv, "DELETE", "/projections/user-profile", "")
 	if rec.Code != 503 || errorCode(t, rec) != "WriteQueueFull" {

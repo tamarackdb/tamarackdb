@@ -1,4 +1,4 @@
-package txn
+package writer
 
 import (
 	"context"
@@ -15,7 +15,7 @@ import (
 )
 
 type testEnv struct {
-	m  *Manager
+	m  *Writer
 	st *store.Store
 }
 
@@ -33,23 +33,36 @@ func newTestEnv(t *testing.T) *testEnv {
 	return &testEnv{m: m, st: st}
 }
 
-func committedEvents(t *testing.T, st *store.Store) int {
+// readAll returns the committed events, up to 100.
+func readAll(t *testing.T, st *store.Store) []dcb.Event {
 	t.Helper()
 	it, err := st.Read(context.Background(), store.ReadFilter{Query: dcb.QueryAll(), Limit: 100})
 	if err != nil {
 		t.Fatalf("Read() error = %v", err)
 	}
 	defer it.Close()
-	n := 0
+	var events []dcb.Event
 	for it.Next() {
-		n++
+		e := it.Event()
+		tm, err := time.Parse(dcb.TimeLayout, e.Time)
+		if err != nil {
+			t.Fatalf("parse time: %v", err)
+		}
+		events = append(events, dcb.Event{Sequence: e.Sequence, Time: tm, EventData: dcb.EventData{Type: e.Type}})
 	}
-	return n
+	if err := it.Err(); err != nil {
+		t.Fatalf("iteration error = %v", err)
+	}
+	return events
+}
+
+func committedEvents(t *testing.T, st *store.Store) int {
+	t.Helper()
+	return len(readAll(t, st))
 }
 
 // TestWriteCountsEachOutcome checks that Write writes, and counts a
-// committed write, a rejected condition, and a rejected projection, each
-// with its duration.
+// committed write, a rejected condition, and a rejected projection.
 func TestWriteCountsEachOutcome(t *testing.T) {
 	env := newTestEnv(t)
 	ctx := context.Background()
@@ -69,9 +82,8 @@ func TestWriteCountsEachOutcome(t *testing.T) {
 		t.Fatalf("Write() error = %v, want a projection conflict", err)
 	}
 
-	stats := env.m.Snapshot().Stats
-	if stats.Committed != 1 || stats.Rejected[RejectedCondition] != 1 || stats.Rejected[RejectedProjection] != 1 {
-		t.Errorf("Stats = %+v, want 1 committed, 1 rejected on a condition, 1 on a projection", stats)
+	if got, want := env.m.Stats(), (Stats{Committed: 1, ConditionConflicts: 1, ProjectionConflicts: 1}); got != want {
+		t.Errorf("Stats() = %+v, want %+v", got, want)
 	}
 	if n := committedEvents(t, env.st); n != 1 {
 		t.Errorf("committed events = %d, want 1", n)
@@ -92,24 +104,29 @@ func TestWriteWaitsForItsTurn(t *testing.T) {
 		t.Fatal("Write() returned while another request held the turn")
 	case <-time.After(50 * time.Millisecond):
 	}
-	if q := env.m.Snapshot().Queue.Queued; len(q) != 1 || q[0].Kind != queue.KindWrite {
-		t.Errorf("Queued = %+v, want one %q", q, queue.KindWrite)
+	if n := env.m.Waiting(); n != 1 {
+		t.Errorf("Waiting() = %d, want 1", n)
 	}
+	released := dcb.Now()
 	release()
 	if err := <-done; err != nil {
 		t.Fatalf("Write() error = %v", err)
+	}
+	// The time is read in the turn, not when the write arrived.
+	if e := readAll(t, env.st)[0]; e.Time.Before(released) {
+		t.Errorf("time = %v, want at or after the turn came, %v", e.Time, released)
 	}
 }
 
 // holdTurn takes the FIFO's turn with a RunInTurn that waits until
 // release is called. release is also called when the test ends.
-func holdTurn(t *testing.T, m *Manager) (release func()) {
+func holdTurn(t *testing.T, m *Writer) (release func()) {
 	t.Helper()
 	held := make(chan struct{})
 	free := make(chan struct{})
 	done := make(chan error, 1)
 	go func() {
-		done <- m.RunInTurn(context.Background(), queue.KindWrite, func(context.Context) error {
+		done <- m.RunInTurn(context.Background(), func(context.Context) error {
 			close(held)
 			<-free
 			return nil
@@ -141,15 +158,15 @@ func TestRunInTurnWaitsForTheTurn(t *testing.T) {
 
 	ran := make(chan error, 1)
 	go func() {
-		ran <- env.m.RunInTurn(context.Background(), queue.KindProjections, func(context.Context) error { return nil })
+		ran <- env.m.RunInTurn(context.Background(), func(context.Context) error { return nil })
 	}()
 	select {
 	case <-ran:
 		t.Fatal("RunInTurn() returned while another one held the turn")
 	case <-time.After(50 * time.Millisecond):
 	}
-	if q := env.m.Snapshot().Queue.Queued; len(q) != 1 || q[0].Kind != queue.KindProjections {
-		t.Errorf("Queued = %+v, want one %q", q, queue.KindProjections)
+	if n := env.m.Waiting(); n != 1 {
+		t.Errorf("Waiting() = %d, want 1", n)
 	}
 
 	release()
@@ -161,7 +178,7 @@ func TestRunInTurnWaitsForTheTurn(t *testing.T) {
 func TestRunInTurnReturnsFnError(t *testing.T) {
 	env := newTestEnv(t)
 	want := errors.New("boom")
-	if err := env.m.RunInTurn(context.Background(), queue.KindWrite, func(context.Context) error { return want }); !errors.Is(err, want) {
+	if err := env.m.RunInTurn(context.Background(), func(context.Context) error { return want }); !errors.Is(err, want) {
 		t.Fatalf("RunInTurn() error = %v, want %v", err, want)
 	}
 	holdTurn(t, env.m) // the turn was given back
@@ -175,15 +192,15 @@ func TestRunInTurnLeavesTheFIFOWhenTheClientLeaves(t *testing.T) {
 	ran := false
 	done := make(chan error, 1)
 	go func() {
-		done <- env.m.RunInTurn(ctx, queue.KindWrite, func(context.Context) error { ran = true; return nil })
+		done <- env.m.RunInTurn(ctx, func(context.Context) error { ran = true; return nil })
 	}()
 	time.Sleep(30 * time.Millisecond) // ensure it's queued
 	cancel()
 	if err := <-done; !errors.Is(err, context.Canceled) {
 		t.Fatalf("RunInTurn() error = %v, want context.Canceled", err)
 	}
-	if n := len(env.m.Snapshot().Queue.Queued); n != 0 {
-		t.Errorf("Queued = %d, want 0", n)
+	if n := env.m.Waiting(); n != 0 {
+		t.Errorf("Waiting() = %d, want 0", n)
 	}
 	release()
 	if ran {
@@ -194,7 +211,7 @@ func TestRunInTurnLeavesTheFIFOWhenTheClientLeaves(t *testing.T) {
 func TestRunInTurnAfterClose(t *testing.T) {
 	env := newTestEnv(t)
 	env.m.Close()
-	err := env.m.RunInTurn(context.Background(), queue.KindWrite, func(context.Context) error { return nil })
+	err := env.m.RunInTurn(context.Background(), func(context.Context) error { return nil })
 	if !errors.Is(err, queue.ErrClosed) && !errors.Is(err, ErrClosed) {
 		t.Fatalf("RunInTurn() after Close() error = %v, want a closed error", err)
 	}
@@ -206,7 +223,7 @@ func TestRunInTurnAfterClose(t *testing.T) {
 func TestRunInTurnFinishesWhenTheClientLeavesDuringFn(t *testing.T) {
 	env := newTestEnv(t)
 	ctx, cancel := context.WithCancel(context.Background())
-	err := env.m.RunInTurn(ctx, queue.KindWrite, func(fnCtx context.Context) error {
+	err := env.m.RunInTurn(ctx, func(fnCtx context.Context) error {
 		cancel()
 		return fnCtx.Err()
 	})
@@ -231,9 +248,6 @@ func TestResetWaitsForItsTurn(t *testing.T) {
 	reset := make(chan error, 1)
 	go func() { reset <- env.m.Reset(context.Background()) }()
 	waitQueued(t, env.m, 2)
-	if q := env.m.Snapshot().Queue.Queued; q[1].Kind != queue.KindReset {
-		t.Errorf("Queued = %+v, want the reset second, as %q", q, queue.KindReset)
-	}
 
 	release()
 	if err := <-written; err != nil {
@@ -298,13 +312,66 @@ func TestOptimizeRunsInItsTurn(t *testing.T) {
 }
 
 // waitQueued waits until n requests are waiting in m's FIFO.
-func waitQueued(t *testing.T, m *Manager, n int) {
+func waitQueued(t *testing.T, m *Writer, n int) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
-	for len(m.Snapshot().Queue.Queued) != n {
+	for m.Waiting() != n {
 		if time.Now().After(deadline) {
-			t.Fatalf("FIFO has %d requests waiting, want %d", len(m.Snapshot().Queue.Queued), n)
+			t.Fatalf("FIFO has %d requests waiting, want %d", m.Waiting(), n)
 		}
 		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+// TestWritePendingKeepsEachTime checks that a transaction's events keep
+// the time they were given, however late the commit.
+func TestWritePendingKeepsEachTime(t *testing.T) {
+	env := newTestEnv(t)
+	first := time.Date(2026, 10, 3, 21, 11, 5, 123456000, time.UTC)
+	second := first.Add(time.Second)
+	events := append(
+		dcb.NewPendingEvents([]dcb.EventData{{Type: "a"}}, first),
+		dcb.NewPendingEvents([]dcb.EventData{{Type: "b"}}, second)...)
+	if _, err := env.m.WritePending(context.Background(), events, nil, projection.Writes{}); err != nil {
+		t.Fatalf("WritePending() error = %v", err)
+	}
+	got := readAll(t, env.st)
+	if len(got) != 2 || !got[0].Time.Equal(first) || !got[1].Time.Equal(second) {
+		t.Errorf("events = %+v, want times %v and %v", got, first, second)
+	}
+	if s := env.m.Stats(); s.Committed != 1 {
+		t.Errorf("Stats().Committed = %d, want 1: a commit counts as a write", s.Committed)
+	}
+}
+
+// TestWriteQueueFullIsCounted checks that a request turned away by a full
+// FIFO is counted.
+func TestWriteQueueFullIsCounted(t *testing.T) {
+	st, err := store.Open(context.Background(), filepath.Join(t.TempDir(), "test.db"), 0)
+	if err != nil {
+		t.Fatalf("store.Open() error = %v", err)
+	}
+	m := New(st, Config{MaxQueued: 1})
+	t.Cleanup(func() {
+		m.Close()
+		st.Close()
+	})
+	release := holdTurn(t, m)
+
+	queued := make(chan error, 1)
+	go func() {
+		_, err := m.Write(context.Background(), []dcb.EventData{{Type: "a"}}, nil, projection.Writes{})
+		queued <- err
+	}()
+	waitQueued(t, m, 1)
+	if _, err := m.Write(context.Background(), []dcb.EventData{{Type: "b"}}, nil, projection.Writes{}); !errors.Is(err, queue.ErrFull) {
+		t.Fatalf("Write() error = %v, want queue.ErrFull", err)
+	}
+	if s := m.Stats(); s.WriteQueueFull != 1 {
+		t.Errorf("Stats().WriteQueueFull = %d, want 1", s.WriteQueueFull)
+	}
+	release()
+	if err := <-queued; err != nil {
+		t.Fatalf("queued Write() error = %v", err)
 	}
 }

@@ -1,5 +1,5 @@
 // Package api is TamarackDB's HTTP layer: routing, authentication, request
-// validation, and the error envelope around internal/txn and
+// validation, and the error envelope around internal/writer and
 // internal/store. It has no knowledge of internal/config; callers pass an
 // already-resolved Options.
 package api
@@ -9,7 +9,7 @@ import (
 	"net/http/pprof"
 
 	"github.com/tamarackdb/tamarackdb/internal/store"
-	"github.com/tamarackdb/tamarackdb/internal/txn"
+	"github.com/tamarackdb/tamarackdb/internal/writer"
 )
 
 // Options configures a Server with values internal/config has already
@@ -84,7 +84,7 @@ type Options struct {
 // Server is TamarackDB's HTTP API. It implements http.Handler directly, so
 // main.go can pass the result of New straight to http.Server.
 type Server struct {
-	tm   *txn.Manager
+	wr   *writer.Writer
 	st   *store.Store
 	opts Options
 
@@ -95,20 +95,20 @@ type Server struct {
 	handler http.Handler
 }
 
-// New builds a Server ready to serve traffic. tm and st must already be
+// New builds a Server ready to serve traffic. wr and st must already be
 // constructed and are not owned by the returned Server; the caller
 // remains responsible for closing both.
 //
 // New panics on invalid static configuration (non-positive limits,
 // DefaultEventsPerPage > MaxEventsPerPage, an unknown LogLevel, nil
-// tm/st): these are startup wiring bugs, not request-time conditions, the
+// wr/st): these are startup wiring bugs, not request-time conditions, the
 // same "fail loud and immediately" treatment store.Open gives a bad
 // database file.
-func New(tm *txn.Manager, st *store.Store, opts Options) *Server {
+func New(wr *writer.Writer, st *store.Store, opts Options) *Server {
 	logThreshold, validLogLevel := parseLevel(opts.LogLevel)
 	switch {
-	case tm == nil:
-		panic("api: New: tm must not be nil")
+	case wr == nil:
+		panic("api: New: wr must not be nil")
 	case st == nil:
 		panic("api: New: st must not be nil")
 	case opts.DefaultEventsPerPage <= 0:
@@ -131,7 +131,7 @@ func New(tm *txn.Manager, st *store.Store, opts Options) *Server {
 		panic(`api: New: Options.LogLevel must be one of "debug", "info", "warning", "error"`)
 	}
 
-	s := &Server{tm: tm, st: st, opts: opts, logThreshold: logThreshold}
+	s := &Server{wr: wr, st: st, opts: opts, logThreshold: logThreshold}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /write", s.handleWrite)
@@ -148,7 +148,7 @@ func New(tm *txn.Manager, st *store.Store, opts Options) *Server {
 	// path with the wrong method correctly gets 405 + Allow.
 	if opts.DevMode {
 		// Deletes every event and projection, in its turn in the FIFO,
-		// see txn.Manager.Reset.
+		// see writer.Writer.Reset.
 		mux.HandleFunc("POST /reset", s.handleReset)
 
 		// Standard net/http/pprof registration, mounted on our own mux

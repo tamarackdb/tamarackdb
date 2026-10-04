@@ -18,15 +18,15 @@ import (
 	"github.com/tamarackdb/tamarackdb/internal/dcb"
 	"github.com/tamarackdb/tamarackdb/internal/projection"
 	"github.com/tamarackdb/tamarackdb/internal/store"
-	"github.com/tamarackdb/tamarackdb/internal/txn"
+	"github.com/tamarackdb/tamarackdb/internal/writer"
 )
 
 // newSourceAPI builds a real API server over st, to back up from.
 func newSourceAPI(t *testing.T, st *store.Store) http.Handler {
 	t.Helper()
-	tm := txn.New(st, txn.Config{})
-	t.Cleanup(tm.Close)
-	return api.New(tm, st, api.Options{
+	wr := writer.New(st, writer.Config{})
+	t.Cleanup(wr.Close)
+	return api.New(wr, st, api.Options{
 		DefaultEventsPerPage: 1000, MaxEventsPerPage: 10000, MaxEventSize: 65536, MaxProjectionSize: 65536,
 		MaxEventsPerWrite: 100, MaxProjectionsPerWrite: 500, MaxRequestBodySize: 8 << 20,
 		LogLevel: "debug",

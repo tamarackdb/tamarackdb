@@ -1,10 +1,6 @@
 package api
 
-import (
-	"testing"
-
-	"github.com/tamarackdb/tamarackdb/internal/queue"
-)
+import "testing"
 
 func TestResetDeletesEventsAndProjections(t *testing.T) {
 	srv, _, _ := newTestServerWith(t, testOptions{devMode: true})
@@ -30,18 +26,15 @@ func TestResetDeletesEventsAndProjections(t *testing.T) {
 // TestResetWaitsForItsTurn checks that POST /reset queues like a write:
 // the write ahead of it goes through, then the reset deletes it.
 func TestResetWaitsForItsTurn(t *testing.T) {
-	srv, tm, _ := newTestServerWith(t, testOptions{devMode: true})
-	release := holdTurn(t, tm)
+	srv, wr, _ := newTestServerWith(t, testOptions{devMode: true})
+	release := holdTurn(t, wr)
 
 	written := make(chan int, 1)
 	go func() { written <- doRequest(t, srv, "POST", "/write", `{"events":[{"type":"t","payload":""}]}`).Code }()
-	waitQueued(t, tm, 1)
+	waitQueued(t, wr, 1)
 	reset := make(chan int, 1)
 	go func() { reset <- doRequest(t, srv, "POST", "/reset", "").Code }()
-	waitQueued(t, tm, 2)
-	if kind := tm.Snapshot().Queue.Queued[1].Kind; kind != queue.KindReset {
-		t.Errorf("queued kind = %q, want %q", kind, queue.KindReset)
-	}
+	waitQueued(t, wr, 2)
 
 	release()
 	if code := <-written; code != 200 {

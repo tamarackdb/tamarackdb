@@ -7,7 +7,6 @@ import (
 
 	"github.com/tamarackdb/tamarackdb/internal/dcb"
 	"github.com/tamarackdb/tamarackdb/internal/projection"
-	"github.com/tamarackdb/tamarackdb/internal/queue"
 )
 
 // VersionHeader carries a projection's version in a
@@ -109,7 +108,7 @@ func validateProjections(w projection.Writes, maxProjectionSize int, path string
 // delete of every projection of that type, for a projection rebuild. It
 // waits for its turn in the FIFO.
 func (s *Server) handleDeleteProjectionsByType(w http.ResponseWriter, r *http.Request) {
-	if err := s.tm.RunInTurn(r.Context(), queue.KindProjections, func(ctx context.Context) error {
+	if err := s.wr.RunInTurn(r.Context(), func(ctx context.Context) error {
 		return s.st.DeleteProjectionsByType(ctx, r.PathValue("type"))
 	}); err != nil {
 		s.handleErr(w, r, err)
@@ -121,7 +120,7 @@ func (s *Server) handleDeleteProjectionsByType(w http.ResponseWriter, r *http.Re
 // handleDeleteAllProjections implements DELETE /projections: the same bulk
 // delete as handleDeleteProjectionsByType, widened to every type at once.
 func (s *Server) handleDeleteAllProjections(w http.ResponseWriter, r *http.Request) {
-	if err := s.tm.RunInTurn(r.Context(), queue.KindProjections, func(ctx context.Context) error {
+	if err := s.wr.RunInTurn(r.Context(), func(ctx context.Context) error {
 		return s.st.DeleteAllProjections(ctx)
 	}); err != nil {
 		s.handleErr(w, r, err)

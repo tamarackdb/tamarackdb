@@ -11,7 +11,7 @@ import (
 	"github.com/tamarackdb/tamarackdb/internal/projection"
 	"github.com/tamarackdb/tamarackdb/internal/queue"
 	"github.com/tamarackdb/tamarackdb/internal/store"
-	"github.com/tamarackdb/tamarackdb/internal/txn"
+	"github.com/tamarackdb/tamarackdb/internal/writer"
 )
 
 // errorEnvelope is the exact wire shape for error responses:
@@ -93,7 +93,7 @@ func (s *Server) handleErr(w http.ResponseWriter, r *http.Request, err error) {
 		writeError(w, http.StatusConflict, "ConcurrencyException", ce.Error())
 	case errors.Is(err, queue.ErrFull):
 		writeError(w, http.StatusServiceUnavailable, "WriteQueueFull", "")
-	case errors.Is(err, txn.ErrClosed), errors.Is(err, queue.ErrClosed):
+	case errors.Is(err, writer.ErrClosed), errors.Is(err, queue.ErrClosed):
 		// The server is shutting down: a request waiting in the FIFO, or
 		// arriving after it closed, gets no turn.
 		writeError(w, http.StatusServiceUnavailable, "ShuttingDown", "")
