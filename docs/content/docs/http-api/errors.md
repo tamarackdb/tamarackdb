@@ -2,7 +2,7 @@
 title: "Errors"
 description: "The error envelope of the TamarackDB HTTP API, every error code with its status and meaning, and the causes of a 400 InvalidRequest response."
 slug: "errors"
-weight: 8
+weight: 9
 ---
 
 Every error from an endpoint uses one JSON envelope, with a stable code a client can check.
@@ -28,11 +28,13 @@ headers.
 | `401` | `Unauthorized` | A missing or invalid Bearer token, only when `enableAuth` is on (see [Security](/docs/operations/security/#bearer-token)) |
 | `404` | `ProjectionNotFound` | A projection that doesn't exist, read with `GET /projections/{type}/{id}` or in a transaction |
 | `404` | `TransactionNotFound` | A call on a transaction that is unknown, expired, or already over (see [Transactions](/docs/http-api/transactions/#errors)) |
+| `409` | `PauseCancelled` | `POST /pause`: the request was withdrawn by `POST /resume` or a reset before the pause took hold (see [Pause](/docs/http-api/pause/)) |
 | `409` | `ConcurrencyException` | A commit or `POST /projections`: a condition doesn't hold, or a projection doesn't match the stored one. Any call on a transaction after a store reset. The `message` names the cause (see [Transactions](/docs/http-api/transactions/#commit) and [Projections](/docs/http-api/projections/#conflicts)). Nothing was written |
 | `413` | `PayloadTooLarge` | An event or a projection over its size limit, or a body over `maxRequestBodySize`. The `message` names the setting |
 | `500` | `InternalError` | An unexpected failure on the server |
-| `503` | `WriteQueueFull` | A commit, `POST /projections`, a bulk delete, or `POST /reset`, while too many requests already wait for their turn (see [Conventions](/docs/http-api/conventions/#waiting-for-a-turn)). Nothing was written |
-| `503` | `ShuttingDown` | A commit, `POST /projections`, a bulk delete, or `POST /reset`, waiting or arriving while the server shuts down. Nothing was written |
+| `503` | `Paused` | `POST /tx` while a pause is requested or in place (see [Pause](/docs/http-api/pause/)). No transaction began |
+| `503` | `WriteQueueFull` | A commit, `POST /projections`, a bulk delete, `POST /pause`, `POST /resume`, or `POST /reset`, while too many requests already wait for their turn (see [Conventions](/docs/http-api/conventions/#waiting-for-a-turn)). Nothing was written |
+| `503` | `ShuttingDown` | A commit, `POST /projections`, a bulk delete, `POST /pause`, `POST /resume`, or `POST /reset`, waiting or arriving while the server shuts down. Nothing was written |
 | `503` | `Unavailable` | `GET /health` only: SQLite can't be reached (see [Health check](/docs/operations/health-check/)) |
 
 How each code is logged is in [Logs](/docs/operations/logs/).

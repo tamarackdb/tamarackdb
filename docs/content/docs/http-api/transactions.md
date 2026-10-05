@@ -40,6 +40,9 @@ curl -X POST http://127.0.0.1:8085/tx
 
 The `txId` is a UUID. Every other endpoint of the transaction takes it in its path.
 
+While a pause is requested or in place, `POST /tx` gets `503 Paused`, and no transaction begins (see
+[Pause](/docs/http-api/pause/)).
+
 ## Reading events
 
 ```sh
@@ -222,6 +225,7 @@ its work.
 |---|---|---|
 | `400` | `InvalidRequest` | A malformed body, a call that breaks a rule of transactions, or a call over a [limit](#limits). The `message` names the rule or the setting, for example `events written without a read` |
 | `404` | `TransactionNotFound` | The transaction is unknown, expired, or already over |
+| `503` | `Paused` | `POST /tx` while a pause is requested or in place |
 | `404` | `ProjectionNotFound` | [Reading a projection](#reading-a-projection) that doesn't exist |
 | `409` | `ConcurrencyException` | At commit, a [conflict](#commit). On any call, a store reset since the transaction began |
 | `413` | `PayloadTooLarge` | An event or a projection over its size limit, or a body over `maxRequestBodySize` |

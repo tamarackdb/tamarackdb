@@ -13,7 +13,7 @@ Key words in capitals follow [RFC 2119](/docs/concepts/overview/#key-words).
 ## The life of a transaction
 
 1. **Begin.** The server returns a transaction ID, and keeps the current [store ID](/docs/concepts/store-id/) with
-   it.
+   it. While a [pause](/docs/http-api/pause/) is requested or in place, no transaction begins.
 2. **Decisions.** Each decision reads events, then writes its events, or none.
 3. **Projections.** Between two decisions, the application reads and writes projections.
 4. **Commit.** The server checks every decision and every projection, then writes everything at once, or nothing.

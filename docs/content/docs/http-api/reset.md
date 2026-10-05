@@ -2,7 +2,7 @@
 title: "Reset"
 description: "POST /reset, in development mode only: empties the store and draws a new store ID, for tests. What happens to the writes queued before and after it."
 slug: "reset"
-weight: 7
+weight: 8
 ---
 
 `POST /reset` empties the store, for tests. It exists only in development mode (see
@@ -16,6 +16,8 @@ curl -X POST http://127.0.0.1:8085/reset
 
 - In one SQLite transaction, it deletes every event and every projection, sets the Sequence Position counter back so
   the next event gets sequence 1, and draws a new store ID (see [Store ID](/docs/concepts/store-id/)).
+- It ends a [pause](/docs/http-api/pause/), and withdraws a requested one: the waiting `POST /pause` gets
+  `409 PauseCancelled`.
 - It responds `204 No Content`.
 - For the application, a reset is like a restart of the server on a brand new file.
 

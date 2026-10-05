@@ -96,6 +96,7 @@ type Registry struct {
 	pause      PauseState
 	pauseSince time.Time
 	request    *pauseRequest // the pending pause, while pause is PauseRequested
+	onPaused   func(PauseResult)
 
 	stop chan struct{}
 	done chan struct{}

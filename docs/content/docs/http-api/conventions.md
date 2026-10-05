@@ -19,6 +19,7 @@ Key words in capitals follow [RFC 2119](/docs/concepts/overview/#key-words).
 | [`GET /projections/{type}/{id}`](/docs/http-api/projections/#reading-a-projection) | Read one committed projection |
 | [`DELETE /projections/{type}`](/docs/http-api/projections/#bulk-delete) | Delete every projection of one type, in its turn |
 | [`DELETE /projections`](/docs/http-api/projections/#bulk-delete) | Delete every projection, in its turn |
+| [`POST /pause`](/docs/http-api/pause/) and `POST /resume` | Stop transactions from beginning, in its turn, and let them begin again |
 | [`POST /reset`](/docs/http-api/reset/) | Delete all events and projections and draw a new store ID, in its turn (development mode only) |
 
 - "In its turn" means the request waits behind the requests that arrived before it: the server runs them one at a
@@ -62,8 +63,8 @@ request behind it, for as long as it likes.
 
 ## Waiting for a turn
 
-These requests wait for their turn: a transaction's commit, `POST /projections`, the bulk deletes of projections, and
-`POST /reset`.
+These requests wait for their turn: a transaction's commit, `POST /projections`, the bulk deletes of projections,
+`POST /pause` and `POST /resume`, and `POST /reset`.
 
 - They go through one at a time, in the order they arrive. Each waits, with its connection held open, behind the
   requests that arrived before it.
@@ -91,6 +92,7 @@ that depends on the store:
 | `QUERY /events` | On every page, empty pages included |
 | `GET /projections/{type}/{id}` | On `200` and on `404` |
 | `POST /projections` | On `200` |
+| `POST /pause` | On `200` |
 
 - No transaction endpoint carries it: the server keeps the store ID with the transaction.
 - A read takes the store ID in the same SQLite snapshot as the events or the projection it returns, so a response

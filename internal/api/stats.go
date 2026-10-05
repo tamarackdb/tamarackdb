@@ -13,7 +13,16 @@ type statsResponse struct {
 	StartedAt    string            `json:"startedAt"`
 	Writes       writesStats       `json:"writes"`
 	Transactions transactionsStats `json:"transactions"`
+	Pause        pauseStats        `json:"pause"`
 	Errors       errorsStats       `json:"errors"`
+}
+
+// pauseStats is the state of the pause, since when, and how many
+// transactions a requested pause still waits for.
+type pauseStats struct {
+	State            string `json:"state"`
+	Since            string `json:"since"`
+	OpenTransactions int    `json:"openTransactions"`
 }
 
 type writesStats struct {
@@ -33,6 +42,7 @@ type transactionsStats struct {
 	Abandoned    uint64 `json:"abandoned"`
 	Expired      uint64 `json:"expired"`
 	DesignErrors uint64 `json:"designErrors"`
+	Paused       uint64 `json:"paused"`
 }
 
 type errorsStats struct {
@@ -41,7 +51,7 @@ type errorsStats struct {
 
 // handleStats implements GET /stats. It never waits for a write.
 func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
-	ws, ts := s.wr.Stats(), s.txs.Stats()
+	ws, ts, ps := s.wr.Stats(), s.txs.Stats(), s.txs.PauseInfo()
 	writeJSON(w, http.StatusOK, statsResponse{
 		StartedAt: s.startedAt.UTC().Format(dcb.TimeLayout),
 		Writes: writesStats{
@@ -55,6 +65,12 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 			Abandoned:    ts.Abandoned,
 			Expired:      ts.Expired,
 			DesignErrors: ts.DesignErrors,
+			Paused:       ts.Paused,
+		},
+		Pause: pauseStats{
+			State:            ps.State.String(),
+			Since:            ps.Since.UTC().Format(dcb.TimeLayout),
+			OpenTransactions: ps.Open,
 		},
 		Errors: errorsStats{Internal: s.internalErrors.Load()},
 	})

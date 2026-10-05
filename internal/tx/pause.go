@@ -120,7 +120,11 @@ func (r *Registry) enterPause(q *pauseRequest) {
 			return err
 		}
 		r.pause, r.pauseSince, r.request = Paused, now, nil
-		q.finish(PauseResult{LastSequence: last, StoreID: storeID}, nil)
+		result := PauseResult{LastSequence: last, StoreID: storeID}
+		q.finish(result, nil)
+		if r.onPaused != nil {
+			r.onPaused(result)
+		}
 		return nil
 	})
 	if err != nil {
@@ -204,6 +208,15 @@ func (r *Registry) CancelPause() {
 	if r.pause == PauseRequested {
 		r.withdraw(writer.ErrClosed)
 	}
+}
+
+// OnPaused sets fn, called each time a pause takes hold, whether or not a
+// caller of Pause is still waiting: the server logs it. fn runs with the
+// Registry locked, and MUST NOT call it.
+func (r *Registry) OnPaused(fn func(PauseResult)) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.onPaused = fn
 }
 
 // PauseInfo returns the state of the pause.

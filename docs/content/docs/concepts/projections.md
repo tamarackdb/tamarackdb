@@ -77,6 +77,10 @@ replaying every event in order, several threads in parallel, or anything else. I
    write or several. A projection is a `create` the first time, then a `replace` with the version the previous write
    returned.
 
+Commands keep appending events while a rebuild runs. To rebuild up to a fixed point, with no event missed,
+[pause](/docs/http-api/pause/) transactions first: `POST /pause` returns the last Sequence Position, where the replay
+stops. Resume once the projections are written.
+
 One write or several is the application's choice:
 
 - **One write** MUST fit under `maxProjectionsPerWrite` and `maxRequestBodySize`. It holds the write turn for as long

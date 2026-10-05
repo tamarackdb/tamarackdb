@@ -12,6 +12,10 @@ func TestAuthRejectsEveryRoute(t *testing.T) {
 	routes := []struct {
 		method, path, body string
 	}{
+		// Before POST /tx: a valid /pause would wait for the transaction
+		// that POST /tx begins.
+		{"POST", "/pause", ""},
+		{"POST", "/resume", ""},
 		{"QUERY", "/events", `{"query":"all"}`},
 		{"POST", "/projections", `{"create":[{"type":"p","id":"1","payload":""}]}`},
 		{"GET", "/projections/user-profile/123", ""},

@@ -10,7 +10,7 @@ import (
 // line per request: method, path, resulting status code, and duration,
 // tagged with a severity level. A request whose level falls below
 // s.logThreshold is not logged at all. It never logs request or response
-// bodies, so queries, conditions, and events never reach the log.
+// bodies, so queries, events, and projections never reach the log.
 func (s *Server) withLogging(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()

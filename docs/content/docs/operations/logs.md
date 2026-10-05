@@ -20,6 +20,13 @@ tamarackdb-server: [WARNING] POST /projections 503 27B 0.07ms
 - `logLevel` sets the lowest level written: `debug`, `info`, `warning`, or `error`. The default, `warning`, prints
   only `warning` and `error` lines. Set it to `debug` to see every request while testing an integration.
 
+A pause taking hold is logged at `info` too, on a line of its own, even when no client waits for its `POST /pause`
+anymore:
+
+```
+tamarackdb-server: [INFO] pause in place at sequence 5042
+```
+
 ## Levels
 
 Each outcome has a fixed level, not derived from the status code alone:
@@ -27,6 +34,7 @@ Each outcome has a fixed level, not derived from the status code alone:
 | Outcome | Status | Level |
 |---|---|---|
 | Successful request | 2XX | `debug` |
+| `POST /pause` or `POST /resume` done | 2XX | `info` |
 | Projection not found | 404 | `debug` |
 | Transaction not found | 404 | `info` |
 | Concurrency conflict | 409 | `debug` |
@@ -34,6 +42,8 @@ Each outcome has a fixed level, not derived from the status code alone:
 | Payload too large | 413 | `info` |
 | Missing or invalid bearer token | 401 | `info` |
 | Server shutting down | 503 | `info` |
+| Transaction refused during a pause (`Paused`) | 503 | `info` |
+| Pause withdrawn (`PauseCancelled`) | 409 | `info` |
 | Write queue full | 503 | `warning` |
 | Internal error | 500 | `error` |
 | Storage unreachable | 503 | `error` |

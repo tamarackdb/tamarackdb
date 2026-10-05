@@ -133,6 +133,7 @@ func New(wr *writer.Writer, txs *tx.Registry, st *store.Store, opts Options) *Se
 	}
 
 	s := &Server{wr: wr, txs: txs, st: st, opts: opts, logThreshold: logThreshold, startedAt: time.Now()}
+	txs.OnPaused(s.logPaused)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("QUERY /events", s.handleReadEvents)
@@ -147,6 +148,8 @@ func New(wr *writer.Writer, txs *tx.Registry, st *store.Store, opts Options) *Se
 	mux.HandleFunc("POST /tx/{txId}/projections", s.handleTxWriteProjections)
 	mux.HandleFunc("POST /tx/{txId}/commit", s.handleTxCommit)
 	mux.HandleFunc("DELETE /tx/{txId}", s.handleTxAbandon)
+	mux.HandleFunc("POST /pause", s.handlePause)
+	mux.HandleFunc("POST /resume", s.handleResume)
 	mux.HandleFunc("GET /health", s.handleHealth)
 	mux.HandleFunc("GET /stats", s.handleStats)
 	// Deliberately no catch-all "/" route: registering one would live in

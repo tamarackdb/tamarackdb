@@ -95,6 +95,10 @@ func (s *Server) handleErr(w http.ResponseWriter, r *http.Request, err error) {
 		writeError(w, http.StatusConflict, "ConcurrencyException", txe.Error())
 	case errors.Is(err, tx.ErrNotFound):
 		writeError(w, http.StatusNotFound, "TransactionNotFound", "")
+	case errors.Is(err, tx.ErrPaused):
+		writeError(w, http.StatusServiceUnavailable, "Paused", "")
+	case errors.Is(err, tx.ErrPauseCancelled):
+		writeError(w, http.StatusConflict, "PauseCancelled", "")
 	case errors.Is(err, queue.ErrFull):
 		writeError(w, http.StatusServiceUnavailable, "WriteQueueFull", "")
 	case errors.Is(err, writer.ErrClosed), errors.Is(err, queue.ErrClosed):

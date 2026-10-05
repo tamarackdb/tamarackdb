@@ -126,6 +126,8 @@ Two things to get right:
   `projections` table stays empty.
 - It's a regular TamarackDB database file. Unlike a raw copy of the source's file, which can miss commits still in the
   WAL, `tamarackdb-server` can serve it as a live instance.
+- No [pause](/docs/http-api/pause/): a run reads events only. A file served as a new instance starts without one, even
+  if the source was paused. Pause it again if an operation relied on the pause.
 - It has a store ID of its own, drawn when the run created it, not the source's. Served as an instance, it's seen as
   another store, which is right, since it can be behind the source.
 

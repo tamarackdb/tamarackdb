@@ -19,11 +19,14 @@ curl http://127.0.0.1:8085/health
 ```
 
 - It checks that the process responds and that SQLite is reachable, with a trivial `SELECT 1` on the read pool.
-- On success: `200 OK`, with the version.
+- On success: `200 OK`, with whether a [pause](/docs/http-api/pause/) is in place, and the version.
 
   ```json
-  { "status": "ok", "version": "1.2.3" }
+  { "status": "ok", "paused": false, "version": "1.2.3" }
   ```
+
+- `paused` is always there. It's `true` only once a pause is in place, not while it's requested. A paused server still
+  answers `200`: it serves reads and writes of projections, so a load balancer keeps it in.
 
 - When SQLite can't be reached: `503 Unavailable`, the usual signal for "not ready right now", rather than the `500` of
   an ordinary failure.

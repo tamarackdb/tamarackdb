@@ -129,8 +129,12 @@ func main() {
 	// Shutdown waits for every request in flight, and a request waiting in
 	// the FIFO only ends once it gets its turn. Closing the writer
 	// as soon as Shutdown starts turns those requests away right away; a
-	// write already running finishes.
-	httpServer.RegisterOnShutdown(wr.Close)
+	// write already running finishes. A POST /pause waiting for open
+	// transactions waits outside the FIFO: CancelPause answers it.
+	httpServer.RegisterOnShutdown(func() {
+		wr.Close()
+		txs.CancelPause()
+	})
 
 	var listener net.Listener
 	if cfg.SocketPath != "" {

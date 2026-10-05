@@ -25,7 +25,13 @@ curl http://127.0.0.1:8085/stats
     "committed": 18234,
     "abandoned": 40,
     "expired": 2,
-    "designErrors": 0
+    "designErrors": 0,
+    "paused": 0
+  },
+  "pause": {
+    "state": "normal",
+    "since": "2026-10-03T14:00:00.000000Z",
+    "openTransactions": 0
   },
   "errors": { "internal": 0 }
 }
@@ -50,6 +56,10 @@ curl http://127.0.0.1:8085/stats
 | `transactions.abandoned` | Transactions ended with `DELETE /tx/{txId}` |
 | `transactions.expired` | Transactions ended after `txIdleTimeout` without a call |
 | `transactions.designErrors` | Transactions ended by a call that broke a rule, or by a malformed request. An event or a projection over its size limit doesn't count |
+| `transactions.paused` | `POST /tx` calls refused with `503 Paused` |
+| `pause.state` | Where the [pause](/docs/http-api/pause/) stands: `normal`, `pauseRequested`, or `paused` |
+| `pause.since` | When that state began |
+| `pause.openTransactions` | Transactions still open, and commits still writing: what a requested pause waits for |
 | `errors.internal` | Responses `500 InternalError` |
 
 ## Reading them
@@ -64,5 +74,7 @@ curl http://127.0.0.1:8085/stats
   on every path.
 - **`designErrors`** SHOULD stay at zero in production. A rising count means a client library sends calls in an order
   transactions never allow: it has a bug.
+- **`pauseRequested`** that lasts means a transaction is still open: `openTransactions` says how many. The pause
+  takes hold once they end. `POST /resume` withdraws it.
 - **`internal`** above zero is a failure on the server: the matching log lines are at level `error` (see
   [Logs](/docs/operations/logs/)).

@@ -269,6 +269,7 @@ func TestStats(t *testing.T) {
 		StartedAt:    got.StartedAt,
 		Writes:       writesStats{Committed: 2},
 		Transactions: transactionsStats{Begun: 3, Committed: 1, Abandoned: 1, DesignErrors: 1},
+		Pause:        pauseStats{State: "normal", Since: got.Pause.Since},
 	}
 	if got != want {
 		t.Errorf("stats = %+v, want %+v", got, want)
