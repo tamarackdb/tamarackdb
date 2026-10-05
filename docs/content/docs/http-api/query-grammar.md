@@ -5,8 +5,8 @@ slug: "query-grammar"
 weight: 2
 ---
 
-A query selects events by type and tags. The same grammar serves `query` in a read and `failIfEventsMatch` in an Append
-Condition. It follows the DCB specification.
+A query selects events by type and tags, in `QUERY /events` and in a transaction's read. It follows the DCB
+specification.
 
 Key words in capitals follow [RFC 2119](/docs/concepts/overview/#key-words).
 

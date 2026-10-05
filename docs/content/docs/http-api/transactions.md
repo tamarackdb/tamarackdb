@@ -212,8 +212,8 @@ Three settings bound a transaction, across all its calls (see
 
 **Why.** `maxRequestBodySize` bounds one request, not a transaction, which is built over many requests. A commit holds
 its turn while it checks the condition of every read and writes every event and projection: without these limits,
-every request behind it would wait for as long as the transaction likes. A read followed by an empty write counts,
-since its condition is checked at commit like the others. Checking each call tells the client before it has done all
+every request behind it would wait for as long as the transaction likes. Every read counts, on `"none"` or followed by
+an empty write included, so the rule needs no exceptions. Checking each call tells the client before it has done all
 its work.
 
 ## Errors

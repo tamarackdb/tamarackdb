@@ -21,7 +21,6 @@ Key words in capitals follow [RFC 2119](/docs/concepts/overview/#key-words).
 
 - In the `X-Tamarackdb-Store` header of every response that depends on the store (see
   [Conventions](/docs/http-api/conventions/#store-id-header)).
-- In an Append Condition, next to its `afterSequence` (see [Append Condition](/docs/concepts/append-condition/)).
 - Not in a transaction. The server keeps the store ID current at its begin, and the client never handles it. Once
   the store ID changes, the next call on the transaction gets `409`, and the transaction ends (see
   [Transactions](/docs/concepts/transactions/)).
