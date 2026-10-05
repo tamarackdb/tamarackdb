@@ -40,6 +40,16 @@ func newTestEnv(t *testing.T, idle time.Duration) *testEnv {
 
 var bg = context.Background()
 
+// begin begins a transaction, and fails the test if it can't.
+func begin(t *testing.T, r *Registry) string {
+	t.Helper()
+	id, err := r.Begin()
+	if err != nil {
+		t.Fatalf("Begin() error = %v", err)
+	}
+	return id
+}
+
 func types(names ...string) dcb.Query {
 	return dcb.NewQuery([]dcb.QueryItem{{Types: names}})
 }
@@ -150,7 +160,7 @@ func seedProjection(t *testing.T, wr *writer.Writer, key Key, payload string) {
 
 func TestCommitWritesEverythingTogether(t *testing.T) {
 	env := newTestEnv(t, time.Minute)
-	id := env.r.Begin()
+	id := begin(t, env.r)
 
 	read(t, env.r, id, dcb.QueryNone())
 	written := write(t, env.r, id, "a", "b")
@@ -192,7 +202,7 @@ func TestReadMergesPendingEvents(t *testing.T) {
 	if _, err := env.wr.WritePending(bg, "", dcb.NewPendingEvents(events("a", "other"), dcb.Now()), nil, projection.Writes{}); err != nil {
 		t.Fatalf("Write() error = %v", err)
 	}
-	id := env.r.Begin()
+	id := begin(t, env.r)
 	decide(t, env.r, id, dcb.QueryNone(), "a", "b")
 
 	committed, pending := read(t, env.r, id, types("a", "b"))
@@ -265,7 +275,7 @@ func TestRulesEndTheTransaction(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			env := newTestEnv(t, time.Minute)
-			id := env.r.Begin()
+			id := begin(t, env.r)
 			err := tt.run(env.r, id)
 			var ve *dcb.ValidationError
 			if !errors.Is(err, ErrDesign) || !errors.As(err, &ve) {
@@ -285,7 +295,7 @@ func TestRulesEndTheTransaction(t *testing.T) {
 // overtaken fails the commit, and the 409 names it by its rank.
 func TestConditionConflictNamesItsRank(t *testing.T) {
 	env := newTestEnv(t, time.Minute)
-	id := env.r.Begin()
+	id := begin(t, env.r)
 	decide(t, env.r, id, dcb.QueryNone(), "a")
 	decide(t, env.r, id, types("stock"), "reserved")
 
@@ -315,7 +325,7 @@ func TestEmptyWriteProtectsTheDecision(t *testing.T) {
 	}})
 	earned := []dcb.EventData{{Type: "points-earned", Identifiers: dcb.IdentifierSet{{Name: "customerId", Value: "1"}}}}
 
-	order, referral := env.r.Begin(), env.r.Begin()
+	order, referral := begin(t, env.r), begin(t, env.r)
 	for _, id := range []string{order, referral} {
 		// EarnPointsModel: no dependency.
 		read(t, env.r, id, dcb.QueryNone())
@@ -340,7 +350,7 @@ func TestNetProjections(t *testing.T) {
 		seedProjection(t, env.wr, k, "old")
 	}
 
-	id := env.r.Begin()
+	id := begin(t, env.r)
 	for _, k := range []Key{replaced, deleted, readOnly, created, gone, absent} {
 		getProjection(t, env.r, id, k)
 	}
@@ -379,11 +389,11 @@ func TestProjectionConflictNamesTheProjection(t *testing.T) {
 	key := Key{"summary", "1"}
 	seedProjection(t, env.wr, key, "old")
 
-	id := env.r.Begin()
+	id := begin(t, env.r)
 	getProjection(t, env.r, id, key)
 	writeProjections(t, env.r, id, []Projection{{key, "mine"}}, nil)
 
-	other := env.r.Begin()
+	other := begin(t, env.r)
 	getProjection(t, env.r, other, key)
 	writeProjections(t, env.r, other, []Projection{{key, "theirs"}}, nil)
 	commit(t, env.r, other)
@@ -399,8 +409,8 @@ func TestProjectionConflictNamesTheProjection(t *testing.T) {
 
 func TestStoreChangedEndsTheTransaction(t *testing.T) {
 	env := newTestEnv(t, time.Minute)
-	id := env.r.Begin()
-	if err := env.wr.Reset(bg); err != nil {
+	id := begin(t, env.r)
+	if err := env.r.Reset(bg); err != nil {
 		t.Fatalf("Reset() error = %v", err)
 	}
 	_, err := env.r.ReadEvents(bg, id, dcb.QueryNone())
@@ -414,7 +424,7 @@ func TestStoreChangedEndsTheTransaction(t *testing.T) {
 
 func TestIdleTransactionExpires(t *testing.T) {
 	env := newTestEnv(t, 50*time.Millisecond)
-	id := env.r.Begin()
+	id := begin(t, env.r)
 	deadline := time.Now().Add(2 * time.Second)
 	for env.r.Stats().Expired == 0 {
 		if time.Now().After(deadline) {
@@ -431,7 +441,7 @@ func TestIdleTransactionExpires(t *testing.T) {
 // the last call, not from Begin.
 func TestCallsKeepTheTransactionAlive(t *testing.T) {
 	env := newTestEnv(t, 200*time.Millisecond)
-	id := env.r.Begin()
+	id := begin(t, env.r)
 	for range 6 {
 		time.Sleep(60 * time.Millisecond)
 		decide(t, env.r, id, dcb.QueryNone())
@@ -444,7 +454,7 @@ func TestCallsKeepTheTransactionAlive(t *testing.T) {
 // the second breaks the rule.
 func TestSimultaneousCallsTakeTurns(t *testing.T) {
 	env := newTestEnv(t, time.Minute)
-	id := env.r.Begin()
+	id := begin(t, env.r)
 	errs := make([]error, 2)
 	var wg sync.WaitGroup
 	for i := range errs {
@@ -486,7 +496,7 @@ func TestCommitWithNothingToWriteTakesNoTurn(t *testing.T) {
 	<-held
 	defer close(free)
 
-	id := env.r.Begin()
+	id := begin(t, env.r)
 	decide(t, env.r, id, types("a"))
 	getProjection(t, env.r, id, Key{"p", "1"})
 	done := make(chan error, 1)
@@ -521,7 +531,7 @@ func wantTooLarge(t *testing.T, r *Registry, id string, err error, setting strin
 // transaction over maxEventsPerTx is refused, and ends it.
 func TestTooManyEvents(t *testing.T) {
 	env := newTestEnv(t, time.Minute)
-	id := env.r.Begin()
+	id := begin(t, env.r)
 	decide(t, env.r, id, dcb.QueryNone(), "a", "b", "c", "d", "e", "f", "g", "h", "i")
 	read(t, env.r, id, dcb.QueryNone())
 	_, err := env.r.WriteEvents(id, events("j", "k"))
@@ -536,7 +546,7 @@ func TestTooManyEvents(t *testing.T) {
 // followed by an empty write counts.
 func TestTooManyReads(t *testing.T) {
 	env := newTestEnv(t, time.Minute)
-	id := env.r.Begin()
+	id := begin(t, env.r)
 	for range 10 {
 		decide(t, env.r, id, types("a"))
 	}
@@ -550,7 +560,7 @@ func TestTooManyReads(t *testing.T) {
 // A projection written twice counts once, upserts and deletes together.
 func TestTooManyProjections(t *testing.T) {
 	env := newTestEnv(t, time.Minute)
-	id := env.r.Begin()
+	id := begin(t, env.r)
 	keys := make([]Key, 11)
 	for i := range keys {
 		keys[i] = Key{Type: "p", ID: fmt.Sprint(i)}
@@ -569,13 +579,13 @@ func TestTooManyProjections(t *testing.T) {
 
 func TestAbandonAndReject(t *testing.T) {
 	env := newTestEnv(t, time.Minute)
-	abandoned, rejected := env.r.Begin(), env.r.Begin()
+	abandoned, rejected := begin(t, env.r), begin(t, env.r)
 	decide(t, env.r, abandoned, dcb.QueryNone(), "a")
 	env.r.Abandon(abandoned)
 	env.r.Abandon(abandoned) // already closed: no error, not counted again
 	env.r.Abandon("unknown")
 	env.r.Reject(rejected, true)
-	tooLarge := env.r.Begin()
+	tooLarge := begin(t, env.r)
 	env.r.Reject(tooLarge, false)
 
 	for _, id := range []string{abandoned, rejected, tooLarge} {

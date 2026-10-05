@@ -124,13 +124,6 @@ func (w *Writer) RunInTurn(ctx context.Context, fn func(ctx context.Context) err
 	return fn(context.WithoutCancel(ctx))
 }
 
-// Reset deletes every event and projection and draws a new store ID, for
-// dev mode. It waits for its turn in the FIFO, like a write: the writes
-// queued before it go through first, and Reset then deletes them.
-func (w *Writer) Reset(ctx context.Context) error {
-	return w.RunInTurn(ctx, w.st.Reset)
-}
-
 // Optimize runs PRAGMA optimize (see store.Store.Optimize) once its turn
 // comes in the FIFO, so it never runs during a write.
 func (w *Writer) Optimize(ctx context.Context) error {

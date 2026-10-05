@@ -67,7 +67,12 @@ type txReadTrailer struct {
 }
 
 func (s *Server) handleTxBegin(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, txBeginResponse{TxID: s.txs.Begin()})
+	id, err := s.txs.Begin()
+	if err != nil {
+		s.handleErr(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, txBeginResponse{TxID: id})
 }
 
 // txFail writes err for a request on transaction id that this layer

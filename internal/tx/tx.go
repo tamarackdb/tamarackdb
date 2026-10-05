@@ -82,9 +82,20 @@ type Registry struct {
 	wr  *writer.Writer
 	cfg Config
 
-	mu    sync.Mutex // guards txs, stats, and each transaction's busy and lastUsed
+	mu    sync.Mutex // guards txs, stats, the pause, and each transaction's busy and lastUsed
 	txs   map[string]*transaction
 	stats Stats
+
+	// committing counts the commits that have left txs but not yet
+	// written (see Commit). active signals each drop of len(txs) +
+	// committing, for a pause waiting for the transactions to end.
+	committing int
+	active     *sync.Cond
+
+	// The pause (see pause.go).
+	pause      PauseState
+	pauseSince time.Time
+	request    *pauseRequest // the pending pause, while pause is PauseRequested
 
 	stop chan struct{}
 	done chan struct{}
@@ -94,20 +105,26 @@ type Registry struct {
 // transactions. Callers must Close it when done.
 func New(st *store.Store, wr *writer.Writer, cfg Config) *Registry {
 	r := &Registry{
-		st:   st,
-		wr:   wr,
-		cfg:  cfg,
-		txs:  map[string]*transaction{},
-		stop: make(chan struct{}),
-		done: make(chan struct{}),
+		st:         st,
+		wr:         wr,
+		cfg:        cfg,
+		txs:        map[string]*transaction{},
+		stop:       make(chan struct{}),
+		done:       make(chan struct{}),
+		pauseSince: time.Now(),
+	}
+	r.active = sync.NewCond(&r.mu)
+	if at, paused := st.PausedAt(); paused {
+		r.pause, r.pauseSince = Paused, at
 	}
 	go r.sweep()
 	return r
 }
 
-// Close stops the sweep. The open transactions are dropped with the
-// Registry.
+// Close withdraws a pending pause (see CancelPause) and stops the sweep.
+// The open transactions are dropped with the Registry.
 func (r *Registry) Close() {
+	r.CancelPause()
 	select {
 	case <-r.stop:
 	default:
@@ -145,7 +162,8 @@ type openCondition struct {
 }
 
 // Begin opens a transaction on the current store ID and returns its ID.
-func (r *Registry) Begin() string {
+// While a pause is requested or in place, it returns ErrPaused.
+func (r *Registry) Begin() (string, error) {
 	t := &transaction{
 		id:          uuid.NewString(),
 		storeID:     r.st.StoreID(),
@@ -153,10 +171,14 @@ func (r *Registry) Begin() string {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.pause != Running {
+		r.stats.Paused++
+		return "", ErrPaused
+	}
 	t.lastUsed = time.Now()
 	r.txs[t.id] = t
 	r.stats.Begun++
-	return t.id
+	return t.id, nil
 }
 
 // do runs fn on transaction id, alone. Before fn, it checks that the
@@ -220,6 +242,7 @@ func (r *Registry) end(t *transaction) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	delete(r.txs, t.id)
+	r.active.Broadcast()
 }
 
 // sweep ends the transactions idle for longer than IdleTimeout.
@@ -241,6 +264,7 @@ func (r *Registry) sweep() {
 					t.closed = true
 					delete(r.txs, id)
 					r.stats.Expired++
+					r.active.Broadcast()
 				}
 			}
 			r.mu.Unlock()
@@ -361,11 +385,26 @@ func (r *Registry) WriteEvents(id string, events []dcb.EventData) (time.Time, er
 // condition, then the projections, then the events are appended. All of
 // it is written, or none of it. A transaction with nothing to write
 // commits at once, without a turn.
+//
+// A commit leaves the Registry before it joins the FIFO, and counts in
+// committing until its write ends. A pause MUST wait for both: one that
+// saw only the Registry could join the FIFO ahead of a commit that has
+// just left it, and that commit's events would then come after the last
+// Sequence Position the pause returned.
 func (r *Registry) Commit(ctx context.Context, id string) error {
 	return r.do(id, func(t *transaction) error {
 		if t.open != nil {
 			return designError("commit while a condition is open: write the events of the last read first, or an empty list")
 		}
+		r.mu.Lock()
+		r.committing++
+		r.mu.Unlock()
+		defer func() {
+			r.mu.Lock()
+			r.committing--
+			r.active.Broadcast()
+			r.mu.Unlock()
+		}()
 		r.end(t) // the transaction is over, whatever the outcome
 		writes, keys := t.netProjections()
 		if len(t.events) == 0 && writes.Len() == 0 {

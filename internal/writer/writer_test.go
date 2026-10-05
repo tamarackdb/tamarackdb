@@ -242,7 +242,7 @@ func TestResetWaitsForItsTurn(t *testing.T) {
 	}()
 	waitQueued(t, env.m, 1)
 	reset := make(chan error, 1)
-	go func() { reset <- env.m.Reset(context.Background()) }()
+	go func() { reset <- env.m.RunInTurn(context.Background(), env.st.Reset) }()
 	waitQueued(t, env.m, 2)
 
 	release()
@@ -377,7 +377,7 @@ func TestWriteQueueFullIsCounted(t *testing.T) {
 func TestWritePendingRefusesAnotherStore(t *testing.T) {
 	env := newTestEnv(t)
 	before := env.st.StoreID()
-	if err := env.m.Reset(context.Background()); err != nil {
+	if err := env.m.RunInTurn(context.Background(), env.st.Reset); err != nil {
 		t.Fatalf("Reset() error = %v", err)
 	}
 	events := dcb.NewPendingEvents([]dcb.EventData{{Type: "a"}}, dcb.Now())

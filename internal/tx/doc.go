@@ -39,4 +39,24 @@
 // stops, every open transaction is lost, and nothing is rebuilt: the
 // client gets ErrNotFound and runs its command again, as after a
 // conflict.
+//
+// # The pause
+//
+// Events enter the log only through a transaction, so a pause only has
+// to stop transactions from beginning: Begin returns ErrPaused while one
+// is requested or in place. Everything else goes on, writes of
+// projections outside a transaction included.
+//
+// Pause first refuses Begin, then waits for the open transactions to end,
+// outside the FIFO, since their commits must go through it. A commit
+// counts until its write ends, not only until it leaves the Registry (see
+// Commit). Then Pause takes its turn and records the pause in the store,
+// which keeps it across a restart. A transaction that never ends holds
+// the pause back: the wait has no limit, and Resume withdraws it.
+//
+// Resume and Reset take their turn in the FIFO too, so they can't cross
+// the turn in which Pause records the pause: whichever comes first, the
+// FIFO's order settles it. A Pause whose request they withdraw gets
+// ErrPauseCancelled. At shutdown, CancelPause answers a Pause still
+// waiting for transactions, which closing the Writer doesn't wake.
 package tx

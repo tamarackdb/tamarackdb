@@ -157,7 +157,7 @@ func New(wr *writer.Writer, txs *tx.Registry, st *store.Store, opts Options) *Se
 	// path with the wrong method correctly gets 405 + Allow.
 	if opts.DevMode {
 		// Deletes every event and projection, in its turn in the FIFO,
-		// see writer.Writer.Reset.
+		// see tx.Registry.Reset.
 		mux.HandleFunc("POST /reset", s.handleReset)
 
 		// Standard net/http/pprof registration, mounted on our own mux
