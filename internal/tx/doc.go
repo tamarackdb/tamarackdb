@@ -47,16 +47,16 @@
 // is requested or in place. Everything else goes on, writes of
 // projections outside a transaction included.
 //
-// Pause first refuses Begin, then waits for the open transactions to end,
-// outside the FIFO, since their commits must go through it. A commit
-// counts until its write ends, not only until it leaves the Registry (see
-// Commit). Then Pause takes its turn and records the pause in the store,
-// which keeps it across a restart. A transaction that never ends holds
-// the pause back: the wait has no limit, and Resume withdraws it.
+// Pause never waits for the open transactions: it runs in its turn in
+// the FIFO and answers at once. While transactions are open, it marks the
+// pause requested, so Begin refuses, and returns how many are open; the
+// caller calls it again. Once none is open, it records the pause in the
+// store, which keeps it across a restart. A transaction stays in the
+// Registry until its write ends (see Commit): an empty Registry in the
+// pause's turn means no event can come after the position it returns.
 //
-// Resume and Reset take their turn in the FIFO too, so they can't cross
-// the turn in which Pause records the pause: whichever comes first, the
-// FIFO's order settles it. A Pause whose request they withdraw gets
-// ErrPauseCancelled. At shutdown, CancelPause answers a Pause still
-// waiting for transactions, which closing the Writer doesn't wake.
+// Resume and Reset take their turn in the FIFO too, so none of them can
+// cross another: each finds, in its turn, the state the others left.
+// Reset is accepted only during a pause, when no transaction exists: a
+// transaction never sees the store ID change.
 package tx

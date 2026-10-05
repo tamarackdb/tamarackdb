@@ -133,7 +133,6 @@ func New(wr *writer.Writer, txs *tx.Registry, st *store.Store, opts Options) *Se
 	}
 
 	s := &Server{wr: wr, txs: txs, st: st, opts: opts, logThreshold: logThreshold, startedAt: time.Now()}
-	txs.OnPaused(s.logPaused)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("QUERY /events", s.handleReadEvents)

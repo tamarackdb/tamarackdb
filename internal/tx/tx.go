@@ -83,15 +83,9 @@ type Registry struct {
 	txs   map[string]*transaction
 	stats Stats
 
-	// active signals each drop of len(txs), for a pause waiting for the
-	// transactions to end.
-	active *sync.Cond
-
 	// The pause (see pause.go).
 	pause      PauseState
 	pauseSince time.Time
-	request    *pauseRequest // the pending pause, while pause is PauseRequested
-	onPaused   func(PauseResult)
 
 	stop chan struct{}
 	done chan struct{}
@@ -109,7 +103,6 @@ func New(st *store.Store, wr *writer.Writer, cfg Config) *Registry {
 		done:       make(chan struct{}),
 		pauseSince: time.Now(),
 	}
-	r.active = sync.NewCond(&r.mu)
 	if at, paused := st.PausedAt(); paused {
 		r.pause, r.pauseSince = Paused, at
 	}
@@ -117,10 +110,9 @@ func New(st *store.Store, wr *writer.Writer, cfg Config) *Registry {
 	return r
 }
 
-// Close withdraws a pending pause (see CancelPause) and stops the sweep.
-// The open transactions are dropped with the Registry.
+// Close stops the sweep. The open transactions are dropped with the
+// Registry.
 func (r *Registry) Close() {
-	r.CancelPause()
 	select {
 	case <-r.stop:
 	default:
@@ -231,7 +223,6 @@ func (r *Registry) end(t *transaction) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	delete(r.txs, t.id)
-	r.active.Broadcast()
 }
 
 // sweep ends the transactions idle for longer than IdleTimeout.
@@ -253,7 +244,6 @@ func (r *Registry) sweep() {
 					t.closed = true
 					delete(r.txs, id)
 					r.stats.Expired++
-					r.active.Broadcast()
 				}
 			}
 			r.mu.Unlock()

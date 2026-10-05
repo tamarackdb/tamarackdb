@@ -45,7 +45,7 @@ A [pause](/docs/http-api/pause/) stops transactions from beginning, while reads 
 for an operation that needs the log to stand still: a rebuild, a deploy.
 
 ```sh
-curl -X POST http://127.0.0.1:8085/pause
+curl -X POST http://127.0.0.1:8085/pause    # 202 while transactions are open: call again until 200
 curl -X POST http://127.0.0.1:8085/resume
 ```
 

@@ -2,9 +2,7 @@ package api
 
 import (
 	"encoding/json"
-	"net/http/httptest"
 	"testing"
-	"time"
 )
 
 // healthPaused returns the paused field of GET /health.
@@ -68,30 +66,33 @@ func TestPauseOverHTTP(t *testing.T) {
 	begin(t, srv)
 }
 
-// TestPauseCancelledOverHTTP checks that a POST /pause waiting for a
-// transaction gets 409 PauseCancelled when /resume withdraws it.
-func TestPauseCancelledOverHTTP(t *testing.T) {
+// TestPauseRequestedOverHTTP checks that POST /pause answers 202 at once
+// while a transaction is open, refuses POST /tx from then on, and answers
+// 200 once the transaction has ended.
+func TestPauseRequestedOverHTTP(t *testing.T) {
 	srv, _, _ := newTestServer(t)
-	begin(t, srv)
+	tx := begin(t, srv)
 
-	paused := make(chan *httptest.ResponseRecorder, 1)
-	go func() { paused <- doRequest(t, srv, "POST", "/pause", "") }()
-	deadline := time.Now().Add(2 * time.Second)
-	for srv.txs.PauseInfo().State.String() != "pauseRequested" {
-		if time.Now().After(deadline) {
-			t.Fatal("the pause was never requested")
-		}
-		time.Sleep(5 * time.Millisecond)
+	rec := doRequest(t, srv, "POST", "/pause", "")
+	if rec.Code != 202 || rec.Body.String() != "{\"openTransactions\":1}\n" {
+		t.Fatalf("POST /pause = %d %s, want 202 {\"openTransactions\":1}", rec.Code, rec.Body.String())
+	}
+	if h := rec.Header().Get(StoreHeader); h != "" {
+		t.Errorf("202 carries %s = %q, want none", StoreHeader, h)
 	}
 	if healthPaused(t, srv) {
 		t.Error("GET /health paused = true while the pause is only requested")
 	}
-
-	if rec := doRequest(t, srv, "POST", "/resume", ""); rec.Code != 204 {
-		t.Fatalf("POST /resume = %d, want 204", rec.Code)
+	if rec := doRequest(t, srv, "POST", "/tx", ""); rec.Code != 503 || errorCode(t, rec) != "Paused" {
+		t.Errorf("POST /tx = %d %s, want 503 Paused", rec.Code, rec.Body.String())
 	}
-	if rec := <-paused; rec.Code != 409 || errorCode(t, rec) != "PauseCancelled" {
-		t.Errorf("POST /pause = %d %s, want 409 PauseCancelled", rec.Code, rec.Body.String())
+
+	txRequest(t, srv, "DELETE", tx, "", 204)
+	if rec := doRequest(t, srv, "POST", "/pause", ""); rec.Code != 200 {
+		t.Fatalf("POST /pause after the transaction ended = %d %s, want 200", rec.Code, rec.Body.String())
+	}
+	if !healthPaused(t, srv) {
+		t.Error("GET /health paused = false once the pause is in place")
 	}
 }
 

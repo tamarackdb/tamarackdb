@@ -74,7 +74,7 @@ curl http://127.0.0.1:8085/stats
   on every path.
 - **`designErrors`** SHOULD stay at zero in production. A rising count means a client library sends calls in an order
   transactions never allow: it has a bug.
-- **`pauseRequested`** that lasts means a transaction is still open: `openTransactions` says how many. The pause
-  takes hold once they end. `POST /resume` withdraws it.
+- **`pauseRequested`** that lasts means a transaction is still open, or the coordinator stopped calling `POST /pause`:
+  `openTransactions` says how many are open. `POST /resume` withdraws it.
 - **`internal`** above zero is a failure on the server: the matching log lines are at level `error` (see
   [Logs](/docs/operations/logs/)).

@@ -1,21 +1,23 @@
 package api
 
-import (
-	"log"
-	"net/http"
+import "net/http"
 
-	"github.com/tamarackdb/tamarackdb/internal/tx"
-)
-
-// pauseResponse is POST /pause's body. The store ID goes in the
-// X-Tamarackdb-Store header, as on every response that depends on the
-// store.
+// pauseResponse is POST /pause's body once the pause is in place. The
+// store ID goes in the X-Tamarackdb-Store header, as on every response
+// that depends on the store.
 type pauseResponse struct {
 	LastSequence int64 `json:"lastSequence"`
 }
 
-// handlePause implements POST /pause (see tx.Registry.Pause): it returns
-// once the pause is in place, with the last Sequence Position.
+// pauseRequestedResponse is POST /pause's body while transactions are
+// still open: the caller calls again later.
+type pauseRequestedResponse struct {
+	OpenTransactions int `json:"openTransactions"`
+}
+
+// handlePause implements POST /pause (see tx.Registry.Pause): 200 with the
+// last Sequence Position once the pause is in place, or 202 with the
+// transactions still open.
 func (s *Server) handlePause(w http.ResponseWriter, r *http.Request) {
 	result, err := s.txs.Pause(r.Context())
 	if err != nil {
@@ -23,6 +25,10 @@ func (s *Server) handlePause(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	logAt(w, levelInfo)
+	if !result.Paused {
+		writeJSON(w, http.StatusAccepted, pauseRequestedResponse{OpenTransactions: result.Open})
+		return
+	}
 	w.Header().Set(StoreHeader, result.StoreID)
 	writeJSON(w, http.StatusOK, pauseResponse{LastSequence: result.LastSequence})
 }
@@ -35,15 +41,6 @@ func (s *Server) handleResume(w http.ResponseWriter, r *http.Request) {
 	}
 	logAt(w, levelInfo)
 	w.WriteHeader(http.StatusNoContent)
-}
-
-// logPaused logs a pause taking hold, at INFO, even if no caller of
-// POST /pause is still there to see it.
-func (s *Server) logPaused(result tx.PauseResult) {
-	if levelInfo < s.logThreshold {
-		return
-	}
-	log.Printf("tamarackdb-server: [%s] pause in place at sequence %d", levelInfo, result.LastSequence)
 }
 
 // logAt sets the access-log level of a successful response, which is

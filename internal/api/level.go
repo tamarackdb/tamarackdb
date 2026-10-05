@@ -64,7 +64,6 @@ var codeLevel = map[string]level{
 	"WriteQueueFull":       levelWarning, // 503, real capacity signal
 	"ShuttingDown":         levelInfo,    // 503, the operator stopped the server
 	"Paused":               levelInfo,    // 503, the operator paused transactions
-	"PauseCancelled":       levelInfo,    // 409, the operator withdrew the pause
 	"NotPaused":            levelInfo,    // 409, a reset outside a pause
 	"InternalError":        levelError,   // 500, real failure
 	"Unavailable":          levelError,   // 503, storage unreachable

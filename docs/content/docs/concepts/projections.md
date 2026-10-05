@@ -78,8 +78,8 @@ replaying every event in order, several threads in parallel, or anything else. I
    returned.
 
 Commands keep appending events while a rebuild runs. To rebuild up to a fixed point, with no event missed,
-[pause](/docs/http-api/pause/) transactions first: `POST /pause` returns the last Sequence Position, where the replay
-stops. Resume once the projections are written.
+[pause](/docs/http-api/pause/) transactions first: call `POST /pause` until it answers `200`, with the last Sequence
+Position, where the replay stops. Resume once the projections are written.
 
 One write or several is the application's choice:
 
