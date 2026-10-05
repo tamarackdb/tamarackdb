@@ -58,7 +58,6 @@ func newTestServerWith(t *testing.T, o testOptions) (*Server, *writer.Writer, *s
 		MaxEventsPerPage:       10000,
 		MaxEventSize:           65536,
 		MaxProjectionSize:      65536,
-		MaxEventsPerWrite:      100,
 		MaxProjectionsPerWrite: 500,
 		MaxRequestBodySize:     8 << 20,
 		LogLevel:               o.logLevel,
@@ -81,12 +80,52 @@ func doRequest(t *testing.T, srv *Server, method, path, body string) *httptest.R
 	return rec
 }
 
-// appendCommitted writes body, a POST /write body, and returns the
-// response.
-func appendCommitted(t *testing.T, srv *Server, body string) writeResponse {
+// commitEvents appends events, a JSON array of events, in a transaction
+// whose decision reads "none", and checks that the commit goes through.
+func commitEvents(t *testing.T, srv *Server, events string) {
 	t.Helper()
-	resp, _ := doWrite(t, srv, body)
+	tx := begin(t, srv)
+	txRequest(t, srv, "QUERY", tx+"/events", `{"query":"none"}`, 200)
+	txRequest(t, srv, "POST", tx+"/events", `{"events":`+events+`}`, 200)
+	txRequest(t, srv, "POST", tx+"/commit", "", 204)
+}
+
+// writeProjectionsCommitted sends body to POST /projections, checks the
+// 200, and returns the new versions.
+func writeProjectionsCommitted(t *testing.T, srv *Server, body string) projectionsResponse {
+	t.Helper()
+	rec := doRequest(t, srv, "POST", "/projections", body)
+	if rec.Code != 200 {
+		t.Fatalf("POST /projections status = %d, body = %s, want 200", rec.Code, rec.Body.String())
+	}
+	var resp projectionsResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode POST /projections response %q: %v", rec.Body.String(), err)
+	}
 	return resp
+}
+
+// currentStore returns the store ID a read reports.
+func currentStore(t *testing.T, srv *Server) string {
+	t.Helper()
+	return storeHeader(t, doRequest(t, srv, "QUERY", "/events", `{"query":"all"}`), "read")
+}
+
+// countEvents returns how many events the store holds.
+func countEvents(t *testing.T, srv *Server) int {
+	t.Helper()
+	_, events := parseNDJSON(t, doRequest(t, srv, "QUERY", "/events", `{"query":"all"}`).Body.String())
+	return len(events)
+}
+
+// errorMessage decodes rec's error envelope and returns its message.
+func errorMessage(t *testing.T, rec *httptest.ResponseRecorder) string {
+	t.Helper()
+	var env errorEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+		t.Fatalf("decode error envelope %q: %v", rec.Body.String(), err)
+	}
+	return env.Message
 }
 
 // holdTurn takes the FIFO's turn with a write that waits until release is

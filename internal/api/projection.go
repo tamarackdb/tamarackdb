@@ -2,20 +2,21 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 
 	"github.com/tamarackdb/tamarackdb/internal/dcb"
 	"github.com/tamarackdb/tamarackdb/internal/projection"
+	"github.com/tamarackdb/tamarackdb/internal/store"
 )
 
 // VersionHeader carries a projection's version in a
 // GET /projections/{type}/{id} response.
 const VersionHeader = "X-Tamarackdb-Version"
 
-// projectionsResponse is the projections part of a POST /write response:
-// the new version of every created and replaced projection, in request
-// order.
+// projectionsResponse is a POST /projections response: the new version
+// of every created and replaced projection, in request order.
 type projectionsResponse struct {
 	Create  []projectionVersion `json:"create"`
 	Replace []projectionVersion `json:"replace"`
@@ -58,14 +59,55 @@ func (s *Server) handleGetProjection(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(p.Payload))
 }
 
+// handleWriteProjections implements POST /projections: it creates,
+// replaces, and deletes projections, outside any transaction, in one
+// SQLite transaction of its own, or does nothing at all. The body is read
+// and checked before the request joins the FIFO (see the package
+// comment). An empty write gets 200 at once, without a turn.
+func (s *Server) handleWriteProjections(w http.ResponseWriter, r *http.Request) {
+	var req projection.Writes
+	err := decodeJSONStrict(r, &req)
+	if err == nil {
+		err = s.validateWriteProjections(req)
+	}
+	var result store.AppendResult
+	if err == nil {
+		if req.Len() == 0 {
+			result.StoreID = s.st.StoreID()
+		} else {
+			result, err = s.wr.WriteProjections(r.Context(), req)
+		}
+	}
+	if err != nil {
+		s.handleErr(w, r, err)
+		return
+	}
+	w.Header().Set(StoreHeader, result.StoreID)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(projectionsResponse{
+		Create:  toProjectionVersions(result.Versions.Create),
+		Replace: toProjectionVersions(result.Versions.Replace),
+	})
+}
+
+// validateWriteProjections checks the count against
+// MaxProjectionsPerWrite, then each projection.
+func (s *Server) validateWriteProjections(req projection.Writes) error {
+	if n := req.Len(); n > s.opts.MaxProjectionsPerWrite {
+		return &dcb.ValidationError{Err: errTooManyProjections, Message: fmt.Sprintf(
+			"request carries %d projections, more than maxProjectionsPerWrite (%d)", n, s.opts.MaxProjectionsPerWrite)}
+	}
+	return validateProjections(req, s.opts.MaxProjectionSize)
+}
+
 // validateProjections checks each projection: its own Validate(), then
 // maxProjectionSize, rejecting a type+id pair that appears more than once
-// across the three lists. A message names the projection as
-// path + op[i], where path is where the lists sit in the request body.
-func validateProjections(w projection.Writes, maxProjectionSize int, path string) error {
+// across the three lists. A message names the projection as op[i].
+func validateProjections(w projection.Writes, maxProjectionSize int) error {
 	seen := make(map[[2]string]string, w.Len())
 	check := func(op string, i int, typ, id string, payload *string, validate func() error) error {
-		at := fmt.Sprintf("%s%s[%d]", path, op, i)
+		at := fmt.Sprintf("%s[%d]", op, i)
 		if err := validate(); err != nil {
 			return prefixed(at, err)
 		}

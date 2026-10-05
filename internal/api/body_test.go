@@ -36,7 +36,7 @@ func TestSlowWriteBodyDoesNotHoldTheTurn(t *testing.T) {
 	pr, pw := io.Pipe()
 	defer pw.Close()
 	go func() {
-		req := httptest.NewRequest("POST", "/write", pr)
+		req := httptest.NewRequest("POST", "/projections", pr)
 		req.Header.Set("Authorization", "Bearer "+testToken)
 		req.Header.Set("Content-Type", "application/json")
 		srv.ServeHTTP(httptest.NewRecorder(), req)
@@ -44,22 +44,24 @@ func TestSlowWriteBodyDoesNotHoldTheTurn(t *testing.T) {
 	time.Sleep(50 * time.Millisecond) // the handler is now waiting for the body
 
 	done := make(chan int, 1)
-	go func() { done <- doRequest(t, srv, "POST", "/write", `{"events":[{"type":"t","payload":""}]}`).Code }()
+	go func() {
+		done <- doRequest(t, srv, "POST", "/projections", `{"create":[{"type":"p","id":"1","payload":""}]}`).Code
+	}()
 	select {
 	case code := <-done:
 		if code != 200 {
 			t.Errorf("write status = %d, want 200", code)
 		}
 	case <-time.After(2 * time.Second):
-		t.Fatal("POST /write blocked behind another POST /write still sending its body")
+		t.Fatal("POST /projections blocked behind another POST /projections still sending its body")
 	}
 }
 
 func TestProjectionTypeAndIDCountTowardItsSize(t *testing.T) {
 	srv, _, _ := newTestServer(t)
 	id := strings.Repeat("i", srv.opts.MaxProjectionSize) // the payload alone is empty
-	body := `{"projections":{"create":[{"type":"t","id":"` + id + `","payload":""}]}}`
-	if rec := doRequest(t, srv, "POST", "/write", body); rec.Code != 413 || errorCode(t, rec) != "PayloadTooLarge" {
+	body := `{"create":[{"type":"t","id":"` + id + `","payload":""}]}`
+	if rec := doRequest(t, srv, "POST", "/projections", body); rec.Code != 413 || errorCode(t, rec) != "PayloadTooLarge" {
 		t.Fatalf("status = %d, body = %.200s, want 413 PayloadTooLarge", rec.Code, rec.Body.String())
 	}
 }

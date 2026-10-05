@@ -61,25 +61,26 @@ func committedEvents(t *testing.T, st *store.Store) int {
 	return len(readAll(t, st))
 }
 
-// TestWriteCountsEachOutcome checks that Write writes, and counts a
-// committed write, a rejected condition, and a rejected projection.
+// TestWriteCountsEachOutcome checks that a write goes through, and that
+// the Writer counts a committed write, a rejected condition, and a
+// rejected projection.
 func TestWriteCountsEachOutcome(t *testing.T) {
 	env := newTestEnv(t)
 	ctx := context.Background()
-	result, err := env.m.Write(ctx, []dcb.EventData{{Type: "a"}}, nil, projection.Writes{})
+	result, err := env.m.WritePending(ctx, "", dcb.NewPendingEvents([]dcb.EventData{{Type: "a"}}, dcb.Now()), nil, projection.Writes{})
 	if err != nil || len(result.Events) != 1 || result.Events[0].Sequence != 1 {
-		t.Fatalf("Write() = %+v, %v, want one event at sequence 1", result, err)
+		t.Fatalf("write = %+v, %v, want one event at sequence 1", result, err)
 	}
 
 	q := dcb.QueryAll()
-	if _, err := env.m.Write(ctx, []dcb.EventData{{Type: "b"}}, []dcb.AppendCondition{{FailIfEventsMatch: &q}}, projection.Writes{}); !errors.Is(err, store.ErrConcurrencyConflict) {
-		t.Fatalf("Write() error = %v, want a condition conflict", err)
+	if _, err := env.m.WritePending(ctx, "", dcb.NewPendingEvents([]dcb.EventData{{Type: "b"}}, dcb.Now()), []dcb.AppendCondition{{FailIfEventsMatch: &q}}, projection.Writes{}); !errors.Is(err, store.ErrConcurrencyConflict) {
+		t.Fatalf("write error = %v, want a condition conflict", err)
 	}
 	payload := "x"
-	if _, err := env.m.Write(ctx, nil, nil, projection.Writes{
+	if _, err := env.m.WriteProjections(ctx, projection.Writes{
 		Replace: []projection.Replace{{Type: "p", ID: "1", Version: "missing", Payload: &payload}},
 	}); !errors.Is(err, store.ErrConcurrencyConflict) {
-		t.Fatalf("Write() error = %v, want a projection conflict", err)
+		t.Fatalf("write error = %v, want a projection conflict", err)
 	}
 
 	if got, want := env.m.Stats(), (Stats{Committed: 1, ConditionConflicts: 1, ProjectionConflicts: 1}); got != want {
@@ -96,25 +97,20 @@ func TestWriteWaitsForItsTurn(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		_, err := env.m.Write(context.Background(), []dcb.EventData{{Type: "a"}}, nil, projection.Writes{})
+		_, err := env.m.WritePending(context.Background(), "", dcb.NewPendingEvents([]dcb.EventData{{Type: "a"}}, dcb.Now()), nil, projection.Writes{})
 		done <- err
 	}()
 	select {
 	case <-done:
-		t.Fatal("Write() returned while another request held the turn")
+		t.Fatal("write returned while another request held the turn")
 	case <-time.After(50 * time.Millisecond):
 	}
 	if n := env.m.Waiting(); n != 1 {
 		t.Errorf("Waiting() = %d, want 1", n)
 	}
-	released := dcb.Now()
 	release()
 	if err := <-done; err != nil {
-		t.Fatalf("Write() error = %v", err)
-	}
-	// The time is read in the turn, not when the write arrived.
-	if e := readAll(t, env.st)[0]; e.Time.Before(released) {
-		t.Errorf("time = %v, want at or after the turn came, %v", e.Time, released)
+		t.Fatalf("write error = %v", err)
 	}
 }
 
@@ -241,7 +237,7 @@ func TestResetWaitsForItsTurn(t *testing.T) {
 
 	written := make(chan error, 1)
 	go func() {
-		_, err := env.m.Write(context.Background(), []dcb.EventData{{Type: "a"}}, nil, projection.Writes{})
+		_, err := env.m.WritePending(context.Background(), "", dcb.NewPendingEvents([]dcb.EventData{{Type: "a"}}, dcb.Now()), nil, projection.Writes{})
 		written <- err
 	}()
 	waitQueued(t, env.m, 1)
@@ -251,7 +247,7 @@ func TestResetWaitsForItsTurn(t *testing.T) {
 
 	release()
 	if err := <-written; err != nil {
-		t.Fatalf("Write() error = %v, want it to go through before the reset", err)
+		t.Fatalf("write error = %v, want it to go through before the reset", err)
 	}
 	if err := <-reset; err != nil {
 		t.Fatalf("Reset() error = %v", err)
@@ -259,7 +255,7 @@ func TestResetWaitsForItsTurn(t *testing.T) {
 	if n := committedEvents(t, env.st); n != 0 {
 		t.Errorf("committed events = %d, want 0", n)
 	}
-	result, err := env.m.Write(context.Background(), []dcb.EventData{{Type: "b"}}, nil, projection.Writes{})
+	result, err := env.m.WritePending(context.Background(), "", dcb.NewPendingEvents([]dcb.EventData{{Type: "b"}}, dcb.Now()), nil, projection.Writes{})
 	if err != nil || result.Events[0].Sequence != 1 {
 		t.Errorf("first write after Reset() = %+v, %v, want sequence 1", result, err)
 	}
@@ -276,18 +272,18 @@ func TestCloseTurnsAwayWaiters(t *testing.T) {
 	var waitErr error
 	go func() {
 		defer wg.Done()
-		_, waitErr = env.m.Write(context.Background(), []dcb.EventData{{Type: "a"}}, nil, projection.Writes{})
+		_, waitErr = env.m.WritePending(context.Background(), "", dcb.NewPendingEvents([]dcb.EventData{{Type: "a"}}, dcb.Now()), nil, projection.Writes{})
 	}()
 	waitQueued(t, env.m, 1)
 
 	env.m.Close()
 	wg.Wait()
 	if !errors.Is(waitErr, queue.ErrClosed) {
-		t.Errorf("waiting Write() error = %v, want queue.ErrClosed", waitErr)
+		t.Errorf("waiting write error = %v, want queue.ErrClosed", waitErr)
 	}
 	release() // the running one finishes
-	if _, err := env.m.Write(context.Background(), []dcb.EventData{{Type: "b"}}, nil, projection.Writes{}); !errors.Is(err, queue.ErrClosed) {
-		t.Errorf("Write() after Close() error = %v, want queue.ErrClosed", err)
+	if _, err := env.m.WritePending(context.Background(), "", dcb.NewPendingEvents([]dcb.EventData{{Type: "b"}}, dcb.Now()), nil, projection.Writes{}); !errors.Is(err, queue.ErrClosed) {
+		t.Errorf("write after Close() error = %v, want queue.ErrClosed", err)
 	}
 	if n := committedEvents(t, env.st); n != 0 {
 		t.Errorf("committed events = %d, want 0", n)
@@ -360,19 +356,19 @@ func TestWriteQueueFullIsCounted(t *testing.T) {
 
 	queued := make(chan error, 1)
 	go func() {
-		_, err := m.Write(context.Background(), []dcb.EventData{{Type: "a"}}, nil, projection.Writes{})
+		_, err := m.WritePending(context.Background(), "", dcb.NewPendingEvents([]dcb.EventData{{Type: "a"}}, dcb.Now()), nil, projection.Writes{})
 		queued <- err
 	}()
 	waitQueued(t, m, 1)
-	if _, err := m.Write(context.Background(), []dcb.EventData{{Type: "b"}}, nil, projection.Writes{}); !errors.Is(err, queue.ErrFull) {
-		t.Fatalf("Write() error = %v, want queue.ErrFull", err)
+	if _, err := m.WritePending(context.Background(), "", dcb.NewPendingEvents([]dcb.EventData{{Type: "b"}}, dcb.Now()), nil, projection.Writes{}); !errors.Is(err, queue.ErrFull) {
+		t.Fatalf("write error = %v, want queue.ErrFull", err)
 	}
 	if s := m.Stats(); s.WriteQueueFull != 1 {
 		t.Errorf("Stats().WriteQueueFull = %d, want 1", s.WriteQueueFull)
 	}
 	release()
 	if err := <-queued; err != nil {
-		t.Fatalf("queued Write() error = %v", err)
+		t.Fatalf("queued write error = %v", err)
 	}
 }
 

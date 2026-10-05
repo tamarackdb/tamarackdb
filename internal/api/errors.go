@@ -71,10 +71,10 @@ func (s *Server) handleErr(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.As(err, &ve):
 		// Covers dcb.EventInput.Validate(), dcb.Query.Validate(),
-		// dcb.AppendCondition.Validate(), request-shape decode errors
+		// request-shape decode errors
 		// (see decodeJSON, which wraps those as *dcb.ValidationError
-		// too), and every API-layer-invented rule (limit, event,
-		// condition, and projection count caps, duplicate projection key)
+		// too), and every API-layer-invented rule (limit, projection
+		// count cap, duplicate projection key)
 		// that isn't really a dcb domain rule but reuses this same 400
 		// vehicle.
 		writeError(w, http.StatusBadRequest, "InvalidRequest", ve.Message)
@@ -88,9 +88,7 @@ func (s *Server) handleErr(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.As(err, &be):
 		writeError(w, http.StatusRequestEntityTooLarge, "PayloadTooLarge", be.Error())
 	case errors.As(err, &pe):
-		// err, not pe: in POST /write, a *nestedError names the projection
-		// by its whole path in the body.
-		writeError(w, http.StatusConflict, "ConcurrencyException", err.Error())
+		writeError(w, http.StatusConflict, "ConcurrencyException", pe.Error())
 	case errors.As(err, &ce):
 		writeError(w, http.StatusConflict, "ConcurrencyException", ce.Error())
 	case errors.As(err, &txe):
@@ -188,8 +186,6 @@ func bodyTooLarge(err error) error {
 // (limit, the per-write counts) or request-shape concerns dcb has no
 // opinion about (a projection written twice in one request).
 var (
-	errTooManyEvents          = errors.New("api: request exceeds the maximum events per write")
-	errTooManyConditions      = errors.New("api: request exceeds the maximum conditions per write")
 	errTooManyProjections     = errors.New("api: request exceeds the maximum projections per write")
 	errDuplicateProjectionKey = errors.New("api: request carries the same projection type+id more than once")
 	errNegativeLimit          = errors.New("api: limit must be non-negative")
@@ -197,18 +193,6 @@ var (
 	errLimitExceedsMax        = errors.New("api: limit exceeds the configured maximum")
 	errTrailingData           = errors.New("api: request body holds more than one JSON value")
 )
-
-// nestedError puts path in front of err's message: a store error names an
-// item by its place in its own list ("create[2]"), and path is where that
-// list sits in the request body ("projections."), so the message names the
-// item as the request spells it.
-type nestedError struct {
-	path string
-	err  error
-}
-
-func (e *nestedError) Error() string { return e.path + e.err.Error() }
-func (e *nestedError) Unwrap() error { return e.err }
 
 // prefixed puts path in front of a validation error's message, so it names
 // the item it's about ("events[3]: ..."). Any other error is returned

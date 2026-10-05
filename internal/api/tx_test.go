@@ -59,7 +59,7 @@ func txLines(t *testing.T, body string) []map[string]any {
 
 func TestTransactionOverHTTP(t *testing.T) {
 	srv, _, _ := newTestServer(t)
-	appendCommitted(t, srv, `{"events":[{"type":"user-created","identifiers":{"userId":"1"},"payload":"a"}]}`)
+	commitEvents(t, srv, `[{"type":"user-created","identifiers":{"userId":"1"},"payload":"a"}]`)
 	tx := begin(t, srv)
 
 	txRequest(t, srv, "QUERY", tx+"/events", `{"query":[{"identifiers":[{"name":"userId","value":"1"}]}]}`, 200)
@@ -220,7 +220,7 @@ func TestTransactionCommitConflict(t *testing.T) {
 	tx := begin(t, srv)
 	txRequest(t, srv, "QUERY", tx+"/events", `{"query":[{"types":["seat-reserved"]}]}`, 200)
 	txRequest(t, srv, "POST", tx+"/events", `{"events":[{"type":"seat-reserved","payload":""}]}`, 200)
-	appendCommitted(t, srv, `{"events":[{"type":"seat-reserved","payload":""}]}`)
+	commitEvents(t, srv, `[{"type":"seat-reserved","payload":""}]`)
 
 	rec := txRequest(t, srv, "POST", tx+"/commit", "", 409)
 	if code := errorCode(t, rec); code != "ConcurrencyException" || errorMessage(t, rec) != "conditions[0] no longer holds" {
@@ -230,7 +230,7 @@ func TestTransactionCommitConflict(t *testing.T) {
 
 func TestStats(t *testing.T) {
 	srv, _, _ := newTestServer(t)
-	appendCommitted(t, srv, `{"events":[{"type":"a","payload":""}]}`)
+	writeProjectionsCommitted(t, srv, `{"create":[{"type":"p","id":"1","payload":""}]}`)
 	committed := begin(t, srv)
 	txRequest(t, srv, "QUERY", committed+"/events", `{"query":"none"}`, 200)
 	txRequest(t, srv, "POST", committed+"/events", `{"events":[{"type":"b","payload":""}]}`, 200)

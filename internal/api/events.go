@@ -12,7 +12,8 @@ import (
 )
 
 // StoreHeader carries the store ID in a response that depends on the
-// store: QUERY /events, GET /projections/{type}/{id}, and POST /write. A
+// store: QUERY /events, GET /projections/{type}/{id}, POST /projections,
+// and a transaction's commit. A
 // read takes it in the same SQLite snapshot as the events or projection
 // returned, and a write in the same SQLite transaction as what it wrote.
 const StoreHeader = "X-Tamarackdb-Store"
@@ -110,12 +111,8 @@ func (s *Server) parseReadRequest(r *http.Request) (store.ReadFilter, error) {
 		return store.ReadFilter{}, err
 	}
 
-	// Reuse dcb.AppendCondition's own non-negativity rule for
-	// afterSequence rather than reimplementing the same check by hand.
-	if req.AfterSequence != nil {
-		if err := (dcb.AppendCondition{AfterSequence: req.AfterSequence}).Validate(); err != nil {
-			return store.ReadFilter{}, err
-		}
+	if req.AfterSequence != nil && *req.AfterSequence < 0 {
+		return store.ReadFilter{}, &dcb.ValidationError{Err: dcb.ErrNegativeAfterSequence, Message: "afterSequence must be a non-negative integer"}
 	}
 
 	filter := store.ReadFilter{Query: req.Query, AfterSequence: req.AfterSequence, Limit: s.opts.DefaultEventsPerPage}
@@ -169,13 +166,6 @@ func streamEvents(w http.ResponseWriter, it *store.EventIterator, beforeWrite fu
 	}
 	beforeWrite()
 	return nw.WriteValue(readTrailer{HasMore: it.HasMore()})
-}
-
-// appendedEvent is one event's Sequence Position and time in a POST /write
-// response.
-type appendedEvent struct {
-	Sequence int64  `json:"sequence"`
-	Time     string `json:"time"`
 }
 
 // oversizeError is returned by the per-event and per-projection size checks

@@ -42,16 +42,13 @@ type Options struct {
 
 	// MaxProjectionSize is the maximum combined UTF-8 byte size of one
 	// projection's type, id, and payload (a deletion has no payload), in
-	// POST /write or in a transaction's write of projections; over it, 413. Default: 65536 (64 KiB).
+	// POST /projections or in a transaction's write of projections; over
+	// it, 413. Default: 65536 (64 KiB).
 	MaxProjectionSize int
 
-	// MaxEventsPerWrite caps how many events, and how many Append
-	// Conditions, a single POST /write may carry; over it, 400.
-	MaxEventsPerWrite int
-
 	// MaxProjectionsPerWrite caps how many projections a single
-	// POST /write may carry, across create, replace, and delete; over it,
-	// 400.
+	// POST /projections may carry, across create, replace, and delete;
+	// over it, 400.
 	MaxProjectionsPerWrite int
 
 	// MaxRequestBodySize caps every request body, in bytes; over it, 413.
@@ -127,8 +124,6 @@ func New(wr *writer.Writer, txs *tx.Registry, st *store.Store, opts Options) *Se
 		panic("api: New: Options.MaxEventSize must be positive")
 	case opts.MaxProjectionSize <= 0:
 		panic("api: New: Options.MaxProjectionSize must be positive")
-	case opts.MaxEventsPerWrite <= 0:
-		panic("api: New: Options.MaxEventsPerWrite must be positive")
 	case opts.MaxProjectionsPerWrite <= 0:
 		panic("api: New: Options.MaxProjectionsPerWrite must be positive")
 	case opts.MaxRequestBodySize <= 0:
@@ -140,8 +135,8 @@ func New(wr *writer.Writer, txs *tx.Registry, st *store.Store, opts Options) *Se
 	s := &Server{wr: wr, txs: txs, st: st, opts: opts, logThreshold: logThreshold, startedAt: time.Now()}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /write", s.handleWrite)
 	mux.HandleFunc("QUERY /events", s.handleReadEvents)
+	mux.HandleFunc("POST /projections", s.handleWriteProjections)
 	mux.HandleFunc("GET /projections/{type}/{id}", s.handleGetProjection)
 	mux.HandleFunc("DELETE /projections/{type}", s.handleDeleteProjectionsByType)
 	mux.HandleFunc("DELETE /projections", s.handleDeleteAllProjections)

@@ -31,11 +31,10 @@ type AppendResult struct {
 // server's clock (dcb.Now). An event with a zero time is refused before
 // anything is written.
 //
-// events and projections are assumed already validated by the caller
-// (dcb.EventData.Validate, projection.Data.Validate, the per-call caps),
-// and conditions too (dcb.AppendCondition.Validate and ValidateStore):
-// this package doesn't re-validate request shape, only concurrency and
-// persistence.
+// events, conditions, and projections are assumed already validated by
+// the caller (dcb.EventData.Validate, dcb.Query.Validate, the projection
+// types' Validate, the per-call caps): this package doesn't
+// re-validate request shape, only concurrency and persistence.
 //
 // ctx governs the whole transaction: database/sql rolls it back if ctx is
 // cancelled before the commit.

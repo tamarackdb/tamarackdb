@@ -144,7 +144,7 @@ func unmarshalCompact[T any](data []byte, build func(name, value string) T) ([]T
 }
 
 // EventData is everything known about an event before it is appended:
-// what a client submits to POST /write, and all a Query matches against
+// what a client writes in a transaction, and all a Query matches against
 // (see internal/store/query.go). Sequence and Time play no part in
 // matching.
 type EventData struct {
@@ -194,7 +194,7 @@ func (e EventData) Validate() error {
 	return nil
 }
 
-// EventInput is an event as POST /write receives it.
+// EventInput is an event as POST /tx/{txId}/events receives it.
 //
 // Payload is a pointer so that a missing or null payload can be told
 // apart from an empty string and rejected: a key that went missing on the

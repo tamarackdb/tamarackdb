@@ -13,7 +13,7 @@ func TestAuthRejectsEveryRoute(t *testing.T) {
 		method, path, body string
 	}{
 		{"QUERY", "/events", `{"query":"all"}`},
-		{"POST", "/write", `{"events":[{"type":"t","identifiers":{},"metadata":{},"payload":""}]}`},
+		{"POST", "/projections", `{"create":[{"type":"p","id":"1","payload":""}]}`},
 		{"GET", "/projections/user-profile/123", ""},
 		{"DELETE", "/projections/user-profile", ""},
 		{"DELETE", "/projections", ""},

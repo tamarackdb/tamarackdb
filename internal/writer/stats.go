@@ -1,7 +1,8 @@
 package writer
 
-// Stats are counters since startup. They count every write: a POST /write
-// and the commit of a transaction take the same path.
+// Stats are counters since startup. They count every write: the commit of
+// a transaction and a POST /projections take the same path. Only a commit
+// carries Append Conditions.
 type Stats struct {
 	Committed           uint64 // writes committed
 	ConditionConflicts  uint64 // writes refused with 409: an Append Condition didn't hold, or the store changed

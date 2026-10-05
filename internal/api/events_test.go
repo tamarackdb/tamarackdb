@@ -11,17 +11,16 @@ import (
 	"github.com/tamarackdb/tamarackdb/internal/dcb"
 )
 
-// seedHTTPEvents appends n events with POST /write, batching by
-// maxEventsPerWrite.
+// seedHTTPEvents appends n events, in transactions of up to 100 events.
 func seedHTTPEvents(t *testing.T, srv *Server, n int) {
 	t.Helper()
 	for n > 0 {
-		batch := min(n, srv.opts.MaxEventsPerWrite)
+		batch := min(n, 100)
 		events := make([]string, batch)
 		for i := range events {
 			events[i] = `{"type":"seed","identifiers":{},"metadata":{},"payload":""}`
 		}
-		doWrite(t, srv, fmt.Sprintf(`{"events":[%s]}`, strings.Join(events, ",")))
+		commitEvents(t, srv, "["+strings.Join(events, ",")+"]")
 		n -= batch
 	}
 }
@@ -123,13 +122,17 @@ func TestReadValidationFailures(t *testing.T) {
 
 func TestAppendReadRoundTrip(t *testing.T) {
 	srv, _, _ := newTestServer(t)
-	resp := appendCommitted(t, srv, `{"events":[
+	tx := begin(t, srv)
+	txRequest(t, srv, "QUERY", tx+"/events", `{"query":"none"}`, 200)
+	rec := txRequest(t, srv, "POST", tx+"/events", `{"events":[
 		{"type":"user-created","identifiers":{"userId":"123"},"metadata":{"tenantId":"acme"},"payload":"a"},
 		{"type":"user-updated","identifiers":{"userId":"123"},"metadata":{},"payload":"b"}
-	]}`)
-	if len(resp.Events) != 2 {
-		t.Fatalf("got %d appended events, want 2", len(resp.Events))
+	]}`, 200)
+	var written txWriteResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &written); err != nil {
+		t.Fatalf("decode write response %q: %v", rec.Body.String(), err)
 	}
+	txRequest(t, srv, "POST", tx+"/commit", "", 204)
 
 	readRec := doRequest(t, srv, "QUERY", "/events", `{"query":"all"}`)
 	if readRec.Code != 200 {
@@ -143,15 +146,12 @@ func TestAppendReadRoundTrip(t *testing.T) {
 		t.Fatalf("events = %+v, want user-created then user-updated in sequence order", events)
 	}
 	for i, ev := range events {
-		if ev.Sequence != resp.Events[i].Sequence {
-			t.Errorf("event %d: sequence = %d, want %d from the append response", i, ev.Sequence, resp.Events[i].Sequence)
+		if ev.Sequence != int64(i+1) {
+			t.Errorf("event %d: sequence = %d, want %d", i, ev.Sequence, i+1)
 		}
-		if got := ev.Time.UTC().Format(dcb.TimeLayout); got != resp.Events[i].Time {
-			t.Errorf("event %d: read time = %q, want %q from the append response", i, got, resp.Events[i].Time)
+		if got := ev.Time.UTC().Format(dcb.TimeLayout); got != written.Time {
+			t.Errorf("event %d: read time = %q, want %q from the write response", i, got, written.Time)
 		}
-	}
-	if resp.Events[0].Time != resp.Events[1].Time {
-		t.Errorf("time differs within one append: %q vs %q", resp.Events[0].Time, resp.Events[1].Time)
 	}
 }
 
@@ -159,7 +159,7 @@ func TestAppendReadRoundTrip(t *testing.T) {
 // the store ID and a trailer.
 func TestReadNone(t *testing.T) {
 	srv, _, _ := newTestServer(t)
-	appendCommitted(t, srv, `{"events":[{"type":"user-created","payload":""}]}`)
+	commitEvents(t, srv, `[{"type":"user-created","payload":""}]`)
 
 	rec := doRequest(t, srv, "QUERY", "/events", `{"query":"none"}`)
 	if rec.Code != 200 {

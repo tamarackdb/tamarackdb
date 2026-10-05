@@ -104,7 +104,6 @@ func main() {
 		MaxEventsPerPage:       cfg.MaxEventsPerPage,
 		MaxEventSize:           cfg.MaxEventSize,
 		MaxProjectionSize:      cfg.MaxProjectionSize,
-		MaxEventsPerWrite:      cfg.MaxEventsPerWrite,
 		MaxProjectionsPerWrite: cfg.MaxProjectionsPerWrite,
 		MaxRequestBodySize:     cfg.MaxRequestBodySize,
 		DevMode:                cfg.DevMode,

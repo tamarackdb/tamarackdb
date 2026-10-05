@@ -4,7 +4,7 @@ import "testing"
 
 func TestResetDeletesEventsAndProjections(t *testing.T) {
 	srv, _, _ := newTestServerWith(t, testOptions{devMode: true})
-	appendCommitted(t, srv, `{"events":[{"type":"t","payload":""}]}`)
+	commitEvents(t, srv, `[{"type":"t","payload":""}]`)
 	writeProjectionsCommitted(t, srv, `{"create":[{"type":"user-profile","id":"123","payload":"x"}]}`)
 
 	rec := doRequest(t, srv, "POST", "/reset", "")
@@ -18,8 +18,9 @@ func TestResetDeletesEventsAndProjections(t *testing.T) {
 	if rec := doRequest(t, srv, "GET", "/projections/user-profile/123", ""); rec.Code != 404 {
 		t.Errorf("projection after reset status = %d, want 404", rec.Code)
 	}
-	if resp := appendCommitted(t, srv, `{"events":[{"type":"t","payload":""}]}`); resp.Events[0].Sequence != 1 {
-		t.Errorf("first sequence after reset = %d, want 1", resp.Events[0].Sequence)
+	commitEvents(t, srv, `[{"type":"t","payload":""}]`)
+	if _, events := parseNDJSON(t, doRequest(t, srv, "QUERY", "/events", `{"query":"all"}`).Body.String()); events[0].Sequence != 1 {
+		t.Errorf("first sequence after reset = %d, want 1", events[0].Sequence)
 	}
 }
 
@@ -30,7 +31,9 @@ func TestResetWaitsForItsTurn(t *testing.T) {
 	release := holdTurn(t, wr)
 
 	written := make(chan int, 1)
-	go func() { written <- doRequest(t, srv, "POST", "/write", `{"events":[{"type":"t","payload":""}]}`).Code }()
+	go func() {
+		written <- doRequest(t, srv, "POST", "/projections", `{"create":[{"type":"p","id":"1","payload":""}]}`).Code
+	}()
 	waitQueued(t, wr, 1)
 	reset := make(chan int, 1)
 	go func() { reset <- doRequest(t, srv, "POST", "/reset", "").Code }()
@@ -38,14 +41,12 @@ func TestResetWaitsForItsTurn(t *testing.T) {
 
 	release()
 	if code := <-written; code != 200 {
-		t.Errorf("POST /write status = %d, want 200: it was queued before the reset", code)
+		t.Errorf("POST /projections status = %d, want 200: it was queued before the reset", code)
 	}
 	if code := <-reset; code != 204 {
 		t.Fatalf("POST /reset status = %d, want 204", code)
 	}
-	if n := countEvents(t, srv); n != 0 {
-		t.Errorf("store holds %d events after the reset, want 0", n)
-	}
+	getProjection(t, srv, "p", "1", 404)
 }
 
 // TestResetNotRegisteredWithoutDevMode confirms POST /reset doesn't exist

@@ -41,27 +41,25 @@ func New(st *store.Store, cfg Config) *Writer {
 	return &Writer{q: queue.New(cfg.MaxQueued), st: st}
 }
 
-// Write runs one POST /write in its turn: it has the store check every
-// Append Condition, then append events and write projections, all or
-// nothing (see store.Store.Append). The events get their time in the
-// turn, so a POST /write's events carry the time it commits.
-func (w *Writer) Write(ctx context.Context, events []dcb.EventData, conditions []dcb.AppendCondition, projections projection.Writes) (store.AppendResult, error) {
-	return w.append(ctx, "", func() []dcb.PendingEvent {
-		return dcb.NewPendingEvents(events, dcb.Now())
-	}, conditions, projections)
+// WriteProjections runs one POST /projections in its turn: it has the
+// store write the projections, all or nothing (see store.Store.Append).
+func (w *Writer) WriteProjections(ctx context.Context, projections projection.Writes) (store.AppendResult, error) {
+	return w.append(ctx, "", nil, nil, projections)
 }
 
-// WritePending is Write for events that already have their time, the
-// commit of a transaction: each event keeps the time it carries. storeID
-// is the store ID the transaction began on: in its turn, before anything
-// else, WritePending returns ErrStoreChanged if it isn't the current one.
+// WritePending runs the commit of a transaction in its turn: it has the
+// store check every Append Condition, then append events and write
+// projections, all or nothing. Each event keeps the time it carries.
+// storeID is the store ID the transaction began on: in its turn, before
+// anything else, WritePending returns ErrStoreChanged if it isn't the
+// current one.
 func (w *Writer) WritePending(ctx context.Context, storeID string, events []dcb.PendingEvent, conditions []dcb.AppendCondition, projections projection.Writes) (store.AppendResult, error) {
-	return w.append(ctx, storeID, func() []dcb.PendingEvent { return events }, conditions, projections)
+	return w.append(ctx, storeID, events, conditions, projections)
 }
 
-// append runs one write in its turn, and counts its outcome. events is
-// called in the turn. A non-empty storeID must be the current store ID.
-func (w *Writer) append(ctx context.Context, storeID string, events func() []dcb.PendingEvent, conditions []dcb.AppendCondition, projections projection.Writes) (store.AppendResult, error) {
+// append runs one write in its turn, and counts its outcome. A non-empty
+// storeID must be the current store ID.
+func (w *Writer) append(ctx context.Context, storeID string, events []dcb.PendingEvent, conditions []dcb.AppendCondition, projections projection.Writes) (store.AppendResult, error) {
 	var result store.AppendResult
 	err := w.RunInTurn(ctx, func(ctx context.Context) error {
 		// A reset also runs in its turn: the store ID can't change
@@ -71,7 +69,7 @@ func (w *Writer) append(ctx context.Context, storeID string, events func() []dcb
 			return ErrStoreChanged
 		}
 		var err error
-		result, err = w.st.Append(ctx, events(), conditions, projections)
+		result, err = w.st.Append(ctx, events, conditions, projections)
 		w.record(err)
 		return err
 	})

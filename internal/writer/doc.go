@@ -2,9 +2,9 @@
 // queue and the store in package store. A write waits for its turn in the
 // FIFO, runs alone on the write connection, in a SQLite transaction of
 // its own, then gives the turn to the next request. Everything that
-// touches the write connection goes through a Writer: POST /write, the
-// commit of a transaction, the bulk deletes of projections, a reset, and
-// the hourly PRAGMA optimize.
+// touches the write connection goes through a Writer: the commit of a
+// transaction, POST /projections, the bulk deletes of projections, a
+// reset, and the hourly PRAGMA optimize.
 //
 // # A write that has started goes to the end
 //
@@ -18,10 +18,9 @@
 //
 // # Time
 //
-// Write gives a POST /write's events the time its turn comes, so they
-// carry the time they're committed. WritePending keeps the time each event
-// already carries: in a transaction, an event gets its time when its write
-// reaches the server, long before the commit.
+// WritePending keeps the time each event already carries: in a
+// transaction, an event gets its time when its write reaches the server,
+// long before the commit.
 //
 // # Store ID
 //

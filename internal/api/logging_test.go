@@ -46,13 +46,13 @@ func captureLog(t *testing.T) *logBuffer {
 	return buf
 }
 
-// provokeConflict writes one event, then makes a 409 ConcurrencyException
-// write against it.
+// provokeConflict creates a projection, then sends the same create again,
+// which gets 409 ConcurrencyException.
 func provokeConflict(t *testing.T, srv *Server) *httptest.ResponseRecorder {
 	t.Helper()
-	appendCommitted(t, srv, `{"events":[{"type":"t","identifiers":{"userId":"123"},"metadata":{},"payload":""}]}`)
-	return doRequest(t, srv, "POST", "/write", `{"events":[{"type":"t","payload":""}],"conditions":[`+
-		userCondition(currentStore(t, srv), 0)+`]}`)
+	body := `{"create":[{"type":"p","id":"1","payload":""}]}`
+	writeProjectionsCommitted(t, srv, body)
+	return doRequest(t, srv, "POST", "/projections", body)
 }
 
 func TestAccessLogLevelPerOutcome(t *testing.T) {
@@ -79,8 +79,8 @@ func TestAccessLogLevelPerOutcome(t *testing.T) {
 		}},
 		{"PayloadTooLarge", "INFO", func(t *testing.T) *httptest.ResponseRecorder {
 			srv, _, _ := newTestServer(t)
-			body := `{"events":[{"type":"t","identifiers":{},"metadata":{},"payload":"` + strings.Repeat("x", 70000) + `"}]}`
-			return doRequest(t, srv, "POST", "/write", body)
+			body := `{"create":[{"type":"p","id":"1","payload":"` + strings.Repeat("x", 70000) + `"}]}`
+			return doRequest(t, srv, "POST", "/projections", body)
 		}},
 		{"Unauthorized", "INFO", func(t *testing.T) *httptest.ResponseRecorder {
 			srv, _, _ := newTestServer(t)
@@ -95,7 +95,7 @@ func TestAccessLogLevelPerOutcome(t *testing.T) {
 			queued := make(chan struct{})
 			go func() { doRequest(t, srv, "DELETE", "/projections", ""); close(queued) }()
 			waitQueued(t, wr, 1)
-			rec := doRequest(t, srv, "POST", "/write", `{"events":[{"type":"t","payload":""}]}`)
+			rec := doRequest(t, srv, "POST", "/projections", `{"create":[{"type":"p","id":"1","payload":""}]}`)
 			release()
 			<-queued
 			return rec
@@ -103,12 +103,12 @@ func TestAccessLogLevelPerOutcome(t *testing.T) {
 		{"ShuttingDown", "INFO", func(t *testing.T) *httptest.ResponseRecorder {
 			srv, wr, _ := newTestServer(t)
 			wr.Close() // the FIFO now turns every write away
-			return doRequest(t, srv, "POST", "/write", `{"events":[{"type":"t","payload":""}]}`)
+			return doRequest(t, srv, "POST", "/projections", `{"create":[{"type":"p","id":"1","payload":""}]}`)
 		}},
 		{"InternalError", "ERROR", func(t *testing.T) *httptest.ResponseRecorder {
 			srv, _, st := newTestServer(t)
 			st.Close() // the write gets its turn, then fails to open the SQLite transaction
-			return doRequest(t, srv, "POST", "/write", `{"events":[{"type":"t","payload":""}]}`)
+			return doRequest(t, srv, "POST", "/projections", `{"create":[{"type":"p","id":"1","payload":""}]}`)
 		}},
 		{"Unavailable", "ERROR", func(t *testing.T) *httptest.ResponseRecorder {
 			srv, _, st := newTestServer(t)
@@ -161,7 +161,7 @@ func TestAccessLogAtOrAboveThresholdIsLogged(t *testing.T) {
 	waitQueued(t, wr, 1)
 	buf := captureLog(t)
 
-	doRequest(t, srv, "POST", "/write", `{"events":[{"type":"t","payload":""}]}`) // 503 WriteQueueFull, WARNING
+	doRequest(t, srv, "POST", "/projections", `{"create":[{"type":"p","id":"1","payload":""}]}`) // 503 WriteQueueFull, WARNING
 	release()
 	<-queued                // 204, DEBUG
 	provokeConflict(t, srv) // 200 then 409, DEBUG

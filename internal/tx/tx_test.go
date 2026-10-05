@@ -139,7 +139,7 @@ func writeProjections(t *testing.T, r *Registry, id string, upsert []Projection,
 // seedProjection commits a projection outside any transaction.
 func seedProjection(t *testing.T, wr *writer.Writer, key Key, payload string) {
 	t.Helper()
-	if _, err := wr.Write(bg, nil, nil, projection.Writes{
+	if _, err := wr.WriteProjections(bg, projection.Writes{
 		Create: []projection.Create{{Type: key.Type, ID: key.ID, Payload: &payload}},
 	}); err != nil {
 		t.Fatalf("Write() error = %v", err)
@@ -187,7 +187,7 @@ func TestCommitWritesEverythingTogether(t *testing.T) {
 // events, then the transaction's own pending events that match.
 func TestReadMergesPendingEvents(t *testing.T) {
 	env := newTestEnv(t, time.Minute)
-	if _, err := env.wr.Write(bg, events("a", "other"), nil, projection.Writes{}); err != nil {
+	if _, err := env.wr.WritePending(bg, "", dcb.NewPendingEvents(events("a", "other"), dcb.Now()), nil, projection.Writes{}); err != nil {
 		t.Fatalf("Write() error = %v", err)
 	}
 	id := env.r.Begin()
@@ -287,7 +287,7 @@ func TestConditionConflictNamesItsRank(t *testing.T) {
 	decide(t, env.r, id, dcb.QueryNone(), "a")
 	decide(t, env.r, id, types("stock"), "reserved")
 
-	if _, err := env.wr.Write(bg, events("stock"), nil, projection.Writes{}); err != nil {
+	if _, err := env.wr.WritePending(bg, "", dcb.NewPendingEvents(events("stock"), dcb.Now()), nil, projection.Writes{}); err != nil {
 		t.Fatalf("Write() error = %v", err)
 	}
 	err := env.r.Commit(bg, id)

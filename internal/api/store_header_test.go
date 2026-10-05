@@ -25,7 +25,7 @@ func TestReadsCarryTheStoreHeader(t *testing.T) {
 	srv, _, _ := newTestServerWith(t, testOptions{devMode: true})
 
 	id := storeHeader(t, doRequest(t, srv, "QUERY", "/events", `{"query":"all"}`), "empty page")
-	appendCommitted(t, srv, `{"events":[{"type":"t","payload":""}]}`)
+	commitEvents(t, srv, `[{"type":"t","payload":""}]`)
 	writeProjectionsCommitted(t, srv, `{"create":[{"type":"user-profile","id":"123","payload":"x"}]}`)
 
 	for _, tt := range []struct {

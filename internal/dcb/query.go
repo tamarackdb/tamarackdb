@@ -63,8 +63,7 @@ func (i QueryItem) Validate() error {
 // Items that are exact duplicates of one another (same types, same
 // identifiers, same metadata, regardless of order) are silently
 // collapsed to one: they add nothing to the OR beyond a redundant SQL
-// clause. This applies wherever a Query is built, including a
-// failIfEventsMatch in one of the conditions of a POST /write.
+// clause. This applies wherever a Query is built.
 type Query struct {
 	form  queryForm
 	items []QueryItem
@@ -232,46 +231,20 @@ func (q Query) Validate() error {
 	return nil
 }
 
-// AppendCondition mirrors one of the conditions in POST /write: FailIfEventsMatch
-// follows the same grammar as a read Query, and is itself optional
-// within a condition (an afterSequence-only condition is valid: it fails
-// if any event at all exists after afterSequence). Defined in dcb rather than
-// internal/api because both internal/api (decoding the request) and
-// internal/store (checking it against the database) need the same shape.
-// internal/queue, which admits writers before any condition is checked,
-// never needs to know this type at all.
+// AppendCondition is what a transaction's commit checks for one decision:
+// it fails if an event matching FailIfEventsMatch was appended after
+// AfterSequence. The transaction builds it from the decision's read (see
+// package tx), and package store checks it against the database.
+// FailIfEventsMatch follows the grammar of a read Query, and is optional:
+// a condition with only AfterSequence fails if any event at all exists
+// after it.
 //
-// Store is the store ID the condition's afterSequence was read with (see
-// ValidateStore): a Sequence Position only means something next to it.
+// Store is the store ID AfterSequence was read on: a Sequence Position
+// only means something next to it.
 type AppendCondition struct {
-	FailIfEventsMatch *Query `json:"failIfEventsMatch,omitempty"`
-	AfterSequence     *int64 `json:"afterSequence,omitempty"`
-	Store             string `json:"store,omitempty"`
-}
-
-func (c AppendCondition) Validate() error {
-	if c.FailIfEventsMatch != nil {
-		if err := c.FailIfEventsMatch.Validate(); err != nil {
-			return err
-		}
-	}
-	if c.AfterSequence != nil && *c.AfterSequence < 0 {
-		return &ValidationError{Err: ErrNegativeAfterSequence, Message: "afterSequence must be a non-negative integer"}
-	}
-	return nil
-}
-
-// ValidateStore checks that Store goes with AfterSequence: a condition
-// with an afterSequence carries the store ID it was read with, and a
-// condition without one carries none, since it read nothing.
-func (c AppendCondition) ValidateStore() error {
-	switch {
-	case c.AfterSequence != nil && c.Store == "":
-		return &ValidationError{Err: ErrMissingStore, Message: "a condition with afterSequence must carry the store it was read on"}
-	case c.AfterSequence == nil && c.Store != "":
-		return &ValidationError{Err: ErrUnexpectedStore, Message: "a condition without afterSequence must not carry a store"}
-	}
-	return nil
+	FailIfEventsMatch *Query
+	AfterSequence     *int64
+	Store             string
 }
 
 var (
@@ -279,7 +252,5 @@ var (
 	ErrEmptyQueryItem        = errors.New("empty QueryItem")
 	ErrEmptyQueryItemArray   = errors.New("empty QueryItem array")
 	ErrNegativeAfterSequence = errors.New("negative afterSequence")
-	ErrMissingStore          = errors.New("afterSequence without store")
-	ErrUnexpectedStore       = errors.New("store without afterSequence")
 	ErrQueryTooLarge         = errors.New("query too large")
 )

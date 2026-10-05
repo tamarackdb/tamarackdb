@@ -2,8 +2,8 @@ package projection
 
 import "errors"
 
-// Writes is the projections object of a POST /write request, and what the
-// store writes: projections to create, to replace, and to delete. The same
+// Writes is the body of a POST /projections request, and what the store
+// writes: projections to create, to replace, and to delete. The same
 // type+id appears at most once across the three lists, so the order
 // between them doesn't matter.
 //
