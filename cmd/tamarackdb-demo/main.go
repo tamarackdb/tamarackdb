@@ -28,8 +28,8 @@ const (
 
 	// appendBatchSize is the number of events, or projections, appended per
 	// store.Append call, each in its own SQLite transaction. It bypasses
-	// the HTTP API's maxEventsPerWrite and maxProjectionsPerWrite limits,
-	// since the demo writes directly through the store.
+	// the HTTP API's limits, maxEventsPerTx and maxProjectionsPerWrite
+	// among them, since the demo writes directly through the store.
 	appendBatchSize = 1000
 )
 

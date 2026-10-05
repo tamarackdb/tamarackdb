@@ -249,11 +249,11 @@ func TestAppendFailedConditionLeavesNoGapInSequence(t *testing.T) {
 }
 
 // TestAppendLargeBatchWithinSQLiteVariableLimit appends 1000 events, ten
-// times the default maxEventsPerWrite, with 20 identifiers and 20
+// times the default maxEventsPerTx, with 20 identifiers and 20
 // metadata entries each, as a regression test against SQLite's
 // SQLITE_MAX_VARIABLE_NUMBER (32766 in the vendored modernc.org/sqlite):
 // the multi-row INSERT batching in Append must never emit more bound
-// parameters than that limit allows, whatever maxEventsPerWrite is set to.
+// parameters than that limit allows, whatever maxEventsPerTx is set to.
 func TestAppendLargeBatchWithinSQLiteVariableLimit(t *testing.T) {
 	s := openTestStore(t)
 	events := make([]dcb.EventData, 1000)

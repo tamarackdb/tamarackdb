@@ -102,6 +102,17 @@ func (r *Registry) WriteProjections(id string, upsert []Projection, del []Key) (
 				return err
 			}
 		}
+		// A projection written again counts once.
+		n := t.written
+		for k := range seen {
+			if !t.projections[k].written {
+				n++
+			}
+		}
+		if n > r.cfg.MaxProjectionsPerTx {
+			return tooLarge(fmt.Sprintf("write %d projections", n), "maxProjectionsPerTx", r.cfg.MaxProjectionsPerTx)
+		}
+		t.written = n
 		for _, p := range upsert {
 			s := t.projections[p.Key]
 			s.found, s.payload, s.written = true, p.Payload, true

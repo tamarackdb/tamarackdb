@@ -3,7 +3,9 @@ package tx
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -27,7 +29,7 @@ func newTestEnv(t *testing.T, idle time.Duration) *testEnv {
 		t.Fatalf("store.Open() error = %v", err)
 	}
 	wr := writer.New(st, writer.Config{})
-	r := New(st, wr, Config{IdleTimeout: idle, MaxEventsPerWrite: 10, MaxProjectionsPerWrite: 10})
+	r := New(st, wr, Config{IdleTimeout: idle, MaxEventsPerTx: 10, MaxReadsPerTx: 10, MaxProjectionsPerTx: 10})
 	t.Cleanup(func() {
 		r.Close()
 		wr.Close()
@@ -502,18 +504,67 @@ func TestCommitWithNothingToWriteTakesNoTurn(t *testing.T) {
 	}
 }
 
-func TestCommitOverTheLimits(t *testing.T) {
+// wantTooLarge checks that err is ErrTooLarge naming setting, and that
+// the transaction is over.
+func wantTooLarge(t *testing.T, r *Registry, id string, err error, setting string) {
+	t.Helper()
+	var ve *dcb.ValidationError
+	if !errors.Is(err, ErrTooLarge) || !errors.As(err, &ve) || !strings.Contains(ve.Message, setting) {
+		t.Fatalf("error = %v, want ErrTooLarge naming %s", err, setting)
+	}
+	if err := r.Commit(bg, id); !errors.Is(err, ErrNotFound) {
+		t.Errorf("Commit() after the refusal error = %v, want ErrNotFound", err)
+	}
+}
+
+// TestTooManyEvents checks that the write of events that would take the
+// transaction over maxEventsPerTx is refused, and ends it.
+func TestTooManyEvents(t *testing.T) {
 	env := newTestEnv(t, time.Minute)
 	id := env.r.Begin()
-	for range 11 {
-		decide(t, env.r, id, dcb.QueryNone(), "a")
-	}
-	if err := env.r.Commit(bg, id); !errors.Is(err, ErrTooLarge) {
-		t.Fatalf("Commit() error = %v, want ErrTooLarge", err)
-	}
+	decide(t, env.r, id, dcb.QueryNone(), "a", "b", "c", "d", "e", "f", "g", "h", "i")
+	read(t, env.r, id, dcb.QueryNone())
+	_, err := env.r.WriteEvents(id, events("j", "k"))
+	wantTooLarge(t, env.r, id, err, "maxEventsPerTx")
 	if got := committedEvents(t, env.st); len(got) != 0 {
 		t.Errorf("store holds %d events, want 0", len(got))
 	}
+}
+
+// TestTooManyReads checks that the read of events past maxReadsPerTx is
+// refused before it reads the store, and ends the transaction. A read
+// followed by an empty write counts.
+func TestTooManyReads(t *testing.T) {
+	env := newTestEnv(t, time.Minute)
+	id := env.r.Begin()
+	for range 10 {
+		decide(t, env.r, id, types("a"))
+	}
+	env.st.Close() // a read of the store would now fail with another error
+	_, err := env.r.ReadEvents(bg, id, types("a"))
+	wantTooLarge(t, env.r, id, err, "maxReadsPerTx")
+}
+
+// TestTooManyProjections checks that the write of projections that would
+// take the transaction over maxProjectionsPerTx is refused, and ends it.
+// A projection written twice counts once, upserts and deletes together.
+func TestTooManyProjections(t *testing.T) {
+	env := newTestEnv(t, time.Minute)
+	id := env.r.Begin()
+	keys := make([]Key, 11)
+	for i := range keys {
+		keys[i] = Key{Type: "p", ID: fmt.Sprint(i)}
+		getProjection(t, env.r, id, keys[i])
+	}
+	var upsert []Projection
+	for _, k := range keys[:9] {
+		upsert = append(upsert, Projection{Key: k, Payload: "x"})
+	}
+	writeProjections(t, env.r, id, upsert, nil)
+	writeProjections(t, env.r, id, upsert[:1], keys[1:2])  // written again: still 9
+	writeProjections(t, env.r, id, nil, keys[9:10])        // the 10th
+	_, err := env.r.WriteProjections(id, nil, keys[10:11]) // the 11th
+	wantTooLarge(t, env.r, id, err, "maxProjectionsPerTx")
 }
 
 func TestAbandonAndReject(t *testing.T) {

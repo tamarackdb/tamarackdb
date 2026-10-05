@@ -26,7 +26,9 @@ const (
 	DefaultReadPoolSize           = 8
 	DefaultTxIdleTimeout          = 60    // seconds
 	DefaultProjectionSize         = 65536 // 64 KiB
-	DefaultMaxEventsPerWrite      = 100
+	DefaultMaxEventsPerTx         = 100
+	DefaultMaxReadsPerTx          = 100
+	DefaultMaxProjectionsPerTx    = 500
 	DefaultMaxProjectionsPerWrite = 500
 	DefaultMaxRequestBodySize     = 8 << 20 // 8 MiB
 	DefaultLogLevel               = "warning"
@@ -90,29 +92,33 @@ type Config struct {
 
 	// MaxProjectionSize is the maximum combined UTF-8 byte size of one
 	// projection's type, id, and payload (a deletion has no payload), in
-	// POST /write or in a transaction's write of projections. Optional;
-	// defaulted by Load when omitted.
+	// POST /projections or in a transaction's write of projections.
+	// Optional; defaulted by Load when omitted.
 	MaxProjectionSize int `toml:"maxProjectionSize"` // default: 65536 (64 KiB)
 
-	// MaxEventsPerWrite and MaxProjectionsPerWrite cap how many events and
-	// projections one write may carry: a POST /write, or a transaction's
-	// commit. MaxEventsPerWrite caps the Append Conditions too. The defaults are a
-	// cautious starting point: an application finds its real limits in
-	// development, with its own data, and sets them for production.
-	// Optional; defaulted by Load when omitted.
-	MaxEventsPerWrite      int `toml:"maxEventsPerWrite"`      // default: 100
+	// MaxEventsPerTx, MaxReadsPerTx, and MaxProjectionsPerTx cap a
+	// transaction, across all its calls (see tx.Config): the events it
+	// writes, its reads of events, and the distinct projections it
+	// writes. MaxProjectionsPerWrite caps the projections of one
+	// POST /projections. The defaults are a cautious starting point: an
+	// application finds its real limits in development, with its own
+	// data, and sets them for production. Optional; defaulted by Load
+	// when omitted.
+	MaxEventsPerTx         int `toml:"maxEventsPerTx"`         // default: 100
+	MaxReadsPerTx          int `toml:"maxReadsPerTx"`          // default: 100
+	MaxProjectionsPerTx    int `toml:"maxProjectionsPerTx"`    // default: 500
 	MaxProjectionsPerWrite int `toml:"maxProjectionsPerWrite"` // default: 500
 
 	// MaxRequestBodySize is the largest request body the server reads, in
-	// bytes, for every endpoint. It isn't checked against the other
-	// limits: it's the real bound on a write, the others are per-item
-	// rules. Optional; defaulted by Load when omitted.
+	// bytes, for every endpoint. It bounds one request, not a
+	// transaction, which is built over many requests. It isn't checked
+	// against the other limits. Optional; defaulted by Load when omitted.
 	MaxRequestBodySize int `toml:"maxRequestBodySize"` // default: 8388608 (8 MiB)
 
 	// MaxQueuedWrites caps how many requests may wait in the FIFO at once:
-	// POST /write, a transaction's commit, the bulk deletes of
-	// projections, and POST /reset. One
-	// more gets 503 WriteQueueFull instead of joining.
+	// a transaction's commit, POST /projections, the bulk deletes of
+	// projections, and POST /reset. One more gets 503 WriteQueueFull
+	// instead of joining.
 	// Optional; defaulted by Load when omitted. It isn't "0 means no
 	// limit": a FIFO with no bound would let a burst, or a broken client,
 	// pile up an unlimited number of blocked HTTP connections, so every
@@ -193,8 +199,14 @@ func Load(path string) (*Config, error) {
 	if cfg.MaxProjectionSize == 0 {
 		cfg.MaxProjectionSize = DefaultProjectionSize
 	}
-	if cfg.MaxEventsPerWrite == 0 {
-		cfg.MaxEventsPerWrite = DefaultMaxEventsPerWrite
+	if cfg.MaxEventsPerTx == 0 {
+		cfg.MaxEventsPerTx = DefaultMaxEventsPerTx
+	}
+	if cfg.MaxReadsPerTx == 0 {
+		cfg.MaxReadsPerTx = DefaultMaxReadsPerTx
+	}
+	if cfg.MaxProjectionsPerTx == 0 {
+		cfg.MaxProjectionsPerTx = DefaultMaxProjectionsPerTx
 	}
 	if cfg.MaxProjectionsPerWrite == 0 {
 		cfg.MaxProjectionsPerWrite = DefaultMaxProjectionsPerWrite
@@ -245,7 +257,9 @@ func applyEnv(cfg *Config, inFile fileBools) error {
 		envInt(&cfg.MaxEventsPerPage, "TAMARACKDB_MAX_EVENTS_PER_PAGE"),
 		envInt(&cfg.MaxEventSize, "TAMARACKDB_MAX_EVENT_SIZE"),
 		envInt(&cfg.MaxProjectionSize, "TAMARACKDB_MAX_PROJECTION_SIZE"),
-		envInt(&cfg.MaxEventsPerWrite, "TAMARACKDB_MAX_EVENTS_PER_WRITE"),
+		envInt(&cfg.MaxEventsPerTx, "TAMARACKDB_MAX_EVENTS_PER_TX"),
+		envInt(&cfg.MaxReadsPerTx, "TAMARACKDB_MAX_READS_PER_TX"),
+		envInt(&cfg.MaxProjectionsPerTx, "TAMARACKDB_MAX_PROJECTIONS_PER_TX"),
 		envInt(&cfg.MaxProjectionsPerWrite, "TAMARACKDB_MAX_PROJECTIONS_PER_WRITE"),
 		envInt(&cfg.MaxRequestBodySize, "TAMARACKDB_MAX_REQUEST_BODY_SIZE"),
 		envInt(&cfg.MaxQueuedWrites, "TAMARACKDB_MAX_QUEUED_WRITES"),
@@ -330,8 +344,12 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("maxEventSize must be positive, got %d", c.MaxEventSize)
 	case c.MaxProjectionSize <= 0:
 		return fmt.Errorf("maxProjectionSize must be positive, got %d", c.MaxProjectionSize)
-	case c.MaxEventsPerWrite <= 0:
-		return fmt.Errorf("maxEventsPerWrite must be positive, got %d", c.MaxEventsPerWrite)
+	case c.MaxEventsPerTx <= 0:
+		return fmt.Errorf("maxEventsPerTx must be positive, got %d", c.MaxEventsPerTx)
+	case c.MaxReadsPerTx <= 0:
+		return fmt.Errorf("maxReadsPerTx must be positive, got %d", c.MaxReadsPerTx)
+	case c.MaxProjectionsPerTx <= 0:
+		return fmt.Errorf("maxProjectionsPerTx must be positive, got %d", c.MaxProjectionsPerTx)
 	case c.MaxProjectionsPerWrite <= 0:
 		return fmt.Errorf("maxProjectionsPerWrite must be positive, got %d", c.MaxProjectionsPerWrite)
 	case c.MaxRequestBodySize <= 0:

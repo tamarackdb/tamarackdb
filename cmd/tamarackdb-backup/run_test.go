@@ -27,7 +27,7 @@ func newSourceAPI(t *testing.T, st *store.Store) http.Handler {
 	t.Helper()
 	wr := writer.New(st, writer.Config{})
 	t.Cleanup(wr.Close)
-	txs := tx.New(st, wr, tx.Config{IdleTimeout: time.Minute, MaxEventsPerWrite: 100, MaxProjectionsPerWrite: 500})
+	txs := tx.New(st, wr, tx.Config{IdleTimeout: time.Minute, MaxEventsPerTx: 100, MaxReadsPerTx: 100, MaxProjectionsPerTx: 500})
 	t.Cleanup(txs.Close)
 	return api.New(wr, txs, st, api.Options{
 		DefaultEventsPerPage: 1000, MaxEventsPerPage: 10000, MaxEventSize: 65536, MaxProjectionSize: 65536,

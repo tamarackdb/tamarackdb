@@ -24,8 +24,9 @@ var ErrNotFound = errors.New("tx: transaction not found")
 // *dcb.ValidationError whose message names the rule.
 var ErrDesign = errors.New("tx: design error")
 
-// ErrTooLarge is what a commit over maxEventsPerWrite or
-// maxProjectionsPerWrite unwraps to, as a *dcb.ValidationError.
+// ErrTooLarge is what a call that would take the transaction over
+// maxEventsPerTx, maxReadsPerTx, or maxProjectionsPerTx unwraps to, as a
+// *dcb.ValidationError.
 var ErrTooLarge = errors.New("tx: transaction too large")
 
 // ConflictError is a commit refused because what the transaction read no
@@ -44,16 +45,35 @@ func designError(message string) error {
 	return &dcb.ValidationError{Err: ErrDesign, Message: message}
 }
 
+// tooLarge is the error of a call that would take the transaction over
+// setting: what says what the transaction would then do.
+func tooLarge(what, setting string, max int) error {
+	return &dcb.ValidationError{Err: ErrTooLarge, Message: fmt.Sprintf(
+		"the transaction would %s, more than %s (%d)", what, setting, max)}
+}
+
 // Config holds the Registry's settings, already resolved by the caller.
 type Config struct {
 	// IdleTimeout is how long a transaction lives without a call.
 	IdleTimeout time.Duration
 
-	// MaxEventsPerWrite and MaxProjectionsPerWrite cap a commit, across
-	// the whole transaction, as they cap a POST /write. MaxEventsPerWrite
-	// caps the conditions too.
-	MaxEventsPerWrite      int
-	MaxProjectionsPerWrite int
+	// MaxEventsPerTx caps the events a transaction writes, across all its
+	// writes of events. MaxReadsPerTx caps its reads of events, those
+	// followed by an empty write included. MaxProjectionsPerTx caps the
+	// distinct projections it writes, across all its writes of
+	// projections, upserts and deletes together. Each call is checked
+	// before it does anything: the call that would go over gets
+	// ErrTooLarge, which ends the transaction.
+	//
+	// They MUST bound the transaction, not a single call: a transaction
+	// is built over many calls, each under the request body limit, and
+	// its commit holds the FIFO's turn while it checks every condition
+	// and writes every event and projection. Checking each call, rather
+	// than the commit, tells the client before it has done all its work,
+	// and bounds what the transaction holds in memory.
+	MaxEventsPerTx      int
+	MaxReadsPerTx       int
+	MaxProjectionsPerTx int
 }
 
 // Registry holds the open transactions.
@@ -114,6 +134,7 @@ type transaction struct {
 	events      []dcb.PendingEvent
 	projections map[Key]*projectionState
 	touched     []Key // the keys of projections, in the order first read
+	written     int   // how many projections the transaction wrote
 }
 
 // openCondition is what a read of events opened: the query, and the
@@ -284,6 +305,9 @@ func (r *Registry) ReadEvents(ctx context.Context, id string, q dcb.Query) (Read
 		if t.open != nil {
 			return designError("events read while a condition is open: write the events of the previous read first, or an empty list")
 		}
+		if n := len(t.conditions) + 1; n > r.cfg.MaxReadsPerTx {
+			return tooLarge(fmt.Sprintf("read events %d times", n), "maxReadsPerTx", r.cfg.MaxReadsPerTx)
+		}
 		open := &openCondition{query: q}
 		if !q.None() {
 			it, err := r.st.ReadDecision(ctx, q)
@@ -317,6 +341,9 @@ func (r *Registry) WriteEvents(id string, events []dcb.EventData) (time.Time, er
 		if t.open == nil {
 			return designError("events written without a read: read events in this transaction first, with \"none\" if the decision rests on no event")
 		}
+		if n := len(t.events) + len(events); n > r.cfg.MaxEventsPerTx {
+			return tooLarge(fmt.Sprintf("write %d events", n), "maxEventsPerTx", r.cfg.MaxEventsPerTx)
+		}
 		now = dcb.Now()
 		t.events = append(t.events, dcb.NewPendingEvents(events, now)...)
 		q := t.open.query
@@ -346,18 +373,6 @@ func (r *Registry) Commit(ctx context.Context, id string) error {
 		}
 		r.end(t) // the transaction is over, whatever the outcome
 		writes, keys := t.netProjections()
-		if len(t.events) > r.cfg.MaxEventsPerWrite {
-			return &dcb.ValidationError{Err: ErrTooLarge, Message: fmt.Sprintf(
-				"the transaction writes %d events, more than maxEventsPerWrite (%d)", len(t.events), r.cfg.MaxEventsPerWrite)}
-		}
-		if len(t.conditions) > r.cfg.MaxEventsPerWrite {
-			return &dcb.ValidationError{Err: ErrTooLarge, Message: fmt.Sprintf(
-				"the transaction reads events %d times, more than maxEventsPerWrite (%d)", len(t.conditions), r.cfg.MaxEventsPerWrite)}
-		}
-		if n := writes.Len(); n > r.cfg.MaxProjectionsPerWrite {
-			return &dcb.ValidationError{Err: ErrTooLarge, Message: fmt.Sprintf(
-				"the transaction writes %d projections, more than maxProjectionsPerWrite (%d)", n, r.cfg.MaxProjectionsPerWrite)}
-		}
 		if len(t.events) == 0 && writes.Len() == 0 {
 			r.countCommit()
 			return nil

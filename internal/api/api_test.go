@@ -49,7 +49,7 @@ func newTestServerWith(t *testing.T, o testOptions) (*Server, *writer.Writer, *s
 	if o.txIdle == 0 {
 		o.txIdle = time.Minute
 	}
-	txs := tx.New(st, wr, tx.Config{IdleTimeout: o.txIdle, MaxEventsPerWrite: 100, MaxProjectionsPerWrite: 500})
+	txs := tx.New(st, wr, tx.Config{IdleTimeout: o.txIdle, MaxEventsPerTx: 100, MaxReadsPerTx: 100, MaxProjectionsPerTx: 500})
 	t.Cleanup(txs.Close)
 	srv := New(wr, txs, st, Options{
 		EnableAuth:             true,

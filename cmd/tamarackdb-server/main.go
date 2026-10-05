@@ -71,7 +71,9 @@ func main() {
 	fmt.Printf("maxEventsPerPage: %d\n", cfg.MaxEventsPerPage)
 	fmt.Printf("maxEventSize: %d\n", cfg.MaxEventSize)
 	fmt.Printf("maxProjectionSize: %d\n", cfg.MaxProjectionSize)
-	fmt.Printf("maxEventsPerWrite: %d\n", cfg.MaxEventsPerWrite)
+	fmt.Printf("maxEventsPerTx: %d\n", cfg.MaxEventsPerTx)
+	fmt.Printf("maxReadsPerTx: %d\n", cfg.MaxReadsPerTx)
+	fmt.Printf("maxProjectionsPerTx: %d\n", cfg.MaxProjectionsPerTx)
 	fmt.Printf("maxProjectionsPerWrite: %d\n", cfg.MaxProjectionsPerWrite)
 	fmt.Printf("maxRequestBodySize: %d\n", cfg.MaxRequestBodySize)
 	fmt.Printf("maxQueuedWrites: %d\n", cfg.MaxQueuedWrites)
@@ -90,9 +92,10 @@ func main() {
 
 	wr := writer.New(st, writer.Config{MaxQueued: cfg.MaxQueuedWrites})
 	txs := tx.New(st, wr, tx.Config{
-		IdleTimeout:            time.Duration(cfg.TxIdleTimeout) * time.Second,
-		MaxEventsPerWrite:      cfg.MaxEventsPerWrite,
-		MaxProjectionsPerWrite: cfg.MaxProjectionsPerWrite,
+		IdleTimeout:         time.Duration(cfg.TxIdleTimeout) * time.Second,
+		MaxEventsPerTx:      cfg.MaxEventsPerTx,
+		MaxReadsPerTx:       cfg.MaxReadsPerTx,
+		MaxProjectionsPerTx: cfg.MaxProjectionsPerTx,
 	})
 
 	fatalCh := make(chan error, 1)
@@ -274,7 +277,9 @@ const defaultConfigTemplate = `[server]
 # maxEventsPerPage = %d
 # maxEventSize = %d # bytes
 # maxProjectionSize = %d # bytes
-# maxEventsPerWrite = %d
+# maxEventsPerTx = %d
+# maxReadsPerTx = %d
+# maxProjectionsPerTx = %d
 # maxProjectionsPerWrite = %d
 # maxRequestBodySize = %d # bytes
 # maxQueuedWrites = %d
@@ -290,7 +295,8 @@ func printDefaultConfig() {
 		config.DefaultLogLevel,
 		config.DefaultEventsPerPage, config.DefaultMaxEventsPerPage, config.DefaultEventSize,
 		config.DefaultProjectionSize,
-		config.DefaultMaxEventsPerWrite, config.DefaultMaxProjectionsPerWrite, config.DefaultMaxRequestBodySize,
+		config.DefaultMaxEventsPerTx, config.DefaultMaxReadsPerTx, config.DefaultMaxProjectionsPerTx,
+		config.DefaultMaxProjectionsPerWrite, config.DefaultMaxRequestBodySize,
 		config.DefaultMaxQueuedWrites, config.DefaultReadPoolSize, config.DefaultTxIdleTimeout)
 }
 
