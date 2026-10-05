@@ -7,9 +7,15 @@ func TestResetDeletesEventsAndProjections(t *testing.T) {
 	commitEvents(t, srv, `[{"type":"t","payload":""}]`)
 	writeProjectionsCommitted(t, srv, `{"create":[{"type":"user-profile","id":"123","payload":"x"}]}`)
 
+	if rec := doRequest(t, srv, "POST", "/pause", ""); rec.Code != 200 {
+		t.Fatalf("POST /pause status = %d", rec.Code)
+	}
 	rec := doRequest(t, srv, "POST", "/reset", "")
 	if rec.Code != 204 || rec.Body.Len() != 0 {
 		t.Fatalf("status = %d, body = %q, want 204 with no body", rec.Code, rec.Body.String())
+	}
+	if rec := doRequest(t, srv, "POST", "/resume", ""); rec.Code != 204 {
+		t.Fatalf("POST /resume status = %d", rec.Code)
 	}
 
 	if _, events := parseNDJSON(t, doRequest(t, srv, "QUERY", "/events", `{"query":"all"}`).Body.String()); len(events) != 0 {
@@ -28,6 +34,9 @@ func TestResetDeletesEventsAndProjections(t *testing.T) {
 // the write ahead of it goes through, then the reset deletes it.
 func TestResetWaitsForItsTurn(t *testing.T) {
 	srv, wr, _ := newTestServerWith(t, testOptions{devMode: true})
+	if rec := doRequest(t, srv, "POST", "/pause", ""); rec.Code != 200 {
+		t.Fatalf("POST /pause status = %d", rec.Code)
+	}
 	release := holdTurn(t, wr)
 
 	written := make(chan int, 1)

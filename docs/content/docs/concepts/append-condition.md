@@ -36,8 +36,8 @@ on. The client never builds or sends a condition: the server builds one from eac
   `409` names it by the rank of its read: `conditions[1] no longer holds` for the second read.
 - The server checks conditions against committed events only, in the same SQLite transaction as the inserts. Nothing
   can slip in between the checks and the inserts: writes are served one at a time, in the order they arrive.
-- A Sequence Position only means something next to its store ID. A transaction begun before a reset gets `409` (see
-  [Store ID](/docs/concepts/store-id/)).
+- A Sequence Position only means something next to its store ID. The store ID never changes while a transaction
+  lives (see [Store ID](/docs/concepts/store-id/)).
 
 **Why a list.** Each read supports its own decision. Merging the conditions into one, with OR, would refuse a commit
 whenever any of the queries matched anything after the earliest position. A list is more precise, and still never a

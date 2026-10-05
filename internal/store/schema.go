@@ -70,7 +70,7 @@ CREATE TABLE projections (
 -- It's written with the rest of the schema, in the same transaction, and
 -- changed only by a reset. paused_at is NULL outside a pause, and the time
 -- the pause began, in dcb.TimeLayout, during one: the pause survives a
--- restart, and a reset clears it.
+-- restart and a reset.
 CREATE TABLE store (
     singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
     id        TEXT NOT NULL,

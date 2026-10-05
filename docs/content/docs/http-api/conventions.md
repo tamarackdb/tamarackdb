@@ -94,7 +94,8 @@ that depends on the store:
 | `POST /projections` | On `200` |
 | `POST /pause` | On `200` |
 
-- No transaction endpoint carries it: the server keeps the store ID with the transaction.
+- No transaction endpoint carries it: the store ID never changes while a transaction lives (see
+  [Store ID](/docs/concepts/store-id/)).
 - A read takes the store ID in the same SQLite snapshot as the events or the projection it returns, so a response
   never pairs the data of one store ID with another.
 - A write takes it in the same SQLite transaction as what it wrote.

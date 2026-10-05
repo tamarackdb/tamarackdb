@@ -67,13 +67,13 @@ func committedEvents(t *testing.T, st *store.Store) int {
 func TestWriteCountsEachOutcome(t *testing.T) {
 	env := newTestEnv(t)
 	ctx := context.Background()
-	result, err := env.m.WritePending(ctx, "", dcb.NewPendingEvents([]dcb.EventData{{Type: "a"}}, dcb.Now()), nil, projection.Writes{})
+	result, err := env.m.WritePending(ctx, dcb.NewPendingEvents([]dcb.EventData{{Type: "a"}}, dcb.Now()), nil, projection.Writes{})
 	if err != nil || len(result.Events) != 1 || result.Events[0].Sequence != 1 {
 		t.Fatalf("write = %+v, %v, want one event at sequence 1", result, err)
 	}
 
 	q := dcb.QueryAll()
-	if _, err := env.m.WritePending(ctx, "", dcb.NewPendingEvents([]dcb.EventData{{Type: "b"}}, dcb.Now()), []dcb.AppendCondition{{FailIfEventsMatch: q}}, projection.Writes{}); !errors.Is(err, store.ErrConcurrencyConflict) {
+	if _, err := env.m.WritePending(ctx, dcb.NewPendingEvents([]dcb.EventData{{Type: "b"}}, dcb.Now()), []dcb.AppendCondition{{FailIfEventsMatch: q}}, projection.Writes{}); !errors.Is(err, store.ErrConcurrencyConflict) {
 		t.Fatalf("write error = %v, want a condition conflict", err)
 	}
 	payload := "x"
@@ -97,7 +97,7 @@ func TestWriteWaitsForItsTurn(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		_, err := env.m.WritePending(context.Background(), "", dcb.NewPendingEvents([]dcb.EventData{{Type: "a"}}, dcb.Now()), nil, projection.Writes{})
+		_, err := env.m.WritePending(context.Background(), dcb.NewPendingEvents([]dcb.EventData{{Type: "a"}}, dcb.Now()), nil, projection.Writes{})
 		done <- err
 	}()
 	select {
@@ -237,7 +237,7 @@ func TestResetWaitsForItsTurn(t *testing.T) {
 
 	written := make(chan error, 1)
 	go func() {
-		_, err := env.m.WritePending(context.Background(), "", dcb.NewPendingEvents([]dcb.EventData{{Type: "a"}}, dcb.Now()), nil, projection.Writes{})
+		_, err := env.m.WritePending(context.Background(), dcb.NewPendingEvents([]dcb.EventData{{Type: "a"}}, dcb.Now()), nil, projection.Writes{})
 		written <- err
 	}()
 	waitQueued(t, env.m, 1)
@@ -255,7 +255,7 @@ func TestResetWaitsForItsTurn(t *testing.T) {
 	if n := committedEvents(t, env.st); n != 0 {
 		t.Errorf("committed events = %d, want 0", n)
 	}
-	result, err := env.m.WritePending(context.Background(), "", dcb.NewPendingEvents([]dcb.EventData{{Type: "b"}}, dcb.Now()), nil, projection.Writes{})
+	result, err := env.m.WritePending(context.Background(), dcb.NewPendingEvents([]dcb.EventData{{Type: "b"}}, dcb.Now()), nil, projection.Writes{})
 	if err != nil || result.Events[0].Sequence != 1 {
 		t.Errorf("first write after Reset() = %+v, %v, want sequence 1", result, err)
 	}
@@ -272,7 +272,7 @@ func TestCloseTurnsAwayWaiters(t *testing.T) {
 	var waitErr error
 	go func() {
 		defer wg.Done()
-		_, waitErr = env.m.WritePending(context.Background(), "", dcb.NewPendingEvents([]dcb.EventData{{Type: "a"}}, dcb.Now()), nil, projection.Writes{})
+		_, waitErr = env.m.WritePending(context.Background(), dcb.NewPendingEvents([]dcb.EventData{{Type: "a"}}, dcb.Now()), nil, projection.Writes{})
 	}()
 	waitQueued(t, env.m, 1)
 
@@ -282,7 +282,7 @@ func TestCloseTurnsAwayWaiters(t *testing.T) {
 		t.Errorf("waiting write error = %v, want queue.ErrClosed", waitErr)
 	}
 	release() // the running one finishes
-	if _, err := env.m.WritePending(context.Background(), "", dcb.NewPendingEvents([]dcb.EventData{{Type: "b"}}, dcb.Now()), nil, projection.Writes{}); !errors.Is(err, queue.ErrClosed) {
+	if _, err := env.m.WritePending(context.Background(), dcb.NewPendingEvents([]dcb.EventData{{Type: "b"}}, dcb.Now()), nil, projection.Writes{}); !errors.Is(err, queue.ErrClosed) {
 		t.Errorf("write after Close() error = %v, want queue.ErrClosed", err)
 	}
 	if n := committedEvents(t, env.st); n != 0 {
@@ -328,7 +328,7 @@ func TestWritePendingKeepsEachTime(t *testing.T) {
 	events := append(
 		dcb.NewPendingEvents([]dcb.EventData{{Type: "a"}}, first),
 		dcb.NewPendingEvents([]dcb.EventData{{Type: "b"}}, second)...)
-	if _, err := env.m.WritePending(context.Background(), env.st.StoreID(), events, nil, projection.Writes{}); err != nil {
+	if _, err := env.m.WritePending(context.Background(), events, nil, projection.Writes{}); err != nil {
 		t.Fatalf("WritePending() error = %v", err)
 	}
 	got := readAll(t, env.st)
@@ -356,11 +356,11 @@ func TestWriteQueueFullIsCounted(t *testing.T) {
 
 	queued := make(chan error, 1)
 	go func() {
-		_, err := m.WritePending(context.Background(), "", dcb.NewPendingEvents([]dcb.EventData{{Type: "a"}}, dcb.Now()), nil, projection.Writes{})
+		_, err := m.WritePending(context.Background(), dcb.NewPendingEvents([]dcb.EventData{{Type: "a"}}, dcb.Now()), nil, projection.Writes{})
 		queued <- err
 	}()
 	waitQueued(t, m, 1)
-	if _, err := m.WritePending(context.Background(), "", dcb.NewPendingEvents([]dcb.EventData{{Type: "b"}}, dcb.Now()), nil, projection.Writes{}); !errors.Is(err, queue.ErrFull) {
+	if _, err := m.WritePending(context.Background(), dcb.NewPendingEvents([]dcb.EventData{{Type: "b"}}, dcb.Now()), nil, projection.Writes{}); !errors.Is(err, queue.ErrFull) {
 		t.Fatalf("write error = %v, want queue.ErrFull", err)
 	}
 	if s := m.Stats(); s.WriteQueueFull != 1 {
@@ -369,25 +369,5 @@ func TestWriteQueueFullIsCounted(t *testing.T) {
 	release()
 	if err := <-queued; err != nil {
 		t.Fatalf("queued write error = %v", err)
-	}
-}
-
-// TestWritePendingRefusesAnotherStore checks that a commit begun on a
-// store that was reset since writes nothing.
-func TestWritePendingRefusesAnotherStore(t *testing.T) {
-	env := newTestEnv(t)
-	before := env.st.StoreID()
-	if err := env.m.RunInTurn(context.Background(), env.st.Reset); err != nil {
-		t.Fatalf("Reset() error = %v", err)
-	}
-	events := dcb.NewPendingEvents([]dcb.EventData{{Type: "a"}}, dcb.Now())
-	if _, err := env.m.WritePending(context.Background(), before, events, nil, projection.Writes{}); !errors.Is(err, ErrStoreChanged) || !errors.Is(err, store.ErrConcurrencyConflict) {
-		t.Fatalf("WritePending() error = %v, want ErrStoreChanged", err)
-	}
-	if n := committedEvents(t, env.st); n != 0 {
-		t.Errorf("committed events = %d, want 0", n)
-	}
-	if s := env.m.Stats(); s.ConditionConflicts != 1 {
-		t.Errorf("Stats().ConditionConflicts = %d, want 1", s.ConditionConflicts)
 	}
 }

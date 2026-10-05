@@ -48,7 +48,7 @@ curl http://127.0.0.1:8085/stats
 | Counter | What it counts |
 |---|---|
 | `writes.committed` | Writes committed: transaction commits that wrote something, and `POST /projections` calls |
-| `writes.conflicts.condition` | Transaction commits refused with `409` because a condition no longer held, or the store changed |
+| `writes.conflicts.condition` | Transaction commits refused with `409` because a condition no longer held |
 | `writes.conflicts.projection` | Writes refused with `409` because a projection wasn't at the version read: transaction commits and `POST /projections` calls |
 | `writes.writeQueueFull` | Requests turned away with `503 WriteQueueFull` |
 | `transactions.begun` | Transactions begun |

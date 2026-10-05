@@ -50,9 +50,6 @@ func (r *Registry) GetProjection(ctx context.Context, id string, key Key) (paylo
 			if err != nil {
 				return err
 			}
-			if read.StoreID != t.storeID {
-				return errStoreChanged
-			}
 			p = &projectionState{
 				readFound:   read.Found,
 				readVersion: read.Version,

@@ -117,8 +117,8 @@
 // next to the store ID. It MUST survive a restart: an operation that
 // relies on it, a rebuild for example, would otherwise see commands start
 // again because the server restarted. SetPause and ClearPause write it on
-// the write connection, in their caller's turn in the FIFO; Reset clears
-// it. What a pause blocks, and how it begins and ends, is package tx's.
+// the write connection, in their caller's turn in the FIFO. Reset leaves
+// it as it is. What a pause blocks, and how it begins and ends, is package tx's.
 //
 // # Schema version
 //

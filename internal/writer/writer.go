@@ -3,7 +3,6 @@ package writer
 import (
 	"context"
 	"errors"
-	"fmt"
 	"sync"
 
 	"github.com/tamarackdb/tamarackdb/internal/dcb"
@@ -14,11 +13,6 @@ import (
 
 // ErrClosed is returned once the Writer has been Closed.
 var ErrClosed = errors.New("writer: closed")
-
-// ErrStoreChanged is returned by WritePending when the store ID is no
-// longer the one the write expects: the store was reset since. It unwraps
-// to store.ErrConcurrencyConflict.
-var ErrStoreChanged = fmt.Errorf("writer: store changed: %w", store.ErrConcurrencyConflict)
 
 // Config holds the Writer's settings, already resolved by the caller.
 type Config struct {
@@ -44,30 +38,20 @@ func New(st *store.Store, cfg Config) *Writer {
 // WriteProjections runs one POST /projections in its turn: it has the
 // store write the projections, all or nothing (see store.Store.Append).
 func (w *Writer) WriteProjections(ctx context.Context, projections projection.Writes) (store.AppendResult, error) {
-	return w.append(ctx, "", nil, nil, projections)
+	return w.append(ctx, nil, nil, projections)
 }
 
 // WritePending runs the commit of a transaction in its turn: it has the
 // store check every Append Condition, then append events and write
 // projections, all or nothing. Each event keeps the time it carries.
-// storeID is the store ID the transaction began on: in its turn, before
-// anything else, WritePending returns ErrStoreChanged if it isn't the
-// current one.
-func (w *Writer) WritePending(ctx context.Context, storeID string, events []dcb.PendingEvent, conditions []dcb.AppendCondition, projections projection.Writes) (store.AppendResult, error) {
-	return w.append(ctx, storeID, events, conditions, projections)
+func (w *Writer) WritePending(ctx context.Context, events []dcb.PendingEvent, conditions []dcb.AppendCondition, projections projection.Writes) (store.AppendResult, error) {
+	return w.append(ctx, events, conditions, projections)
 }
 
-// append runs one write in its turn, and counts its outcome. A non-empty
-// storeID must be the current store ID.
-func (w *Writer) append(ctx context.Context, storeID string, events []dcb.PendingEvent, conditions []dcb.AppendCondition, projections projection.Writes) (store.AppendResult, error) {
+// append runs one write in its turn, and counts its outcome.
+func (w *Writer) append(ctx context.Context, events []dcb.PendingEvent, conditions []dcb.AppendCondition, projections projection.Writes) (store.AppendResult, error) {
 	var result store.AppendResult
 	err := w.RunInTurn(ctx, func(ctx context.Context) error {
-		// A reset also runs in its turn: the store ID can't change
-		// between this check and the commit.
-		if storeID != "" && storeID != w.st.StoreID() {
-			w.record(ErrStoreChanged)
-			return ErrStoreChanged
-		}
 		var err error
 		result, err = w.st.Append(ctx, events, conditions, projections)
 		w.record(err)
@@ -85,7 +69,7 @@ func (w *Writer) record(err error) {
 	switch {
 	case err == nil:
 		w.stats.Committed++
-	case errors.As(err, &ce), errors.Is(err, ErrStoreChanged):
+	case errors.As(err, &ce):
 		w.stats.ConditionConflicts++
 	case errors.As(err, &pe):
 		w.stats.ProjectionConflicts++

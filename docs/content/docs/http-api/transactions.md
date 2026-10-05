@@ -162,7 +162,6 @@ A conflict gets `409 ConcurrencyException`, and nothing is written. The `message
 | An event that matches the query of the transaction's third read was committed after that read | `conditions[2] no longer holds` |
 | A projection no longer has the version read | `projection show-seats/s1 no longer has the version read` |
 | A projection read as missing was created since | `projection seat-hold/s1-A6 was created by another write since it was read` |
-| The store was reset since the transaction began | `the transaction was begun on another store` |
 
 After a `409`, the client runs the whole command again, in a new transaction.
 
@@ -227,7 +226,7 @@ its work.
 | `404` | `TransactionNotFound` | The transaction is unknown, expired, or already over |
 | `503` | `Paused` | `POST /tx` while a pause is requested or in place |
 | `404` | `ProjectionNotFound` | [Reading a projection](#reading-a-projection) that doesn't exist |
-| `409` | `ConcurrencyException` | At commit, a [conflict](#commit). On any call, a store reset since the transaction began |
+| `409` | `ConcurrencyException` | At commit, a [conflict](#commit) |
 | `413` | `PayloadTooLarge` | An event or a projection over its size limit, or a body over `maxRequestBodySize` |
 
 Every error but `404 ProjectionNotFound` ends the transaction. The full list of codes is in

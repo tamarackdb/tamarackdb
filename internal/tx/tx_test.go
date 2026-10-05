@@ -199,7 +199,7 @@ func TestCommitWritesEverythingTogether(t *testing.T) {
 // events, then the transaction's own pending events that match.
 func TestReadMergesPendingEvents(t *testing.T) {
 	env := newTestEnv(t, time.Minute)
-	if _, err := env.wr.WritePending(bg, "", dcb.NewPendingEvents(events("a", "other"), dcb.Now()), nil, projection.Writes{}); err != nil {
+	if _, err := env.wr.WritePending(bg, dcb.NewPendingEvents(events("a", "other"), dcb.Now()), nil, projection.Writes{}); err != nil {
 		t.Fatalf("Write() error = %v", err)
 	}
 	id := begin(t, env.r)
@@ -299,7 +299,7 @@ func TestConditionConflictNamesItsRank(t *testing.T) {
 	decide(t, env.r, id, dcb.QueryNone(), "a")
 	decide(t, env.r, id, types("stock"), "reserved")
 
-	if _, err := env.wr.WritePending(bg, "", dcb.NewPendingEvents(events("stock"), dcb.Now()), nil, projection.Writes{}); err != nil {
+	if _, err := env.wr.WritePending(bg, dcb.NewPendingEvents(events("stock"), dcb.Now()), nil, projection.Writes{}); err != nil {
 		t.Fatalf("Write() error = %v", err)
 	}
 	err := env.r.Commit(bg, id)
@@ -404,21 +404,6 @@ func TestProjectionConflictNamesTheProjection(t *testing.T) {
 	}
 	if payload, _ := projectionPayload(t, env.st, key); payload != "theirs" {
 		t.Errorf("payload = %q, want theirs", payload)
-	}
-}
-
-func TestStoreChangedEndsTheTransaction(t *testing.T) {
-	env := newTestEnv(t, time.Minute)
-	id := begin(t, env.r)
-	if err := env.r.Reset(bg); err != nil {
-		t.Fatalf("Reset() error = %v", err)
-	}
-	_, err := env.r.ReadEvents(bg, id, dcb.QueryNone())
-	if !errors.Is(err, store.ErrConcurrencyConflict) || err.Error() != "the transaction was begun on another store" {
-		t.Fatalf("ReadEvents() error = %v, want a store change conflict", err)
-	}
-	if _, err := env.r.ReadEvents(bg, id, dcb.QueryNone()); !errors.Is(err, ErrNotFound) {
-		t.Errorf("next call error = %v, want ErrNotFound", err)
 	}
 }
 

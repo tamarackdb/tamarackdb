@@ -52,7 +52,7 @@ func TestPauseSurvivesReopen(t *testing.T) {
 	}
 }
 
-func TestResetClearsThePause(t *testing.T) {
+func TestResetKeepsThePause(t *testing.T) {
 	s := openTestStore(t)
 	if _, _, err := s.SetPause(context.Background(), time.Now()); err != nil {
 		t.Fatalf("SetPause() error = %v", err)
@@ -60,10 +60,10 @@ func TestResetClearsThePause(t *testing.T) {
 	if err := s.Reset(context.Background()); err != nil {
 		t.Fatalf("Reset() error = %v", err)
 	}
-	if _, paused := s.PausedAt(); paused {
-		t.Error("PausedAt() paused = true after Reset")
+	if _, paused := s.PausedAt(); !paused {
+		t.Error("PausedAt() paused = false after Reset")
 	}
-	if paused, err := readPausedAt(context.Background(), s.writeDB); err != nil || !paused.IsZero() {
-		t.Errorf("paused_at in the file = %v, %v, want NULL", paused, err)
+	if paused, err := readPausedAt(context.Background(), s.writeDB); err != nil || paused.IsZero() {
+		t.Errorf("paused_at in the file = %v, %v, want the pause", paused, err)
 	}
 }

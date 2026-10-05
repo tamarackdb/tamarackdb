@@ -21,9 +21,8 @@ Key words in capitals follow [RFC 2119](/docs/concepts/overview/#key-words).
 
 - In the `X-Tamarackdb-Store` header of every response that depends on the store (see
   [Conventions](/docs/http-api/conventions/#store-id-header)).
-- Not in a transaction. The server keeps the store ID current at its begin, and the client never handles it. Once
-  the store ID changes, the next call on the transaction gets `409`, and the transaction ends (see
-  [Transactions](/docs/concepts/transactions/)).
+- Not in a transaction. The store ID never changes while a transaction lives: a reset only happens during a
+  [pause](/docs/http-api/pause/), when no transaction exists.
 
 ## Positions
 

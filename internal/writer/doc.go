@@ -22,12 +22,6 @@
 // transaction, an event gets its time when its write reaches the server,
 // long before the commit.
 //
-// # Store ID
-//
-// WritePending checks, in its turn, that the store ID is still the one
-// the transaction began on. A reset also runs in its turn, so the store ID
-// can't change between that check and the commit.
-//
 // # Counters
 //
 // A Writer counts, since startup, the writes committed, the writes

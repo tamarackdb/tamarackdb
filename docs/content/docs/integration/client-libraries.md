@@ -56,6 +56,7 @@ Key words in capitals follow [RFC 2119](/docs/concepts/overview/#key-words).
 
 ## Testing
 
-- [`POST /reset`](/docs/http-api/reset/), in development mode, empties the store between tests.
+- [`POST /reset`](/docs/http-api/reset/), in development mode, empties the store between tests, during a pause:
+  `POST /pause`, `POST /reset`, then `POST /resume`.
 - [`testdata/query-cases.json`](https://github.com/tamarackdb/tamarackdb/blob/main/testdata/query-cases.json) holds
   queries, events, and whether each query selects each event, in the shapes of the HTTP API.

@@ -10,7 +10,7 @@ production.
 
 | What | Purpose |
 |---|---|
-| [`POST /reset`](/docs/http-api/reset/) | Deletes every event and projection, and draws a new store ID |
+| [`POST /reset`](/docs/http-api/reset/) | During a pause, deletes every event and projection, and draws a new store ID |
 | `/debug/pprof/*` | Go's standard profiling endpoints (CPU, heap, goroutine, and so on) |
 
 - With `devMode` off, neither exists: a request to either gets the plain `404` of any unknown path.

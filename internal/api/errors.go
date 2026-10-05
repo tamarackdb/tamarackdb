@@ -97,6 +97,8 @@ func (s *Server) handleErr(w http.ResponseWriter, r *http.Request, err error) {
 		writeError(w, http.StatusNotFound, "TransactionNotFound", "")
 	case errors.Is(err, tx.ErrPaused):
 		writeError(w, http.StatusServiceUnavailable, "Paused", "")
+	case errors.Is(err, tx.ErrNotPaused):
+		writeError(w, http.StatusConflict, "NotPaused", "")
 	case errors.Is(err, tx.ErrPauseCancelled):
 		writeError(w, http.StatusConflict, "PauseCancelled", "")
 	case errors.Is(err, queue.ErrFull):

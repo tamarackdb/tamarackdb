@@ -207,7 +207,7 @@ func (s *Store) ReadPoolStats() PoolStats {
 
 // Reset deletes every event and every projection, sets the Sequence
 // Position counter back to zero (the next event appended gets sequence 1),
-// draws a new store ID, and clears the pause. The schema stays in place. It's meant for dev
+// and draws a new store ID. It leaves the pause as it is. The schema stays in place. It's meant for dev
 // mode only. Since the write pool holds a single connection, Reset waits
 // for a write in progress to end.
 func (s *Store) Reset(ctx context.Context) error {
@@ -228,7 +228,7 @@ func (s *Store) Reset(ctx context.Context) error {
 		}
 	}
 	storeID := newStoreID()
-	if _, err := tx.ExecContext(ctx, "UPDATE store SET id = ?, paused_at = NULL", storeID); err != nil {
+	if _, err := tx.ExecContext(ctx, "UPDATE store SET id = ?", storeID); err != nil {
 		return wrapf("reset", err)
 	}
 	// The counter's mutex is held across the commit: the commit frees the
@@ -242,6 +242,5 @@ func (s *Store) Reset(ctx context.Context) error {
 	}
 	s.nextSeq = 1
 	s.storeID = storeID
-	s.pausedAt = time.Time{}
 	return nil
 }

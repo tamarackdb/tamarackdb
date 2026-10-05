@@ -45,9 +45,7 @@ func TestReadsCarryTheStoreHeader(t *testing.T) {
 		}
 	}
 
-	if rec := doRequest(t, srv, "POST", "/reset", ""); rec.Code != 204 {
-		t.Fatalf("reset status = %d, body = %s", rec.Code, rec.Body.String())
-	}
+	resetStore(t, srv)
 	if got := storeHeader(t, doRequest(t, srv, "QUERY", "/events", `{"query":"all"}`), "after reset"); got == id {
 		t.Errorf("%s after reset = %q, want a new store ID", StoreHeader, got)
 	}

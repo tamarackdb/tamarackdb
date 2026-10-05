@@ -267,31 +267,33 @@ func TestPauseSurvivesANewRegistry(t *testing.T) {
 	}
 }
 
-// TestResetEndsThePause checks that Reset withdraws a request and lifts a
-// pause.
-func TestResetEndsThePause(t *testing.T) {
+// TestResetNeedsAPause checks that Reset is refused outside a pause in
+// place, a requested one included, and leaves the pause in place.
+func TestResetNeedsAPause(t *testing.T) {
 	env := newTestEnv(t, time.Minute)
+	if err := env.r.Reset(bg); !errors.Is(err, ErrNotPaused) {
+		t.Fatalf("Reset() without a pause error = %v, want ErrNotPaused", err)
+	}
+
 	id := begin(t, env.r)
 	c := pauseAsync(env.r, bg)
 	waitState(t, env.r, PauseRequested)
-	if err := env.r.Reset(bg); err != nil {
-		t.Fatalf("Reset() error = %v", err)
+	if err := env.r.Reset(bg); !errors.Is(err, ErrNotPaused) {
+		t.Fatalf("Reset() during a requested pause error = %v, want ErrNotPaused", err)
 	}
-	if got := outcome(t, c); !errors.Is(got.err, ErrPauseCancelled) {
-		t.Fatalf("Pause() error = %v, want ErrPauseCancelled", got.err)
-	}
-	// Begun on the old store, the transaction is doomed, but stays open
-	// until its next call or its expiry: a pause would wait for it.
 	env.r.Abandon(id)
+	if got := outcome(t, c); got.err != nil {
+		t.Fatalf("Pause() error = %v", got.err)
+	}
 
-	if _, err := env.r.Pause(bg); err != nil {
-		t.Fatalf("Pause() error = %v", err)
-	}
 	if err := env.r.Reset(bg); err != nil {
-		t.Fatalf("Reset() error = %v", err)
+		t.Fatalf("Reset() during the pause error = %v", err)
 	}
-	if _, paused := env.st.PausedAt(); paused {
-		t.Error("store still paused after Reset")
+	if info := env.r.PauseInfo(); info.State != Paused {
+		t.Errorf("PauseInfo().State = %v after Reset, want paused", info.State)
+	}
+	if err := env.r.Resume(bg); err != nil {
+		t.Fatalf("Resume() error = %v", err)
 	}
 	begin(t, env.r)
 }

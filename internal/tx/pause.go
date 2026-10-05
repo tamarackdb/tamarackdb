@@ -11,8 +11,11 @@ import (
 // ErrPaused is what Begin returns while a pause is requested or in place.
 var ErrPaused = errors.New("tx: paused")
 
+// ErrNotPaused is what Reset returns outside a pause in place.
+var ErrNotPaused = errors.New("tx: not paused")
+
 // ErrPauseCancelled is what Pause returns when its request is withdrawn
-// before the pause is in place, by Resume or Reset.
+// before the pause is in place, by Resume.
 var ErrPauseCancelled = errors.New("tx: pause cancelled")
 
 // PauseState is where the pause stands.
@@ -46,7 +49,7 @@ type PauseResult struct {
 type PauseInfo struct {
 	State PauseState
 	Since time.Time // when State began
-	Open  int       // transactions still open, and commits still writing
+	Open  int       // transactions still open, commits still writing included
 }
 
 // pauseRequest is a pending pause. Every caller of Pause waits on done,
@@ -91,13 +94,13 @@ func (r *Registry) Pause(ctx context.Context) (PauseResult, error) {
 	}
 }
 
-// enterPause waits, outside the FIFO, for the open transactions and the
-// commits still writing to end: their commits must go through the FIFO.
+// enterPause waits, outside the FIFO, for the open transactions to end:
+// their commits must go through the FIFO.
 // Then it takes its turn and records the pause, unless q was withdrawn
 // meanwhile.
 func (r *Registry) enterPause(q *pauseRequest) {
 	r.mu.Lock()
-	for r.request == q && len(r.txs)+r.committing > 0 {
+	for r.request == q && len(r.txs) > 0 {
 		r.active.Wait()
 	}
 	withdrawn := r.request != q
@@ -179,22 +182,19 @@ func (r *Registry) Resume(ctx context.Context) error {
 }
 
 // Reset empties the store (see store.Store.Reset), in its turn in the
-// FIFO, and ends the pause: a pending one is withdrawn, and its callers
-// get ErrPauseCancelled.
+// FIFO. It's accepted only while the pause is in place, and leaves it in
+// place: then no transaction exists, so none can see the store ID change.
+// While paused, only Resume changes the state, and it runs in its own
+// turn: the state can't change during st.Reset.
 func (r *Registry) Reset(ctx context.Context) error {
 	return r.wr.RunInTurn(ctx, func(ctx context.Context) error {
-		if err := r.st.Reset(ctx); err != nil {
-			return err
-		}
 		r.mu.Lock()
-		defer r.mu.Unlock()
-		switch r.pause {
-		case PauseRequested:
-			r.withdraw(ErrPauseCancelled)
-		case Paused:
-			r.pause, r.pauseSince = Running, time.Now()
+		paused := r.pause == Paused
+		r.mu.Unlock()
+		if !paused {
+			return ErrNotPaused
 		}
-		return nil
+		return r.st.Reset(ctx)
 	})
 }
 
@@ -223,5 +223,5 @@ func (r *Registry) OnPaused(fn func(PauseResult)) {
 func (r *Registry) PauseInfo() PauseInfo {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return PauseInfo{State: r.pause, Since: r.pauseSince, Open: len(r.txs) + r.committing}
+	return PauseInfo{State: r.pause, Since: r.pauseSince, Open: len(r.txs)}
 }

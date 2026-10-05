@@ -47,7 +47,7 @@ A pause takes hold in three steps:
 - During a pause, `/pause` does nothing, and responds `200` at once, with the same last Sequence Position.
 - While a pause is requested, a second `/pause` waits with the first, and gets the same response.
 - A client that disconnects while its `/pause` waits doesn't withdraw the request: the pause still takes hold.
-- `409 PauseCancelled`: the request was withdrawn by `/resume`, or by a reset, before the pause took hold.
+- `409 PauseCancelled`: the request was withdrawn by `/resume` before the pause took hold.
 - `503 WriteQueueFull` or `503 ShuttingDown` at step 3: the request is withdrawn.
 
 **Why wait for the open transactions.** A command that began before the pause goes to the end, and its work isn't
@@ -76,7 +76,7 @@ During a pause, `POST /tx` gets `503 Paused`, and nothing else is refused:
 - reads of events and of projections;
 - `POST /projections`, and the bulk deletes of projections;
 - `GET /health` and `GET /stats`;
-- `POST /reset`, in development mode, which ends the pause.
+- `POST /reset`, in development mode, which is accepted only during a pause, and leaves it in place.
 
 What an application does with a command refused by `503 Paused` is up to it.
 
@@ -85,7 +85,7 @@ rebuild for example, has to write them.
 
 ## How long it lasts
 
-- A pause lasts until `POST /resume`. The server never ends one on its own, except at a reset.
+- A pause lasts until `POST /resume`. The server never ends one on its own.
 - A pause survives a restart of the server. A requested pause doesn't: the server restarts without one.
 - A backup never copies the pause (see [Backup](/docs/operations/backup/)).
 

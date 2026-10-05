@@ -109,6 +109,20 @@ func writeProjectionsCommitted(t *testing.T, srv *Server, body string) projectio
 	return resp
 }
 
+// resetStore empties the store, as a test suite does between tests: pause,
+// reset, resume.
+func resetStore(t *testing.T, srv *Server) {
+	t.Helper()
+	for _, call := range []struct {
+		path string
+		want int
+	}{{"/pause", 200}, {"/reset", 204}, {"/resume", 204}} {
+		if rec := doRequest(t, srv, "POST", call.path, ""); rec.Code != call.want {
+			t.Fatalf("POST %s status = %d, body = %s, want %d", call.path, rec.Code, rec.Body.String(), call.want)
+		}
+	}
+}
+
 // currentStore returns the store ID a read reports.
 func currentStore(t *testing.T, srv *Server) string {
 	t.Helper()

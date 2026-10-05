@@ -29,7 +29,8 @@ headers.
 | `404` | `ProjectionNotFound` | A projection that doesn't exist, read with `GET /projections/{type}/{id}` or in a transaction |
 | `404` | `TransactionNotFound` | A call on a transaction that is unknown, expired, or already over (see [Transactions](/docs/http-api/transactions/#errors)) |
 | `409` | `PauseCancelled` | `POST /pause`: the request was withdrawn by `POST /resume` or a reset before the pause took hold (see [Pause](/docs/http-api/pause/)) |
-| `409` | `ConcurrencyException` | A commit or `POST /projections`: a condition doesn't hold, or a projection doesn't match the stored one. Any call on a transaction after a store reset. The `message` names the cause (see [Transactions](/docs/http-api/transactions/#commit) and [Projections](/docs/http-api/projections/#conflicts)). Nothing was written |
+| `409` | `ConcurrencyException` | A commit or `POST /projections`: a condition doesn't hold, or a projection doesn't match the stored one. The `message` names the cause (see [Transactions](/docs/http-api/transactions/#commit) and [Projections](/docs/http-api/projections/#conflicts)). Nothing was written |
+| `409` | `NotPaused` | `POST /reset` outside a pause in place (see [Reset](/docs/http-api/reset/)). Nothing was deleted |
 | `413` | `PayloadTooLarge` | An event or a projection over its size limit, or a body over `maxRequestBodySize`. The `message` names the setting |
 | `500` | `InternalError` | An unexpected failure on the server |
 | `503` | `Paused` | `POST /tx` while a pause is requested or in place (see [Pause](/docs/http-api/pause/)). No transaction began |

@@ -12,8 +12,8 @@ Key words in capitals follow [RFC 2119](/docs/concepts/overview/#key-words).
 
 ## The life of a transaction
 
-1. **Begin.** The server returns a transaction ID, and keeps the current [store ID](/docs/concepts/store-id/) with
-   it. While a [pause](/docs/http-api/pause/) is requested or in place, no transaction begins.
+1. **Begin.** The server returns a transaction ID. While a [pause](/docs/http-api/pause/) is requested or in place, no
+   transaction begins.
 2. **Decisions.** Each decision reads events, then writes its events, or none.
 3. **Projections.** Between two decisions, the application reads and writes projections.
 4. **Commit.** The server checks every decision and every projection, then writes everything at once, or nothing.
@@ -71,7 +71,7 @@ What a projection may use is in [Projections](/docs/concepts/projections/#what-a
 ## The commit
 
 - The commit waits for its turn, behind the writes that arrived before it, like any write.
-- In its turn, the server checks the store ID, then every condition, then every projection. Then the events get their
+- In its turn, the server checks every condition, then every projection. Then the events get their
   Sequence Positions, and everything is written. All of it, or none of it.
 - A condition fails if an event that matches its query was committed after the position its read reached. The `409`
   names it by its rank among the transaction's reads: `conditions[0]` is the first.

@@ -30,16 +30,13 @@ var ErrDesign = errors.New("tx: design error")
 var ErrTooLarge = errors.New("tx: transaction too large")
 
 // ConflictError is a commit refused because what the transaction read no
-// longer holds, or a call made after the store changed. It unwraps to
-// store.ErrConcurrencyConflict.
+// longer holds. It unwraps to store.ErrConcurrencyConflict.
 type ConflictError struct {
 	Message string
 }
 
 func (e *ConflictError) Error() string { return e.Message }
 func (e *ConflictError) Unwrap() error { return store.ErrConcurrencyConflict }
-
-var errStoreChanged = &ConflictError{Message: "the transaction was begun on another store"}
 
 func designError(message string) error {
 	return &dcb.ValidationError{Err: ErrDesign, Message: message}
@@ -86,11 +83,9 @@ type Registry struct {
 	txs   map[string]*transaction
 	stats Stats
 
-	// committing counts the commits that have left txs but not yet
-	// written (see Commit). active signals each drop of len(txs) +
-	// committing, for a pause waiting for the transactions to end.
-	committing int
-	active     *sync.Cond
+	// active signals each drop of len(txs), for a pause waiting for the
+	// transactions to end.
+	active *sync.Cond
 
 	// The pause (see pause.go).
 	pause      PauseState
@@ -137,10 +132,9 @@ func (r *Registry) Close() {
 // transaction is one open transaction. Its mu is held for the whole of
 // one call, so a second call on the same transaction waits for the first.
 type transaction struct {
-	mu      sync.Mutex
-	id      string
-	storeID string // the store ID current at Begin
-	closed  bool
+	mu     sync.Mutex
+	id     string
+	closed bool
 
 	// Guarded by Registry.mu, so the sweep never ends a transaction a
 	// call is using or waiting for.
@@ -167,7 +161,6 @@ type openCondition struct {
 func (r *Registry) Begin() (string, error) {
 	t := &transaction{
 		id:          uuid.NewString(),
-		storeID:     r.st.StoreID(),
 		projections: map[Key]*projectionState{},
 	}
 	r.mu.Lock()
@@ -182,9 +175,8 @@ func (r *Registry) Begin() (string, error) {
 	return t.id, nil
 }
 
-// do runs fn on transaction id, alone. Before fn, it checks that the
-// store ID is still the one the transaction began on. Any error from
-// either ends the transaction.
+// do runs fn on transaction id, alone. Any error from fn ends the
+// transaction.
 func (r *Registry) do(id string, fn func(t *transaction) error) error {
 	t, err := r.acquire(id)
 	if err != nil {
@@ -192,10 +184,6 @@ func (r *Registry) do(id string, fn func(t *transaction) error) error {
 	}
 	defer r.release(t)
 	defer t.mu.Unlock()
-	if r.st.StoreID() != t.storeID {
-		r.end(t)
-		return errStoreChanged
-	}
 	if err := fn(t); err != nil {
 		r.end(t)
 		if errors.Is(err, ErrDesign) {
@@ -339,10 +327,6 @@ func (r *Registry) ReadEvents(ctx context.Context, id string, q dcb.Query) (Read
 			if err != nil {
 				return err
 			}
-			if it.StoreID() != t.storeID {
-				it.Close()
-				return errStoreChanged
-			}
 			open.position = it.Position()
 			read.Committed = it
 		}
@@ -382,41 +366,32 @@ func (r *Registry) WriteEvents(id string, events []dcb.EventData) (time.Time, er
 }
 
 // Commit ends the transaction and writes everything it holds at once, in
-// its turn in the FIFO: the store ID is checked first, then every
-// condition, then the projections, then the events are appended. All of
+// its turn in the FIFO: every condition is checked, then the
+// projections, then the events are appended. All of
 // it is written, or none of it. A transaction with nothing to write
 // commits at once, without a turn.
 //
-// A commit leaves the Registry before it joins the FIFO, and counts in
-// committing until its write ends. A pause MUST wait for both: one that
-// saw only the Registry could join the FIFO ahead of a commit that has
-// just left it, and that commit's events would then come after the last
-// Sequence Position the pause returned.
+// A transaction MUST stay in the Registry until its write ends. A pause
+// looks only at the Registry: if a commit left it before writing, a pause
+// could join the FIFO ahead of that commit, and the commit's events would
+// then come after the last Sequence Position the pause returned. Staying
+// changes nothing for the other calls on the transaction: do holds t.mu
+// for the whole commit, so they wait, then find it closed, and the sweep
+// leaves it alone since it's busy.
 func (r *Registry) Commit(ctx context.Context, id string) error {
 	return r.do(id, func(t *transaction) error {
 		if t.open != nil {
 			return designError("commit while a condition is open: write the events of the last read first, or an empty list")
 		}
-		r.mu.Lock()
-		r.committing++
-		r.mu.Unlock()
-		defer func() {
-			r.mu.Lock()
-			r.committing--
-			r.active.Broadcast()
-			r.mu.Unlock()
-		}()
-		r.end(t) // the transaction is over, whatever the outcome
+		defer r.end(t) // the transaction is over, whatever the outcome, once written
 		writes, keys := t.netProjections()
 		if len(t.events) == 0 && writes.Len() == 0 {
 			r.countCommit()
 			return nil
 		}
-		_, err := r.wr.WritePending(ctx, t.storeID, t.events, t.conditions, writes)
+		_, err := r.wr.WritePending(ctx, t.events, t.conditions, writes)
 		var pe *store.ProjectionConflictError
 		switch {
-		case errors.Is(err, writer.ErrStoreChanged):
-			return errStoreChanged
 		case errors.As(err, &pe):
 			return keys.conflict(pe)
 		case err != nil:
