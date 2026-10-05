@@ -45,8 +45,9 @@ Key words in capitals follow [RFC 2119](/docs/concepts/overview/#key-words).
 ## Lost responses
 
 - A commit whose response is lost can't be sent again. The application runs the command again, in a new transaction.
-  A decision that reads `"none"`, or whose query doesn't match its own events, would write them twice: it MUST find
-  out by other means (see [A lost response](/docs/http-api/transactions/#a-lost-response)).
+  An event written by a decision whose read doesn't match it, and not in reaction to one whose read does, would be
+  written twice: the command MUST find out by other means (see
+  [A lost response](/docs/http-api/transactions/#a-lost-response)).
 - A `POST /projections` whose response is lost MAY be sent again as is: it's never applied twice. A `409` on the retry
   doesn't say which attempt won, so the client reads the projections again (see
   [A lost response](/docs/http-api/projections/#a-lost-response)).

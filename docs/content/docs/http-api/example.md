@@ -15,7 +15,7 @@ call. TamarackDB knows none of them: it only sees the calls.
 
 | Code | Reacts to | Reads | Writes |
 |---|---|---|---|
-| PlaceOrderModel | the order command | the customer | `order-placed` |
+| PlaceOrderModel | the order command | the customer, and the order | `order-placed`, or nothing if the order exists |
 | EarnPointsModel, run by LoyaltyProcessor | `order-placed` | `"none"`: one point per dollar | `points-earned` |
 | CustomerPointsProjector | `points-earned` | | the `customer-points` projection |
 | PromoteCustomerModel, run by TierProcessor | `points-earned` | the customer's points and promotions | `customer-promoted` at 1,000 points, or nothing |
@@ -33,21 +33,23 @@ no say in it.
 ## What the store holds
 
 Customer `c1` has 950 points. Product `p1` received 10 units and has 7 reserved: 3 are left. The customer orders one
-unit of `p1`, for 30 dollars.
+unit of `p1`, for 30 dollars. The order command carries its order ID, `o1`, chosen by the application before it
+sends any call.
 
 In the calls below, `{txId}` stands for the transaction ID, and each response follows its request. Payloads are short
 JSON strings.
 
 ## The order
 
-**PlaceOrderModel** begins the transaction, reads the customer, and places the order.
+**PlaceOrderModel** begins the transaction, reads the customer and the order, and places the order. No
+`order-placed` exists for `o1` yet.
 
 ```
 POST /tx
 200 {"txId":"7d1e4b2a-3c5f-4e6d-9a8b-0c1d2e3f4a5b"}
 
 QUERY /tx/{txId}/events
-{"query":[{"types":["customer-registered"],"identifiers":[{"name":"customerId","value":"c1"}]}]}
+{"query":[{"types":["customer-registered"],"identifiers":[{"name":"customerId","value":"c1"}]},{"types":["order-placed"],"identifiers":[{"name":"orderId","value":"o1"}]}]}
 200
 {"sequence":1,"time":"2026-09-02T08:00:00.000000Z","type":"customer-registered","identifiers":{"customerId":"c1"},"metadata":{},"payload":"{}"}
 {"end":true}
@@ -192,6 +194,36 @@ DELETE /tx/{txId}
 empty write of PromoteCustomerModel is checked like any decision, so the commit gets `conditions[2] no longer holds`.
 The command runs again, PromoteCustomerModel sees 1,020 points, and writes `customer-promoted` (see
 [Transactions](/docs/concepts/transactions/#one-decision-one-read-one-write)).
+
+**A lost response.** Say the connection drops during the commit, and the `204` never arrives. The application can't
+tell whether the order was written, so it runs the whole command again, with the same order ID. PlaceOrderModel's
+read now finds `o1`:
+
+```
+POST /tx
+200 {"txId":"a9c2e5f1-6b3d-4e8a-9c7f-2d1e0b4a8c63"}
+
+QUERY /tx/{txId}/events
+{"query":[{"types":["customer-registered"],"identifiers":[{"name":"customerId","value":"c1"}]},{"types":["order-placed"],"identifiers":[{"name":"orderId","value":"o1"}]}]}
+200
+{"sequence":1,"time":"2026-09-02T08:00:00.000000Z","type":"customer-registered","identifiers":{"customerId":"c1"},"metadata":{},"payload":"{}"}
+{"sequence":46,"time":"2026-10-03T21:11:05.123456Z","type":"order-placed","identifiers":{"orderId":"o1","customerId":"c1","productId":"p1"},"metadata":{},"payload":"{\"quantity\":1,\"total\":30}"}
+{"end":true}
+
+DELETE /tx/{txId}
+204
+```
+
+The order exists: PlaceOrderModel writes nothing, so no `order-placed` is pending, and none of the code that reacts to
+it runs. The application abandons the transaction, and reports the order as placed.
+
+- If the first commit hadn't gone through, the read finds no `o1`, and the order is placed normally.
+- If the first commit was still waiting or running, the read finds no `o1` either. The second commit then comes after
+  the first: its condition on `o1` fails with `409`, and the command runs once more, now finding `o1`.
+- EarnPointsModel reads `"none"`, and yet the points are never earned twice: it only runs when PlaceOrderModel writes
+  an `order-placed` in the same transaction.
+- Had PlaceOrderModel read only the customer, the command run again would place `o1` a second time (see
+  [A lost response](/docs/http-api/transactions/#a-lost-response)).
 
 ## A projector that catches up: sales by day
 

@@ -175,9 +175,11 @@ The application runs the whole command again, in a new transaction:
   arrive. The new transaction's read either finds the first commit's events, or its condition fails with `409` and
   the command runs once more. Either way, the decision ends up made on those events, and doesn't write them twice.
 
-This holds only for a decision whose read matches the events it writes. A decision that reads `"none"`, or whose
-query doesn't match its own events, has nothing to check them against: run again, it writes its events a second time.
-Such a command MUST find out by other means, for example by reading the events that carry an identifier it gave them.
+This holds for the events of a decision whose read matches them: run again, the decision finds them and writes
+nothing, so the code that reacts to them doesn't run either. An event written by a decision that reads `"none"`, or
+whose query doesn't match it, and not in reaction to such a decision, would be written a second time. Such a command
+MUST find out by other means. The usual way is to give the entity an ID before the first call, and have the decision
+that creates it read that ID (see the [example](/docs/http-api/example/#when-something-changes-in-between)).
 
 **Why not read back what the commit wrote.** Finding nothing can mean "not written" or "not written yet": the first
 commit may still be waiting or running, and a read never waits for it.
