@@ -111,6 +111,15 @@
 // enough to run often. A full ANALYZE never runs on its own: it's for a
 // one-off bulk import, run by hand while the server is stopped.
 //
+// # The pause
+//
+// The pause is kept in the store table, in paused_at, and in memory
+// next to the store ID. It MUST survive a restart: an operation that
+// relies on it, a rebuild for example, would otherwise see commands start
+// again because the server restarted. SetPause and ClearPause write it on
+// the write connection, in their caller's turn in the FIFO; Reset clears
+// it. What a pause blocks, and how it begins and ends, is package tx's.
+//
 // # Schema version
 //
 // The schema version is PRAGMA user_version, built into the binary (see

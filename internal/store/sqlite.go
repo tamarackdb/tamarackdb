@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"time"
 
 	_ "modernc.org/sqlite"
 )
@@ -38,6 +39,11 @@ type Store struct {
 	// storeID is the store ID (see storeid.go), read at Open and changed
 	// only by Reset. seqMu guards it too: Reset changes both together.
 	storeID string
+
+	// pausedAt is when the pause began, zero outside a pause (see
+	// pause.go). seqMu guards it too: SetPause reads the counter and the
+	// store ID with it.
+	pausedAt time.Time
 }
 
 func dsn(path string, extra string) string {
@@ -129,8 +135,15 @@ func Open(ctx context.Context, path string, readPoolSize int) (*Store, error) {
 		releaseLock(lock)
 		return nil, err
 	}
+	pausedAt, err := readPausedAt(ctx, writeDB)
+	if err != nil {
+		writeDB.Close()
+		readDB.Close()
+		releaseLock(lock)
+		return nil, err
+	}
 
-	return &Store{writeDB: writeDB, readDB: readDB, lock: lock, nextSeq: maxSeq + 1, storeID: storeID}, nil
+	return &Store{writeDB: writeDB, readDB: readDB, lock: lock, nextSeq: maxSeq + 1, storeID: storeID, pausedAt: pausedAt}, nil
 }
 
 // createPrivate creates the database file, empty, readable and writable
@@ -194,7 +207,7 @@ func (s *Store) ReadPoolStats() PoolStats {
 
 // Reset deletes every event and every projection, sets the Sequence
 // Position counter back to zero (the next event appended gets sequence 1),
-// and draws a new store ID. The schema stays in place. It's meant for dev
+// draws a new store ID, and clears the pause. The schema stays in place. It's meant for dev
 // mode only. Since the write pool holds a single connection, Reset waits
 // for a write in progress to end.
 func (s *Store) Reset(ctx context.Context) error {
@@ -215,7 +228,7 @@ func (s *Store) Reset(ctx context.Context) error {
 		}
 	}
 	storeID := newStoreID()
-	if _, err := tx.ExecContext(ctx, "UPDATE store SET id = ?", storeID); err != nil {
+	if _, err := tx.ExecContext(ctx, "UPDATE store SET id = ?, paused_at = NULL", storeID); err != nil {
 		return wrapf("reset", err)
 	}
 	// The counter's mutex is held across the commit: the commit frees the
@@ -229,5 +242,6 @@ func (s *Store) Reset(ctx context.Context) error {
 	}
 	s.nextSeq = 1
 	s.storeID = storeID
+	s.pausedAt = time.Time{}
 	return nil
 }
