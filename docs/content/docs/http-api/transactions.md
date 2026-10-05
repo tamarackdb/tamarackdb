@@ -165,9 +165,22 @@ After a `409`, the client runs the whole command again, in a new transaction.
 
 ### A lost response
 
-If the commit's response is lost, the client can't send it again: the transaction no longer exists, and a second
-commit gets `404 TransactionNotFound`. To know whether the write happened, the client reads what the transaction wrote,
-a projection for example.
+If the commit's response is lost, the client can't tell whether the write happened. It can't send the commit again:
+the transaction no longer exists, and a second commit gets `404 TransactionNotFound`.
+
+The application runs the whole command again, in a new transaction:
+
+- If the first commit didn't go through, the new one writes normally.
+- If it did, or is still waiting or running, the new commit comes after it: commits are served in the order they
+  arrive. The new transaction's read either finds the first commit's events, or its condition fails with `409` and
+  the command runs once more. Either way, the decision ends up made on those events, and doesn't write them twice.
+
+This holds only for a decision whose read matches the events it writes. A decision that reads `"none"`, or whose
+query doesn't match its own events, has nothing to check them against: run again, it writes its events a second time.
+Such a command MUST find out by other means, for example by reading the events that carry an identifier it gave them.
+
+**Why not read back what the commit wrote.** Finding nothing can mean "not written" or "not written yet": the first
+commit may still be waiting or running, and a read never waits for it.
 
 ## Abandon
 

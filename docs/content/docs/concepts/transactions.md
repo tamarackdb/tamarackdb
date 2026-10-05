@@ -80,8 +80,9 @@ What a projection may use is in [Projections](/docs/concepts/projections/#what-a
   conditions: a condition only protects what is written.
 - The transaction is over after its commit, whatever the outcome. After a `409`, the application MUST run the whole
   command again, in a new transaction.
-- A commit whose response is lost can't be sent again: the transaction no longer exists. The application checks
-  whether its write happened, for example by reading a projection the transaction wrote.
+- A commit whose response is lost can't be sent again: the transaction no longer exists. The application runs the
+  command again: a decision whose read matches its own events then finds them, or gets `409`, and doesn't write them
+  twice (see [A lost response](/docs/http-api/transactions/#a-lost-response)).
 
 ## The end of a transaction
 
