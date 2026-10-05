@@ -1,6 +1,6 @@
 ---
 title: "Conventions"
-description: "What every endpoint of the TamarackDB HTTP API has in common: the endpoints, connecting, strict request bodies, the body size cap, and the store ID header."
+description: "What every endpoint of the TamarackDB HTTP API has in common: connecting, strict request bodies, waiting for a turn, the client leaving, and the store ID."
 slug: "conventions"
 weight: 1
 ---
@@ -15,14 +15,14 @@ Key words in capitals follow [RFC 2119](/docs/concepts/overview/#key-words).
 |---|---|
 | [`QUERY /events`](/docs/http-api/read-events/) | Read committed events |
 | [`POST /tx`](/docs/http-api/transactions/) and `/tx/{txId}/...` | Begin a transaction, read and write in it, then commit it in its turn, or abandon it |
-| [`POST /write`](/docs/http-api/write/) | Check Append Conditions, append events, and write projections, all or nothing, in its turn |
-| [`GET /projections/{type}/{id}`](/docs/http-api/projections/) | Read one committed projection |
+| [`POST /projections`](/docs/http-api/projections/#writing-projections) | Create, replace, and delete projections outside any transaction, all or nothing, in its turn |
+| [`GET /projections/{type}/{id}`](/docs/http-api/projections/#reading-a-projection) | Read one committed projection |
 | [`DELETE /projections/{type}`](/docs/http-api/projections/#bulk-delete) | Delete every projection of one type, in its turn |
 | [`DELETE /projections`](/docs/http-api/projections/#bulk-delete) | Delete every projection, in its turn |
 | [`POST /reset`](/docs/http-api/reset/) | Delete all events and projections and draw a new store ID, in its turn (development mode only) |
 
 - "In its turn" means the request waits behind the requests that arrived before it: the server runs them one at a
-  time, in the order they arrive.
+  time, in the order they arrive (see [Waiting for a turn](#waiting-for-a-turn)).
 - `GET /health` and `GET /stats` are operational endpoints (see [Health check](/docs/operations/health-check/) and
   [Observability](/docs/operations/observability/)).
 
@@ -46,13 +46,40 @@ The examples in these pages assume a server on `127.0.0.1:8085`, with authentica
   - anything after the JSON value, other than whitespace, gets `400`.
 - Every request body is capped at `maxRequestBodySize` (see [Configuration](/docs/operations/configuration/)). Past
   the cap, the server stops reading and responds `413 PayloadTooLarge`.
+- A request that waits for its turn is read and checked in full before it joins the queue. An invalid body gets `400`
+  or `413` right away.
 
 **Why strict.** Most keys are optional. A misspelled one would otherwise be dropped without a word: a misspelled
 `afterSequence` would widen a read, and a misspelled list in a write would drop it.
 
 **Why a body cap.** It keeps a client from making the server read an unbounded body into memory before the other
 limits are checked. It isn't checked against the other limits: a body can reach it before every one of its items
-reaches its own. It's the real bound on a write, and the others are rules for each item.
+reaches its own. It bounds one request, not a transaction, which is built over many requests: a transaction has
+limits of its own (see [Transactions](/docs/http-api/transactions/#limits)).
+
+**Why check the body before the turn.** A client sending its body slowly would otherwise hold the turn, and every
+request behind it, for as long as it likes.
+
+## Waiting for a turn
+
+These requests wait for their turn: a transaction's commit, `POST /projections`, the bulk deletes of projections, and
+`POST /reset`.
+
+- They go through one at a time, in the order they arrive. Each waits, with its connection held open, behind the
+  requests that arrived before it.
+- Each holds the turn only for its own SQLite transaction, usually a few milliseconds.
+- When too many requests already wait (`maxQueuedWrites`, see [Configuration](/docs/operations/configuration/)), a
+  new one gets `503 WriteQueueFull` and never joins the queue. Nothing is written.
+- A request waiting or arriving while the server shuts down gets `503 ShuttingDown`. Nothing is written.
+- The server puts no limit on how long a request waits. A client sets its own: when it no longer wants to wait, it
+  closes the connection.
+
+## The client leaving
+
+- A client that disconnects while its request waits leaves the queue, and nothing is written.
+- The server checks once more that the client is still there just as the turn comes.
+- From then on, the request goes to the end, even if the client leaves. The client then can't tell whether it was
+  written.
 
 ## Store ID header
 
@@ -63,7 +90,7 @@ that depends on the store:
 |---|---|
 | `QUERY /events` | On every page, empty pages included |
 | `GET /projections/{type}/{id}` | On `200` and on `404` |
-| `POST /write` | On `200` |
+| `POST /projections` | On `200` |
 
 - No transaction endpoint carries it: the server keeps the store ID with the transaction.
 - A read takes the store ID in the same SQLite snapshot as the events or the projection it returns, so a response

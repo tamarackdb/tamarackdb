@@ -66,9 +66,8 @@ tags, and the application knows how to read each one back.
 
 ## Time
 
-- `time` is when the server received the write that carries the event, read from the server's clock. In a
-  transaction, that's the write of the decision (see [Transactions](/docs/concepts/transactions/)). With
-  [`POST /write`](/docs/http-api/write/), that's when the write gets its turn, just before it commits.
+- `time` is when the server received the write that carries the event, read from the server's clock: the write of
+  the decision, in its transaction (see [Transactions](/docs/concepts/transactions/)).
 - It's in RFC 3339 format, always in UTC (`Z`), with exactly 6 fractional digits:
   `2026-09-01T14:23:05.123456Z`.
 - Every event of one write shares the same `time`. Order within a write comes from `sequence`.

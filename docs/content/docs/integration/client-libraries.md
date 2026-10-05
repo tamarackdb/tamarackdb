@@ -46,9 +46,9 @@ Key words in capitals follow [RFC 2119](/docs/concepts/overview/#key-words).
 
 - A commit whose response is lost can't be sent again. The client checks whether the write happened, for example by
   reading a projection the transaction wrote (see [Commit](/docs/http-api/transactions/#a-lost-response)).
-- A `POST /write` whose response is lost can be sent again with the same Append Conditions. A unique `writeId` in the
-  metadata, with a condition on it, makes any write safe to retry (see
-  [A lost response](/docs/http-api/write/#a-lost-response)).
+- A `POST /projections` whose response is lost MAY be sent again as is: it's never applied twice. A `409` on the retry
+  doesn't say which attempt won, so the client reads the projections again (see
+  [A lost response](/docs/http-api/projections/#a-lost-response)).
 
 ## Testing
 

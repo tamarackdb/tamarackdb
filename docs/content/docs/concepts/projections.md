@@ -18,9 +18,9 @@ Key words in capitals follow [RFC 2119](/docs/concepts/overview/#key-words).
 - It's always read by `type` and `id`. There is no query over projections.
 - Every projection can be rebuilt from events. That's why backups leave projections out (see
   [Backup](/docs/operations/backup/)).
-- Projections live in the same SQLite file as events, and are written by the same writes: a transaction's commit, or
-  [`POST /write`](/docs/http-api/write/). Events and projections of one write become durable together, or neither
-  does.
+- Projections live in the same SQLite file as events. A transaction's commit writes both: its events and projections
+  become durable together, or neither does. Outside a transaction,
+  [`POST /projections`](/docs/http-api/projections/#writing-projections) writes projections only.
 - The payload's format (JSON, XML, plain text) is up to the writing application. The store never parses it.
 
 The calls are in [HTTP API: Projections](/docs/http-api/projections/), and in
@@ -33,18 +33,19 @@ Every projection has a version, a random UUID (version 4), new on every write.
 - In a transaction, the server keeps the version of each projection read, and the client never sees it (see
   [Transactions](/docs/concepts/transactions/#projections-in-a-transaction)). At commit, the server checks it the same
   way as below.
-- With [`POST /write`](/docs/http-api/write/), a write changes a projection with one of three operations:
+- With [`POST /projections`](/docs/http-api/projections/#writing-projections), a write changes a projection with one
+  of three operations:
   - `create`: the `type` + `id` MUST be free.
   - `replace`: the stored version MUST be the one given. The whole payload is replaced.
   - `delete`: the stored version MUST be the one given.
-- An operation that doesn't hold fails the whole write with `409 ConcurrencyException`, events included. A `replace`
-  or `delete` of a projection that no longer exists fails the same way: another write deleted it since it was read.
+- An operation that doesn't hold fails the whole write with `409 ConcurrencyException`. A `replace` or `delete` of a
+  projection that no longer exists fails the same way: another write deleted it since it was read.
 - A `409` on a projection means another write changed it since it was read. Read it again and redo the work, in a new
   transaction or a new write.
 - Only the projections a write changes are checked, never the ones it only read (see
   [Append Condition](/docs/concepts/append-condition/#what-a-condition-doesnt-cover)).
 - A client MUST treat a version it receives as opaque: compare it only for equality, and never compute it. To change
-  the same projection again with `POST /write`, use the version from the last response.
+  the same projection again with `POST /projections`, use the version from the last response.
 
 **Why.** The version check is what keeps two writes from overwriting each other's projections: each one read a
 version, and the second write to arrive finds it changed. An opaque UUID can't be guessed from the previous one, and
@@ -72,8 +73,9 @@ replaying every event in order, several threads in parallel, or anything else. I
 1. Delete the projections to rebuild, one type at a time or all at once, with a
    [bulk delete](/docs/http-api/projections/#bulk-delete).
 2. Page through [`QUERY /events`](/docs/http-api/read-events/) to read the events to replay.
-3. Write the rebuilt projections with [`POST /write`](/docs/http-api/write/), in one write or several. A projection
-   is a `create` the first time, then a `replace` with the version the previous write returned.
+3. Write the rebuilt projections with [`POST /projections`](/docs/http-api/projections/#writing-projections), in one
+   write or several. A projection is a `create` the first time, then a `replace` with the version the previous write
+   returned.
 
 One write or several is the application's choice:
 

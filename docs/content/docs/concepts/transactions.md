@@ -114,9 +114,10 @@ tell these cases apart.
 
 ## Outside a transaction
 
-[`POST /write`](/docs/http-api/write/) writes events and projections in one request, with no transaction. It serves
-what isn't a command: a projector that catches up on its own, a rebuild, a script. Its Append Conditions and projection
-versions are sent by the client (see [Append Condition](/docs/concepts/append-condition/)).
+Events enter the log only through a transaction. Projections also have a write of their own,
+[`POST /projections`](/docs/http-api/projections/#writing-projections), for what isn't a command: a projector that
+catches up on its own, or a rebuild. The client sends the version of each projection itself (see
+[Projections](/docs/concepts/projections/#versions)).
 
 ## The guarantee
 

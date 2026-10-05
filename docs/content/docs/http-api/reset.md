@@ -24,12 +24,12 @@ tests left behind.
 
 ## Its turn
 
-A reset waits for its turn like a write (see [Writing](/docs/http-api/write/#waiting-for-a-turn)):
+A reset waits for its turn like a write (see [Waiting for a turn](/docs/http-api/conventions/#waiting-for-a-turn)):
 
 - The writes queued before it go through, then the reset deletes them.
 - A write queued after it runs on the new store:
-  - a condition that carries the old store ID gets `409`;
-  - a `replace` or `delete` of a projection gets `409`, since its version no longer exists;
-  - a condition with no `afterSequence`, or a write with no condition, goes through: it holds on any store.
+  - the commit of a transaction begun before the reset gets `409`;
+  - a `replace` or `delete` in `POST /projections` gets `409`, since its version no longer exists;
+  - a `create` in `POST /projections` goes through, on the new store.
 - A reset can get `503 WriteQueueFull`. Closing the connection while it waits takes it out of the queue, and nothing is
   deleted.

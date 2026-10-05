@@ -1,6 +1,6 @@
 ---
 title: "Example: an online store"
-description: "One order in an online store as the HTTP calls an application sends: five decisions and their projections in one transaction, then a projector with POST /write."
+description: "One order in an online store as the HTTP calls an application sends: five decisions and their projections in one transaction, then an async projector."
 slug: "example"
 weight: 9
 ---
@@ -197,8 +197,8 @@ The command runs again, PromoteCustomerModel sees 1,020 points, and writes `cust
 
 A projector that makes no decision doesn't use a transaction. DailySalesProjector keeps one `daily-sales` projection per
 day, from the `order-placed` events. It keeps its position, a store ID and the last Sequence Position processed, in a
-projection of its own, `projector-position/daily-sales`. It runs in a loop, one page at a time, with
-[`POST /write`](/docs/http-api/write/).
+projection of its own, `projector-position/daily-sales`. It runs in a loop, one page at a time, and writes with
+[`POST /projections`](/docs/http-api/projections/#writing-projections).
 
 1. It reads its position, and keeps its version:
 
@@ -223,12 +223,16 @@ projection of its own, `projector-position/daily-sales`. It runs in a loop, one 
 4. It writes the days and its new position in one write, each with the version it read:
 
    ```
-   POST /write
-   {"projections":{
+   POST /projections
+   {
      "create":[{"type":"daily-sales","id":"2026-10-03","payload":"{\"orders\":1,\"total\":30}"}],
      "replace":[{"type":"projector-position","id":"daily-sales","version":"1b2c3d4e-5f60-4718-9a0b-c1d2e3f4a5b6","payload":"{\"store\":\"5b0c7e2a-1f4d-4a9b-8c3e-6d2f1a0b9e47\",\"sequence\":187}"}]
-   }}
+   }
+   200
+   {"create":[{"version":"5a6b7c8d-9e0f-4a1b-8c2d-3e4f5a6b7c8d"}],"replace":[{"version":"d4c3b2a1-0f9e-4d8c-b7a6-5f4e3d2c1b0a"}]}
    ```
+
+   It keeps the new version of its position for the next page.
 
 5. A `409` means another instance, or a rebuild, changed the position or a day since it read them. Nothing was written:
    it starts over at step 1.
@@ -239,7 +243,10 @@ projection of its own, `projector-position/daily-sales`. It runs in a loop, one 
   crash between two pages.
 - Two instances that cross get a `409` on the position. The server doesn't know which projector writes what: the
   version keeps them apart.
+- A reset between its read and its write deletes the position, so the `replace` of the position gets `409`: days
+  computed from the old store are never written to the new one. This is one reason the position goes in the same
+  `POST /projections` as the days.
 - The projection may use `sequence` and `time`: the events it reads are already committed (see
   [Projections](/docs/concepts/projections/#what-a-projection-may-use)).
 - A rebuild deletes the `daily-sales` projections with a [bulk delete](/docs/http-api/projections/#bulk-delete), and
-  the position with `POST /write`. The projector then starts from the beginning.
+  the position with `POST /projections`. The projector then starts from the beginning.

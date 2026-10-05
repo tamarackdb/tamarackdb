@@ -10,13 +10,13 @@ The server logs one line per request to stdout.
 ## The line
 
 ```
-tamarackdb-server: [WARNING] POST /write 503 27B 0.07ms
+tamarackdb-server: [WARNING] POST /projections 503 27B 0.07ms
 ```
 
 - It carries the level, the method, the path, the status code, the response size, and the time taken.
 - It's written once the handler ends. It wraps the whole routed handler, authentication included, so a request
   turned away with `401` is logged like any other.
-- It never carries a request or response body: queries, conditions, and events never reach the log.
+- It never carries a request or response body: queries, events, and projections never reach the log.
 - `logLevel` sets the lowest level written: `debug`, `info`, `warning`, or `error`. The default, `warning`, prints
   only `warning` and `error` lines. Set it to `debug` to see every request while testing an integration.
 

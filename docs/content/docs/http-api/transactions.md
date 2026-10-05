@@ -51,6 +51,7 @@ curl -X QUERY http://127.0.0.1:8085/tx/7d1e4b2a-3c5f-4e6d-9a8b-0c1d2e3f4a5b/even
 - `query` is required, in the [query grammar](/docs/http-api/query-grammar/). A decision that rests on no event reads
   `"none"`. The body takes no other key: there is no `afterSequence` and no `limit`.
 - The read opens a condition. The next call on the transaction MUST be [a write of events](#writing-events).
+- A read past `maxReadsPerTx` gets `400` (see [Limits](#limits)).
 
 `200 OK`, with an [NDJSON](https://github.com/ndjson/ndjson-spec) body (`Content-Type: application/x-ndjson`):
 
@@ -83,12 +84,14 @@ curl -X POST http://127.0.0.1:8085/tx/7d1e4b2a-3c5f-4e6d-9a8b-0c1d2e3f4a5b/event
 {"time":"2026-10-03T21:11:07.554310Z"}
 ```
 
-- `events` is required. Each event has the same shape as in [`POST /write`](/docs/http-api/write/#request).
+- `events` is required. Each event has a `type`, `identifiers`, `metadata`, and a `payload` (see
+  [Events](/docs/concepts/events/#fields)).
 - `{"events": []}` is the decision to write nothing. It closes the condition like any other write.
 - The write closes the open condition. Without one, it's refused.
 - `time` is the time every event of this write carries, read from the server's clock when the write arrived. The
   events get their `sequence` at commit.
 - An event over `maxEventSize` gets `413`.
+- A write that would take the transaction over `maxEventsPerTx` events gets `400` (see [Limits](#limits)).
 
 ## Reading a projection
 
@@ -128,6 +131,7 @@ curl -X POST http://127.0.0.1:8085/tx/7d1e4b2a-3c5f-4e6d-9a8b-0c1d2e3f4a5b/proje
 - One write names a projection at most once, across the two lists.
 - Deleting a projection that doesn't exist does nothing.
 - A projection over `maxProjectionSize` gets `413`.
+- A write that would take the transaction over `maxProjectionsPerTx` projections gets `400` (see [Limits](#limits)).
 - A write is refused while a condition is open.
 - `time` is the time of the write, by the server's clock: the response has the same shape as a write of events.
 
@@ -141,12 +145,12 @@ curl -X POST http://127.0.0.1:8085/tx/7d1e4b2a-3c5f-4e6d-9a8b-0c1d2e3f4a5b/commi
 from its write, and nothing else is returned.
 
 - A commit is refused while a condition is open.
-- It waits for its turn behind the writes that arrived before it, and may get `503 WriteQueueFull` or
-  `503 ShuttingDown`, like [`POST /write`](/docs/http-api/write/#waiting-for-a-turn).
+- It waits for its turn behind the requests that arrived before it, and may get `503 WriteQueueFull` or
+  `503 ShuttingDown` (see [Waiting for a turn](/docs/http-api/conventions/#waiting-for-a-turn)).
 - A transaction with nothing to write gets `204` at once.
 - The transaction is over after its commit, whatever the outcome. A client that disconnects while its commit waits
   leaves the queue, and nothing is written. Once its turn comes, the commit goes to the end, even if the client
-  leaves (see [The client leaving](/docs/http-api/write/#the-client-leaving)).
+  leaves (see [The client leaving](/docs/http-api/conventions/#the-client-leaving)).
 
 A conflict gets `409 ConcurrencyException`, and nothing is written. The `message` names the cause:
 
@@ -158,13 +162,6 @@ A conflict gets `409 ConcurrencyException`, and nothing is written. The `message
 | The store was reset since the transaction began | `the transaction was begun on another store` |
 
 After a `409`, the client runs the whole command again, in a new transaction.
-
-### Limits
-
-At commit, the transaction as a whole MUST fit the limits of one write: at most `maxEventsPerWrite` events, at most
-`maxEventsPerWrite` reads of events, and at most `maxProjectionsPerWrite` projections to write (see
-[Configuration](/docs/operations/configuration/#settings)). Over a limit, the commit gets `400`, and the `message` names
-the setting.
 
 ### A lost response
 
@@ -181,11 +178,34 @@ curl -X DELETE http://127.0.0.1:8085/tx/7d1e4b2a-3c5f-4e6d-9a8b-0c1d2e3f4a5b
 `204 No Content`, always, even for a transaction that already ended. Nothing it held is written. It's meant as a
 precaution in the error handler around a command, often after an error already ended the transaction.
 
+## Limits
+
+Three settings bound a transaction, across all its calls (see
+[Configuration](/docs/operations/configuration/#settings)):
+
+| Setting | What it counts |
+|---|---|
+| `maxEventsPerTx` | The events the transaction writes, across all its writes of events |
+| `maxReadsPerTx` | Its reads of events, those followed by an empty write included |
+| `maxProjectionsPerTx` | The distinct projections it writes, across all its writes of projections, `upsert` and `delete` together. A projection written twice counts once |
+
+- Each call is checked before it does anything. The call that would go over gets `400 InvalidRequest`, and the
+  `message` names the setting, for example `the transaction would read events 101 times, more than maxReadsPerTx
+  (100)`.
+- Like any error, the refusal ends the transaction.
+- The read of events that would go over runs no query.
+
+**Why.** `maxRequestBodySize` bounds one request, not a transaction, which is built over many requests. A commit holds
+its turn while it checks the condition of every read and writes every event and projection: without these limits,
+every request behind it would wait for as long as the transaction likes. A read followed by an empty write counts,
+since its condition is checked at commit like the others. Checking each call tells the client before it has done all
+its work.
+
 ## Errors
 
 | Status | `error` | When |
 |---|---|---|
-| `400` | `InvalidRequest` | A malformed body, or a call that breaks a rule of transactions. The `message` names the rule, for example `events written without a read` |
+| `400` | `InvalidRequest` | A malformed body, a call that breaks a rule of transactions, or a call over a [limit](#limits). The `message` names the rule or the setting, for example `events written without a read` |
 | `404` | `TransactionNotFound` | The transaction is unknown, expired, or already over |
 | `404` | `ProjectionNotFound` | [Reading a projection](#reading-a-projection) that doesn't exist |
 | `409` | `ConcurrencyException` | At commit, a [conflict](#commit). On any call, a store reset since the transaction began |

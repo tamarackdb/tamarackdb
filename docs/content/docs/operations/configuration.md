@@ -52,8 +52,10 @@ A file that holds `authToken` is a secret: see [Security](/docs/operations/secur
 | `maxEventsPerPage` | `TAMARACKDB_MAX_EVENTS_PER_PAGE` | `10000` | The highest `limit` a `QUERY /events` may ask for |
 | `maxEventSize` | `TAMARACKDB_MAX_EVENT_SIZE` | `65536` (64 KiB) | The largest event, in bytes (see [Events](/docs/concepts/events/#size)) |
 | `maxProjectionSize` | `TAMARACKDB_MAX_PROJECTION_SIZE` | `65536` (64 KiB) | The largest projection, in bytes: its `type`, `id`, and `payload` together |
-| `maxEventsPerWrite` | `TAMARACKDB_MAX_EVENTS_PER_WRITE` | `100` | The most events, and the most Append Conditions, in one write: a `POST /write`, or a transaction's commit |
-| `maxProjectionsPerWrite` | `TAMARACKDB_MAX_PROJECTIONS_PER_WRITE` | `500` | The most projections in one write: a `POST /write`, or a transaction's commit |
+| `maxEventsPerTx` | `TAMARACKDB_MAX_EVENTS_PER_TX` | `100` | The most events one transaction writes, across all its writes of events (see [Transactions](/docs/http-api/transactions/#limits)) |
+| `maxReadsPerTx` | `TAMARACKDB_MAX_READS_PER_TX` | `100` | The most reads of events in one transaction, those followed by an empty write included |
+| `maxProjectionsPerTx` | `TAMARACKDB_MAX_PROJECTIONS_PER_TX` | `500` | The most distinct projections one transaction writes, across all its writes of projections |
+| `maxProjectionsPerWrite` | `TAMARACKDB_MAX_PROJECTIONS_PER_WRITE` | `500` | The most projections in one `POST /projections` (see [Projections](/docs/http-api/projections/#limits)) |
 | `maxRequestBodySize` | `TAMARACKDB_MAX_REQUEST_BODY_SIZE` | `8388608` (8 MiB) | The largest request body, in bytes, for every endpoint |
 | `maxQueuedWrites` | `TAMARACKDB_MAX_QUEUED_WRITES` | `100` | The most requests waiting for their turn at once (see below) |
 | `readPoolSize` | `TAMARACKDB_READ_POOL_SIZE` | `8` | SQLite connections for reads, and so how many reads run at once |
@@ -80,12 +82,13 @@ A file that holds `authToken` is a secret: see [Security](/docs/operations/secur
 
 ## Limits
 
-- The size and count limits (`maxEventSize`, `maxProjectionSize`, `maxEventsPerWrite`, `maxProjectionsPerWrite`,
-  `maxRequestBodySize`) are a cautious starting point. Find the real limits in development, with the application's data,
-  then set the same values in production. Every error from a limit names the setting to raise (see
-  [Writing](/docs/http-api/write/#limits) and [Transactions](/docs/http-api/transactions/#limits)).
-- `maxRequestBodySize` isn't checked against the other limits: it's the real bound on a write, and the others are rules
-  for each item.
+- The size and count limits (`maxEventSize`, `maxProjectionSize`, `maxEventsPerTx`, `maxReadsPerTx`,
+  `maxProjectionsPerTx`, `maxProjectionsPerWrite`, `maxRequestBodySize`) are a cautious starting point. Find the real
+  limits in development, with the application's data, then set the same values in production. Every error from a limit
+  names the setting to raise (see [Transactions](/docs/http-api/transactions/#limits) and
+  [Projections](/docs/http-api/projections/#limits)).
+- `maxRequestBodySize` isn't checked against the other limits. It bounds one request, not a transaction, which is
+  built over many requests: the transaction limits bound how long its commit holds the turn.
 - `defaultEventsPerPage` and `maxEventsPerPage` are settings, not constants, because how fast a projector processes a
   batch varies between applications, and between projectors of one application. The defaults keep a default page easy to
   buffer, and a maximum page done in seconds.
@@ -96,9 +99,9 @@ A file that holds `authToken` is a secret: see [Security](/docs/operations/secur
 
 ## Sizing the write queue
 
-`maxQueuedWrites` bounds how many requests wait for their turn at once: `POST /write`, a transaction's commit, the bulk
-deletes of projections, `POST /reset`, and the hourly `PRAGMA optimize`. They're served one at a time, in the order they arrive. One more
-gets `503 WriteQueueFull` instead of joining.
+`maxQueuedWrites` bounds how many requests wait for their turn at once: a transaction's commit, `POST /projections`,
+the bulk deletes of projections, `POST /reset`, and the hourly `PRAGMA optimize`. They're served one at a time, in the
+order they arrive. One more gets `503 WriteQueueFull` instead of joining.
 
 - A write holds the turn only while its own SQLite transaction runs, usually a few milliseconds, so the queue is usually
   empty or short. Reads never wait in it.

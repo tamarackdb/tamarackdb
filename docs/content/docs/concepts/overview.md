@@ -28,7 +28,7 @@ specification](https://dcb.events/specification/), is reachable over HTTP, and s
 - **Decision**: one read of events in a transaction, then the write of the events it produced, or none.
 - **Commit**: the end of a transaction, where everything it holds is checked, then written at once, or not at all.
 - **Write**: what the server writes at once, in one SQLite transaction: the commit of a transaction, or one
-  [`POST /write`](/docs/http-api/write/).
+  [`POST /projections`](/docs/http-api/projections/#writing-projections).
 
 ## Key words
 
