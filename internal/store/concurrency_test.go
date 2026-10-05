@@ -68,7 +68,7 @@ func TestConcurrentAppendsConflictingCondition(t *testing.T) {
 	for i := 0; i < attempts; i++ {
 		go func() {
 			defer wg.Done()
-			cond := dcb.AppendCondition{FailIfEventsMatch: &q}
+			cond := dcb.AppendCondition{FailIfEventsMatch: q}
 			_, err := s.Append(context.Background(), dcb.NewPendingEvents([]dcb.EventData{eventWithIdentifier("t", "lockId", "shared")}, dcb.Now()), []dcb.AppendCondition{cond}, projection.Writes{})
 			switch {
 			case err == nil:

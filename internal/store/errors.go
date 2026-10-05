@@ -37,19 +37,14 @@ func (e *ProjectionConflictError) Unwrap() error { return ErrConcurrencyConflict
 
 // ConditionConflictError is returned by Append when one of its Append
 // Conditions doesn't hold: an event matching it was appended after its
-// afterSequence, or, with StoreChanged, it was read on a store ID that
-// isn't the current one (see Reset). Index is its position in the list of
-// conditions; the message names it as conditions[index]. It unwraps to
+// afterSequence. Index is its position in the list of conditions; the
+// message names it as conditions[index]. It unwraps to
 // ErrConcurrencyConflict.
 type ConditionConflictError struct {
-	Index        int
-	StoreChanged bool
+	Index int
 }
 
 func (e *ConditionConflictError) Error() string {
-	if e.StoreChanged {
-		return fmt.Sprintf("conditions[%d] was read on another store", e.Index)
-	}
 	return fmt.Sprintf("conditions[%d] no longer holds", e.Index)
 }
 

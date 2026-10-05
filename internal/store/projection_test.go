@@ -209,10 +209,9 @@ func TestFailedConditionRollsBackProjectionsToo(t *testing.T) {
 	s := openTestStore(t)
 	mustAppend(t, s, []dcb.EventData{{Type: "user-created"}}, nil)
 
-	zero := int64(0)
 	_, err := s.Append(context.Background(),
 		dcb.NewPendingEvents([]dcb.EventData{{Type: "user-created"}}, dcb.Now()),
-		[]dcb.AppendCondition{{AfterSequence: &zero, Store: s.storeID}},
+		[]dcb.AppendCondition{{FailIfEventsMatch: dcb.QueryAll()}},
 		projection.Writes{Create: []projection.Create{create("user-profile", "123", "v1")}})
 	if !errors.Is(err, ErrConcurrencyConflict) {
 		t.Fatalf("Append() error = %v, want ErrConcurrencyConflict", err)

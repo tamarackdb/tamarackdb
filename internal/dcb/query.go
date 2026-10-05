@@ -233,18 +233,12 @@ func (q Query) Validate() error {
 
 // AppendCondition is what a transaction's commit checks for one decision:
 // it fails if an event matching FailIfEventsMatch was appended after
-// AfterSequence. The transaction builds it from the decision's read (see
-// package tx), and package store checks it against the database.
-// FailIfEventsMatch follows the grammar of a read Query, and is optional:
-// a condition with only AfterSequence fails if any event at all exists
-// after it.
-//
-// Store is the store ID AfterSequence was read on: a Sequence Position
-// only means something next to it.
+// AfterSequence, the Sequence Position the decision's read reached. The
+// transaction builds it from the read (see package tx), and package store
+// checks it against the database. A condition on QueryNone always holds.
 type AppendCondition struct {
-	FailIfEventsMatch *Query
-	AfterSequence     *int64
-	Store             string
+	FailIfEventsMatch Query
+	AfterSequence     int64
 }
 
 var (

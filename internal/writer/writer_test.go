@@ -73,7 +73,7 @@ func TestWriteCountsEachOutcome(t *testing.T) {
 	}
 
 	q := dcb.QueryAll()
-	if _, err := env.m.WritePending(ctx, "", dcb.NewPendingEvents([]dcb.EventData{{Type: "b"}}, dcb.Now()), []dcb.AppendCondition{{FailIfEventsMatch: &q}}, projection.Writes{}); !errors.Is(err, store.ErrConcurrencyConflict) {
+	if _, err := env.m.WritePending(ctx, "", dcb.NewPendingEvents([]dcb.EventData{{Type: "b"}}, dcb.Now()), []dcb.AppendCondition{{FailIfEventsMatch: q}}, projection.Writes{}); !errors.Is(err, store.ErrConcurrencyConflict) {
 		t.Fatalf("write error = %v, want a condition conflict", err)
 	}
 	payload := "x"

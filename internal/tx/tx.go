@@ -346,15 +346,10 @@ func (r *Registry) WriteEvents(id string, events []dcb.EventData) (time.Time, er
 		}
 		now = dcb.Now()
 		t.events = append(t.events, dcb.NewPendingEvents(events, now)...)
-		q := t.open.query
-		c := dcb.AppendCondition{FailIfEventsMatch: &q}
-		if !q.None() {
-			// A condition on "none" can never fail: it needs no position.
-			position := t.open.position
-			c.AfterSequence = &position
-			c.Store = t.storeID
-		}
-		t.conditions = append(t.conditions, c)
+		t.conditions = append(t.conditions, dcb.AppendCondition{
+			FailIfEventsMatch: t.open.query,
+			AfterSequence:     t.open.position,
+		})
 		t.open = nil
 		return nil
 	})

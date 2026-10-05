@@ -62,9 +62,6 @@ func (s *Store) Append(ctx context.Context, events []dcb.PendingEvent, condition
 	// transaction ends.
 	storeID := s.StoreID()
 	for i, c := range conditions {
-		if c.AfterSequence != nil && c.Store != storeID {
-			return AppendResult{}, &ConditionConflictError{Index: i, StoreChanged: true}
-		}
 		holds, err := s.checkCondition(ctx, tx, c)
 		if err != nil {
 			return AppendResult{}, err
@@ -112,20 +109,13 @@ func (s *Store) Append(ctx context.Context, events []dcb.PendingEvent, condition
 var afterReserve func()
 
 // checkCondition reports whether c holds against every event visible to
-// tx. It ignores c.Store: checking it is up to the caller.
+// tx.
 func (s *Store) checkCondition(ctx context.Context, tx *sql.Tx, c dcb.AppendCondition) (bool, error) {
-	if c.FailIfEventsMatch == nil && c.AfterSequence == nil {
-		return true, nil
-	}
-	after := int64(0)
-	if c.AfterSequence != nil {
-		after = *c.AfterSequence
-	}
-	holds, decided := resolveWithoutQuery(c.FailIfEventsMatch, after, s.peekLastAssigned())
+	holds, decided := resolveWithoutQuery(c.FailIfEventsMatch, c.AfterSequence, s.peekLastAssigned())
 	if decided {
 		return holds, nil
 	}
-	holds, err := checkFailIfEventsMatchSQL(ctx, tx, *c.FailIfEventsMatch, after)
+	holds, err := checkFailIfEventsMatchSQL(ctx, tx, c.FailIfEventsMatch, c.AfterSequence)
 	if err != nil {
 		return false, wrapf("check append condition", err)
 	}
@@ -204,17 +194,11 @@ func (s *Store) releaseSequences(start int64) {
 // when failIfEventsMatch is a query other than "none" and at least one
 // event has been committed since after (lastAssigned > after): the caller
 // must then run the real SELECT via checkFailIfEventsMatchSQL.
-func resolveWithoutQuery(failIfEventsMatch *dcb.Query, after, lastAssigned int64) (holds, decided bool) {
-	if failIfEventsMatch != nil && failIfEventsMatch.None() {
+func resolveWithoutQuery(failIfEventsMatch dcb.Query, after, lastAssigned int64) (holds, decided bool) {
+	if failIfEventsMatch.None() {
 		// No event can match "none": a decision that rests on no event
 		// always holds.
 		return true, true
-	}
-	if failIfEventsMatch == nil {
-		// A bare afterSequence condition means "does any event exist
-		// after `after` at all". It is always answerable from the counter
-		// alone, no SELECT ever needed for this case.
-		return lastAssigned <= after, true
 	}
 	if after == lastAssigned {
 		// Nothing has been appended since the read that produced

@@ -1,7 +1,7 @@
 // Package dcb holds TamarackDB's domain types, after the DCB (Dynamic
 // Consistency Boundaries) specification: events, their tags, queries,
-// and Append Conditions, with their validation. Packages api, store, and
-// tx all share them.
+// and Append Conditions, with the validation of what a client sends.
+// Packages api, store, and tx all share them.
 //
 // # Queries
 //
@@ -16,12 +16,6 @@
 // transaction's pending events. Both MUST select exactly the same events,
 // or a decision could miss a pending event without any error. Both run
 // the cases in testdata/query-cases.json.
-//
-// # Append Conditions
-//
-// An AppendCondition with neither a query nor an afterSequence always
-// holds: it says nothing, so it protects nothing. It MUST NOT be read as
-// afterSequence 0, which would fail as soon as the store holds one event.
 //
 // # Time
 //
