@@ -190,6 +190,15 @@ func TestResolveWithoutQueryFallsBackWhenStale(t *testing.T) {
 	}
 }
 
+// TestResolveWithoutQueryNoneAlwaysHolds checks that a condition on
+// "none" holds without SQL, even with events after its position.
+func TestResolveWithoutQueryNoneAlwaysHolds(t *testing.T) {
+	none := dcb.QueryNone()
+	if holds, decided := resolveWithoutQuery(&none, 0, 15); !decided || !holds {
+		t.Errorf("resolveWithoutQuery(none, 0, 15) = %v, %v, want true, true", holds, decided)
+	}
+}
+
 // TestAppendConditionFullCheckWhenEventsExistSinceReadButNoMatch exercises
 // the fallback-to-SQL path end to end: the counter has moved since the
 // read (so resolveWithoutQuery can't decide on its own), but the event(s)

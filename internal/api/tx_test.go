@@ -228,6 +228,22 @@ func TestTransactionCommitConflict(t *testing.T) {
 	}
 }
 
+// TestTransactionLimitGets400 checks that a call over a transaction
+// limit gets 400 naming the setting, and ends the transaction.
+func TestTransactionLimitGets400(t *testing.T) {
+	srv, _, _ := newTestServerWith(t, testOptions{maxReads: 1})
+	tx := begin(t, srv)
+	txRequest(t, srv, "QUERY", tx+"/events", `{"query":"none"}`, 200)
+	txRequest(t, srv, "POST", tx+"/events", `{"events":[]}`, 200)
+	rec := txRequest(t, srv, "QUERY", tx+"/events", `{"query":"none"}`, 400)
+	if code, msg := errorCode(t, rec), errorMessage(t, rec); code != "InvalidRequest" || !strings.Contains(msg, "maxReadsPerTx") {
+		t.Errorf("error = %q, %q, want InvalidRequest naming maxReadsPerTx", code, msg)
+	}
+	if code := errorCode(t, txRequest(t, srv, "POST", tx+"/commit", "", 404)); code != "TransactionNotFound" {
+		t.Errorf("commit after the refusal = %q, want TransactionNotFound", code)
+	}
+}
+
 func TestStats(t *testing.T) {
 	srv, _, _ := newTestServer(t)
 	writeProjectionsCommitted(t, srv, `{"create":[{"type":"p","id":"1","payload":""}]}`)

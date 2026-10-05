@@ -26,6 +26,7 @@ type testOptions struct {
 	logLevel  string        // default: debug
 	maxQueued int           // default: uncapped
 	txIdle    time.Duration // default: a minute
+	maxReads  int           // maxReadsPerTx; default: 100
 }
 
 func newTestServer(t *testing.T) (*Server, *writer.Writer, *store.Store) {
@@ -49,7 +50,10 @@ func newTestServerWith(t *testing.T, o testOptions) (*Server, *writer.Writer, *s
 	if o.txIdle == 0 {
 		o.txIdle = time.Minute
 	}
-	txs := tx.New(st, wr, tx.Config{IdleTimeout: o.txIdle, MaxEventsPerTx: 100, MaxReadsPerTx: 100, MaxProjectionsPerTx: 500})
+	if o.maxReads == 0 {
+		o.maxReads = 100
+	}
+	txs := tx.New(st, wr, tx.Config{IdleTimeout: o.txIdle, MaxEventsPerTx: 100, MaxReadsPerTx: o.maxReads, MaxProjectionsPerTx: 500})
 	t.Cleanup(txs.Close)
 	srv := New(wr, txs, st, Options{
 		EnableAuth:             true,

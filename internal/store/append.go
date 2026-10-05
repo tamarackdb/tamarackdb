@@ -201,10 +201,15 @@ func (s *Store) releaseSequences(start int64) {
 // resolveWithoutQuery reports whether an Append Condition holds using only
 // lastAssigned (the highest sequence the in-memory counter has assigned so
 // far), with no SQL against events needed at all. decided is false only
-// when failIfEventsMatch is non-nil and at least one event has been
-// committed since after (lastAssigned > after): the caller must then run
-// the real SELECT via checkFailIfEventsMatchSQL.
+// when failIfEventsMatch is a query other than "none" and at least one
+// event has been committed since after (lastAssigned > after): the caller
+// must then run the real SELECT via checkFailIfEventsMatchSQL.
 func resolveWithoutQuery(failIfEventsMatch *dcb.Query, after, lastAssigned int64) (holds, decided bool) {
+	if failIfEventsMatch != nil && failIfEventsMatch.None() {
+		// No event can match "none": a decision that rests on no event
+		// always holds.
+		return true, true
+	}
 	if failIfEventsMatch == nil {
 		// A bare afterSequence condition means "does any event exist
 		// after `after` at all". It is always answerable from the counter
