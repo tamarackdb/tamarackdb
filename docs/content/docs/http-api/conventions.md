@@ -77,6 +77,12 @@ These requests wait for their turn: a transaction's commit, `POST /projections`,
 
 ## The client leaving
 
+- A client that leaves before its whole body is sent has asked for nothing. The server drops the request, answers
+  nothing, and changes nothing. A call on a transaction leaves the transaction as it is.
+- A client that leaves during a call on a transaction, once its body is sent, doesn't end the transaction. The call
+  goes to the end; only a streamed read stops, at its next line. The transaction then ends by
+  [`DELETE /tx/{txId}`](/docs/http-api/transactions/#abandon), or after `txIdleTimeout` (see
+  [Configuration](/docs/operations/configuration/)).
 - A client that disconnects while its request waits leaves the queue, and nothing is written.
 - The server checks once more that the client is still there just as the turn comes.
 - From then on, the request goes to the end, even if the client leaves. The client then can't tell whether it was

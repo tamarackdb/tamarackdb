@@ -302,7 +302,13 @@ type Read struct {
 
 // ReadEvents reads the events q matches and opens a condition on them.
 // The next call on the transaction must be WriteEvents.
+//
+// The read runs with ctx without its cancellation: a client that leaves
+// MUST NOT end its transaction, so the condition opens even if the
+// client is already gone. Only the stream stops: its next write fails,
+// which closes Committed and frees the read connection.
 func (r *Registry) ReadEvents(ctx context.Context, id string, q dcb.Query) (Read, error) {
+	ctx = context.WithoutCancel(ctx)
 	var read Read
 	err := r.do(id, func(t *transaction) error {
 		if t.open != nil {

@@ -95,7 +95,8 @@ A transaction ends:
 - when the server stops.
 
 Then every call on it gets `404 TransactionNotFound`. The server keeps nothing of a transaction that ended, so it can't
-tell these cases apart.
+tell these cases apart. A client that leaves during a call doesn't end its transaction (see
+[The client leaving](/docs/http-api/conventions/#the-client-leaving)).
 
 - An application SHOULD abandon a transaction it no longer needs, for example in the error handler around a command.
   Otherwise the transaction expires.

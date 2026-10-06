@@ -17,7 +17,9 @@ import (
 // None of their responses carries the store ID: the transaction keeps it.
 // Any error ends the transaction, including one this layer finds before
 // the transaction is reached, such as a malformed body: such an error
-// goes through txFail, which ends it.
+// goes through txFail, which ends it. A client that leaves is not an
+// error: before its body is read, the transaction stays as it is; after,
+// the call goes to the end.
 
 type txBeginResponse struct {
 	TxID string `json:"txId"`
@@ -79,8 +81,14 @@ func (s *Server) handleTxBegin(w http.ResponseWriter, r *http.Request) {
 // refused before reaching the transaction, and ends the transaction. An
 // item over a size limit is the application's data, not a bug of its
 // client library, so it doesn't count as a design error. A transaction
-// that doesn't exist gets 404 instead, as any call on it does.
+// that doesn't exist gets 404 instead, as any call on it does. A body
+// that couldn't be read to its end (errClientGone) leaves the transaction
+// as it is, and gets no answer: the client asked for nothing (see
+// readBody).
 func (s *Server) txFail(w http.ResponseWriter, r *http.Request, id string, err error) {
+	if errors.Is(err, errClientGone) {
+		return
+	}
 	var oe *oversizeError
 	var be *bodyTooLargeError
 	design := !errors.As(err, &oe) && !errors.As(err, &be)

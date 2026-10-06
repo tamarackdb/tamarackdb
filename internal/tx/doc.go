@@ -33,7 +33,10 @@
 // # Its end
 //
 // A transaction ends at its commit, whatever the outcome, at its first
-// error, when abandoned, or after Config.IdleTimeout without a call. The
+// error, when abandoned, or after Config.IdleTimeout without a call. A
+// client that leaves is not an error: its calls run without their
+// context's cancellation, so the call goes to the end, and the
+// transaction stays open. The
 // Registry then keeps nothing of it, so it can't tell an unknown
 // transaction from one that ended: both get ErrNotFound. When the server
 // stops, every open transaction is lost, and nothing is rebuilt: the

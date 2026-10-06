@@ -38,8 +38,11 @@ type projectionState struct {
 // the store, and remembers the version read, or that the projection
 // doesn't exist. A later read returns the projection as the transaction
 // left it. found is false when the projection doesn't exist, or the
-// transaction deleted it.
+// transaction deleted it. As in ReadEvents, the read runs with ctx
+// without its cancellation: a client that leaves MUST NOT end its
+// transaction.
 func (r *Registry) GetProjection(ctx context.Context, id string, key Key) (payload string, found bool, err error) {
+	ctx = context.WithoutCancel(ctx)
 	err = r.do(id, func(t *transaction) error {
 		if t.open != nil {
 			return designError("projection read while a condition is open: write the events of the last read first, or an empty list")

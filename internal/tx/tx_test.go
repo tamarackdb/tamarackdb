@@ -585,3 +585,30 @@ func TestAbandonAndReject(t *testing.T) {
 		t.Errorf("store holds %d events, want 0", len(got))
 	}
 }
+
+// TestReadsIgnoreTheClientLeaving checks that a read on a transaction
+// whose client already left still goes through, and leaves the
+// transaction open: the condition is open, and the next write and commit
+// work.
+func TestReadsIgnoreTheClientLeaving(t *testing.T) {
+	env := newTestEnv(t, time.Minute)
+	key := Key{Type: "p", ID: "1"}
+	seedProjection(t, env.wr, key, "seeded")
+	gone, cancel := context.WithCancel(bg)
+	cancel()
+
+	id := begin(t, env.r)
+	if _, _, err := env.r.GetProjection(gone, id, key); err != nil {
+		t.Fatalf("GetProjection() with a cancelled context error = %v, want nil", err)
+	}
+	read, err := env.r.ReadEvents(gone, id, types("a"))
+	if err != nil {
+		t.Fatalf("ReadEvents() with a cancelled context error = %v, want nil", err)
+	}
+	read.Committed.Close()
+	write(t, env.r, id, "a")
+	commit(t, env.r, id)
+	if s := env.r.Stats(); s.DesignErrors != 0 {
+		t.Errorf("Stats().DesignErrors = %d, want 0", s.DesignErrors)
+	}
+}

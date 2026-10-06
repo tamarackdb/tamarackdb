@@ -27,6 +27,8 @@ Key words in capitals follow [RFC 2119](/docs/concepts/overview/#key-words).
   transaction.
 - Any error on a transaction ends it, whatever its status, including a `400` for a malformed body. Every later call on
   it gets `404 TransactionNotFound`. `404 ProjectionNotFound` isn't an error in that sense: it's an ordinary answer.
+- A client that leaves during a call isn't an error either: the transaction stays open (see
+  [The client leaving](/docs/http-api/conventions/#the-client-leaving)).
 
 ## Begin
 
