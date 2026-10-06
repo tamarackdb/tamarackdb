@@ -65,6 +65,7 @@ var codeLevel = map[string]level{
 	"ShuttingDown":         levelInfo,    // 503, the operator stopped the server
 	"Paused":               levelInfo,    // 503, the operator paused transactions
 	"NotPaused":            levelInfo,    // 409, a reset outside a pause
+	"TransactionBusy":      levelInfo,    // 409, a call while another one uses the transaction
 	"InternalError":        levelError,   // 500, real failure
 	"Unavailable":          levelError,   // 503, storage unreachable
 }

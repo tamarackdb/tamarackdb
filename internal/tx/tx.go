@@ -19,6 +19,11 @@ import (
 // it can't tell these apart.
 var ErrNotFound = errors.New("tx: transaction not found")
 
+// ErrBusy is returned for a call on a transaction that another call is
+// still using. The refused call changes nothing: the transaction goes on,
+// and the call in progress goes to the end.
+var ErrBusy = errors.New("tx: transaction busy with another call")
+
 // ErrDesign is what a broken rule unwraps to: the client library called
 // the transaction in an order it never allows. It comes as a
 // *dcb.ValidationError whose message names the rule.
@@ -123,26 +128,24 @@ func (r *Registry) lock() {
 	r.mu.Lock()
 	now := r.cfg.Now()
 	for id, t := range r.txs {
-		// busy is 0: no call holds t or waits for it, and none can start
+		// A free transaction has no call using it, and none can start
 		// without r.mu.
-		if t.busy == 0 && now.Sub(t.lastUsed) >= r.cfg.IdleTimeout {
-			t.closed = true
+		if !t.busy && now.Sub(t.lastUsed) >= r.cfg.IdleTimeout {
 			delete(r.txs, id)
 			r.stats.Expired++
 		}
 	}
 }
 
-// transaction is one open transaction. Its mu is held for the whole of
-// one call, so a second call on the same transaction waits for the first.
+// transaction is one open transaction. One call at a time uses it: while
+// busy, every other call is refused (see acquire). The fields below busy
+// and lastUsed are only touched by that one call, so they need no lock.
 type transaction struct {
-	mu     sync.Mutex
-	id     string
-	closed bool
+	id string
 
-	// Guarded by Registry.mu, so expiry never ends a transaction a call
-	// is using or waiting for.
-	busy     int
+	// Guarded by Registry.mu: busy is true while a call uses the
+	// transaction, so expiry never ends it, and no second call starts.
+	busy     bool
 	lastUsed time.Time
 
 	open        *openCondition // the condition the last read opened, until its write
@@ -187,7 +190,6 @@ func (r *Registry) do(id string, fn func(t *transaction) error) error {
 		return err
 	}
 	defer r.release(t)
-	defer t.mu.Unlock()
 	if err := fn(t); err != nil {
 		r.end(t)
 		if errors.Is(err, ErrDesign) {
@@ -200,78 +202,85 @@ func (r *Registry) do(id string, fn func(t *transaction) error) error {
 	return nil
 }
 
-// acquire finds transaction id and locks it.
+// acquire finds transaction id and marks it busy. A transaction already
+// busy MUST be refused with ErrBusy, never waited for: one call at a time
+// uses a transaction, by construction, so no call ever has to check,
+// after waiting, what another one did to it. A refusal changes nothing:
+// it's not an error in the work of a call, so the transaction goes on.
+// It doesn't count as a design error either: a client with no bug gets
+// one when its error handler abandons a transaction whose commit still
+// waits for its turn.
 func (r *Registry) acquire(id string) (*transaction, error) {
 	r.lock()
+	defer r.mu.Unlock()
 	t, ok := r.txs[id]
 	if !ok {
-		r.mu.Unlock()
 		return nil, ErrNotFound
 	}
-	t.busy++
-	r.mu.Unlock()
-
-	t.mu.Lock()
-	if t.closed {
-		// Ended by the call this one waited for.
-		t.mu.Unlock()
-		r.release(t)
-		return nil, ErrNotFound
+	if t.busy {
+		r.stats.Busy++
+		return nil, ErrBusy
 	}
+	t.busy = true
 	return t, nil
 }
 
+// release marks t free again, after its call.
 func (r *Registry) release(t *transaction) {
 	r.lock()
 	defer r.mu.Unlock()
-	t.busy--
+	t.busy = false
 	t.lastUsed = r.cfg.Now()
 }
 
-// end closes t, which the caller holds locked. A call waiting for t then
-// gets ErrNotFound.
+// end removes t, which the caller is using, from the Registry: every
+// later call on it gets ErrNotFound.
 func (r *Registry) end(t *transaction) {
-	t.closed = true
 	r.lock()
 	defer r.mu.Unlock()
 	delete(r.txs, t.id)
 }
 
-// Abandon ends transaction id. An unknown or closed transaction is not an
+// Abandon ends transaction id. An unknown or ended transaction is not an
 // error: Abandon is a precaution, often called after an error already
-// ended the transaction.
-func (r *Registry) Abandon(id string) {
+// ended the transaction. A transaction busy with another call gets
+// ErrBusy, and goes on: it ends with that call if the call fails or
+// commits, and expires otherwise.
+func (r *Registry) Abandon(id string) error {
 	t, err := r.acquire(id)
+	if errors.Is(err, ErrNotFound) {
+		return nil
+	}
 	if err != nil {
-		return
+		return err
 	}
 	defer r.release(t)
-	defer t.mu.Unlock()
 	r.end(t)
 	r.lock()
 	r.stats.Abandoned++
 	r.mu.Unlock()
+	return nil
 }
 
 // Reject ends transaction id after a request on it that the caller
 // refused before reaching the Registry: a malformed body, which counts as
 // a design error (design is true), or an event or a projection too large,
-// which doesn't. It reports whether the transaction existed: a request on
-// one that doesn't gets ErrNotFound, whatever its body.
-func (r *Registry) Reject(id string, design bool) bool {
+// which doesn't. A request on a transaction that doesn't exist gets
+// ErrNotFound, whatever its body, and one on a busy transaction ErrBusy,
+// which changes nothing, as for any call.
+func (r *Registry) Reject(id string, design bool) error {
 	t, err := r.acquire(id)
 	if err != nil {
-		return false
+		return err
 	}
 	defer r.release(t)
-	defer t.mu.Unlock()
 	r.end(t)
 	if design {
 		r.lock()
 		r.stats.DesignErrors++
 		r.mu.Unlock()
 	}
-	return true
+	return nil
 }
 
 // Read is the result of ReadEvents: the committed events that match,
@@ -357,9 +366,9 @@ func (r *Registry) WriteEvents(id string, events []dcb.EventData) (time.Time, er
 // looks only at the Registry: if a commit left it before writing, a pause
 // could join the FIFO ahead of that commit, and the commit's events would
 // then come after the last Sequence Position the pause returned. Staying
-// changes nothing for the other calls on the transaction: do holds t.mu
-// for the whole commit, so they wait, then find it closed, and expiry
-// leaves it alone since it's busy.
+// changes nothing for the other calls on the transaction: the commit
+// keeps it busy until its write ends, so they get ErrBusy, and expiry
+// leaves it alone.
 func (r *Registry) Commit(ctx context.Context, id string) error {
 	return r.do(id, func(t *transaction) error {
 		if t.open != nil {

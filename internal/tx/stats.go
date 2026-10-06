@@ -8,6 +8,7 @@ type Stats struct {
 	Expired      uint64 // transactions ended after IdleTimeout without a call
 	DesignErrors uint64 // transactions ended by a broken rule, or a malformed request refused before the Registry
 	Paused       uint64 // Begin calls refused with ErrPaused
+	Busy         uint64 // calls refused with ErrBusy: another call was using the transaction
 }
 
 // Stats returns the counters.

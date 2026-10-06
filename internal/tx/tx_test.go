@@ -500,37 +500,81 @@ func TestBusyTransactionDoesNotExpire(t *testing.T) {
 	}
 }
 
-// TestSimultaneousCallsTakeTurns checks that two reads sent at once on one
-// transaction run one after the other: the first opens a condition, and
-// the second breaks the rule.
-func TestSimultaneousCallsTakeTurns(t *testing.T) {
+// TestSecondCallIsRefused checks that every call on a transaction that
+// another call is using gets ErrBusy, at once, and changes nothing: once
+// the call in progress ends, the transaction goes on as if the refused
+// calls never came.
+func TestSecondCallIsRefused(t *testing.T) {
 	env := newTestEnv(t, time.Minute)
 	id := begin(t, env.r)
-	errs := make([]error, 2)
-	var wg sync.WaitGroup
-	for i := range errs {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			res, err := env.r.ReadEvents(bg, id, dcb.QueryNone())
-			errs[i] = err
-			if res.Committed != nil {
-				res.Committed.Close()
-			}
-		}()
+	inProgress, err := env.r.acquire(id) // a call using the transaction
+	if err != nil {
+		t.Fatalf("acquire() error = %v", err)
 	}
-	wg.Wait()
-	ok, design := 0, 0
-	for _, err := range errs {
-		switch {
-		case err == nil:
-			ok++
-		case errors.Is(err, ErrDesign):
-			design++
+
+	key := Key{Type: "p", ID: "1"}
+	calls := map[string]func() error{
+		"ReadEvents": func() error {
+			_, err := env.r.ReadEvents(bg, id, dcb.QueryNone())
+			return err
+		},
+		"WriteEvents": func() error {
+			_, err := env.r.WriteEvents(id, events("a"))
+			return err
+		},
+		"GetProjection": func() error {
+			_, _, err := env.r.GetProjection(bg, id, key)
+			return err
+		},
+		"WriteProjections": func() error {
+			_, err := env.r.WriteProjections(id, nil, []Key{key})
+			return err
+		},
+		"Commit":  func() error { return env.r.Commit(bg, id) },
+		"Abandon": func() error { return env.r.Abandon(id) },
+		"Reject":  func() error { return env.r.Reject(id, true) },
+	}
+	for name, call := range calls {
+		if err := call(); !errors.Is(err, ErrBusy) {
+			t.Errorf("%s() on a busy transaction error = %v, want ErrBusy", name, err)
 		}
 	}
-	if ok != 1 || design != 1 {
-		t.Errorf("errors = %v, want one success and one design error", errs)
+	if s := env.r.Stats(); s.Busy != uint64(len(calls)) || s.DesignErrors != 0 || s.Abandoned != 0 {
+		t.Errorf("Stats() = %+v, want %d busy, no design error, nothing abandoned", s, len(calls))
+	}
+
+	env.r.release(inProgress)
+	decide(t, env.r, id, dcb.QueryNone(), "a")
+	commit(t, env.r, id)
+	if n := len(committedEvents(t, env.st)); n != 1 {
+		t.Errorf("committed events = %d, want 1", n)
+	}
+}
+
+// TestAbandonDuringACommit checks that DELETE /tx/{txId} sent while the
+// commit waits for its turn is refused, and that the commit still writes:
+// a commit that joined the FIFO goes to the end.
+func TestAbandonDuringACommit(t *testing.T) {
+	env := newTestEnv(t, time.Minute)
+	id := begin(t, env.r)
+	decide(t, env.r, id, dcb.QueryNone(), "a")
+	release := holdTurn(t, env.wr)
+	done := make(chan error, 1)
+	go func() { done <- env.r.Commit(bg, id) }()
+	waitFor(t, "the commit to wait for its turn", func() bool { return env.wr.Waiting() == 1 })
+
+	if err := env.r.Abandon(id); !errors.Is(err, ErrBusy) {
+		t.Errorf("Abandon() during the commit error = %v, want ErrBusy", err)
+	}
+	release()
+	if err := <-done; err != nil {
+		t.Fatalf("Commit() error = %v, want nil", err)
+	}
+	if n := len(committedEvents(t, env.st)); n != 1 {
+		t.Errorf("committed events = %d, want 1", n)
+	}
+	if err := env.r.Abandon(id); err != nil {
+		t.Errorf("Abandon() after the commit error = %v, want nil", err)
 	}
 }
 
@@ -632,12 +676,21 @@ func TestAbandonAndReject(t *testing.T) {
 	env := newTestEnv(t, time.Minute)
 	abandoned, rejected := begin(t, env.r), begin(t, env.r)
 	decide(t, env.r, abandoned, dcb.QueryNone(), "a")
-	env.r.Abandon(abandoned)
-	env.r.Abandon(abandoned) // already closed: no error, not counted again
-	env.r.Abandon("unknown")
-	env.r.Reject(rejected, true)
+	for _, id := range []string{abandoned, abandoned, "unknown"} { // ended or unknown: no error, not counted again
+		if err := env.r.Abandon(id); err != nil {
+			t.Errorf("Abandon(%q) error = %v, want nil", id, err)
+		}
+	}
+	if err := env.r.Reject(rejected, true); err != nil {
+		t.Errorf("Reject() error = %v, want nil", err)
+	}
 	tooLarge := begin(t, env.r)
-	env.r.Reject(tooLarge, false)
+	if err := env.r.Reject(tooLarge, false); err != nil {
+		t.Errorf("Reject() error = %v, want nil", err)
+	}
+	if err := env.r.Reject("unknown", true); !errors.Is(err, ErrNotFound) {
+		t.Errorf("Reject() on an unknown transaction error = %v, want ErrNotFound", err)
+	}
 
 	for _, id := range []string{abandoned, rejected, tooLarge} {
 		if err := env.r.Commit(bg, id); !errors.Is(err, ErrNotFound) {

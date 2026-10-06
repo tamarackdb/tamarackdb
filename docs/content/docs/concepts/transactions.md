@@ -110,9 +110,16 @@ tell these cases apart. A client that leaves during a call doesn't end its trans
 
 - Many transactions live at the same time. None of them holds anything on the server: reads never wait, and a slow
   transaction blocks no one.
-- Calls on one transaction take turns: a second call waits for the first to end.
+- One call at a time uses a transaction. A call sent while another one still runs on the same transaction gets
+  `409 TransactionBusy` at once, and changes nothing: the transaction goes on, and the call in progress goes to the
+  end.
+- A client MUST NOT send two calls at once on one transaction.
 - Conflicts between transactions are found at commit, one commit at a time. A transaction that became stale learns it
   then, with `409 ConcurrencyException`. No one is warned earlier.
+
+**Why refuse a second call.** A command makes its calls one at a time. Two calls at once on one transaction come from
+a bug in the client library, or from an abandon sent after a timeout while the call before still runs. A refusal says
+so at once, instead of running the two calls in an order nobody chose.
 
 ## Outside a transaction
 

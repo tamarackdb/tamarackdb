@@ -46,6 +46,7 @@ type transactionsStats struct {
 	Expired      uint64 `json:"expired"`
 	DesignErrors uint64 `json:"designErrors"`
 	Paused       uint64 `json:"paused"`
+	Busy         uint64 `json:"busy"`
 }
 
 type errorsStats struct {
@@ -75,6 +76,7 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 			Expired:      ts.Expired,
 			DesignErrors: ts.DesignErrors,
 			Paused:       ts.Paused,
+			Busy:         ts.Busy,
 		},
 		Pause: pauseStats{
 			State:            ps.State.String(),

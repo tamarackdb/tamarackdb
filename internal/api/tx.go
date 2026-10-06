@@ -17,9 +17,10 @@ import (
 // None of their responses carries the store ID: the transaction keeps it.
 // Any error ends the transaction, including one this layer finds before
 // the transaction is reached, such as a malformed body: such an error
-// goes through txFail, which ends it. A client that leaves is not an
-// error: before its body is read, the transaction stays as it is; after,
-// the call goes to the end.
+// goes through txFail, which ends it. 409 TransactionBusy, for a call
+// while another one uses the transaction, changes nothing. A client that
+// leaves is not an error: before its body is read, the transaction stays
+// as it is; after, the call goes to the end.
 
 type txBeginResponse struct {
 	TxID string `json:"txId"`
@@ -81,10 +82,10 @@ func (s *Server) handleTxBegin(w http.ResponseWriter, r *http.Request) {
 // refused before reaching the transaction, and ends the transaction. An
 // item over a size limit is the application's data, not a bug of its
 // client library, so it doesn't count as a design error. A transaction
-// that doesn't exist gets 404 instead, as any call on it does. A body
-// that couldn't be read to its end (errClientGone) leaves the transaction
-// as it is, and gets no answer: the client asked for nothing (see
-// readBody).
+// that doesn't exist gets 404 instead, and one busy with another call
+// 409 TransactionBusy, as any call on it does. A body that couldn't be
+// read to its end (errClientGone) leaves the transaction as it is, and
+// gets no answer: the client asked for nothing (see readBody).
 func (s *Server) txFail(w http.ResponseWriter, r *http.Request, id string, err error) {
 	if errors.Is(err, errClientGone) {
 		return
@@ -92,8 +93,8 @@ func (s *Server) txFail(w http.ResponseWriter, r *http.Request, id string, err e
 	var oe *oversizeError
 	var be *bodyTooLargeError
 	design := !errors.As(err, &oe) && !errors.As(err, &be)
-	if !s.txs.Reject(id, design) {
-		err = tx.ErrNotFound
+	if rejectErr := s.txs.Reject(id, design); rejectErr != nil {
+		err = rejectErr
 	}
 	s.handleErr(w, r, err)
 }
@@ -272,10 +273,14 @@ func (s *Server) handleTxCommit(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// handleTxAbandon implements DELETE /tx/{txId}: always 204, even for a
-// transaction that is already over.
+// handleTxAbandon implements DELETE /tx/{txId}: 204, even for a
+// transaction that is already over, or 409 TransactionBusy while another
+// call uses it.
 func (s *Server) handleTxAbandon(w http.ResponseWriter, r *http.Request) {
-	s.txs.Abandon(r.PathValue("txId"))
+	if err := s.txs.Abandon(r.PathValue("txId")); err != nil {
+		s.handleErr(w, r, err)
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 

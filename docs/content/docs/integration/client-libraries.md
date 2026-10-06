@@ -36,11 +36,16 @@ Key words in capitals follow [RFC 2119](/docs/concepts/overview/#key-words).
 - After a read of events, the next call MUST be the write of events that closes it, with events or an empty list
   (see [Transactions](/docs/concepts/transactions/#one-decision-one-read-one-write)).
 - A projection MUST be read in the transaction before it's written.
-- After a `409`, or a `404 TransactionNotFound`, the client MUST run the whole command again, in a new transaction.
-  Any error ends a transaction (see [Transactions](/docs/concepts/transactions/#the-end-of-a-transaction)).
+- After a `409 ConcurrencyException`, or a `404 TransactionNotFound`, the client MUST run the whole command again, in
+  a new transaction. Any error ends a transaction (see
+  [Transactions](/docs/concepts/transactions/#the-end-of-a-transaction)).
+- A client MUST NOT send two calls at once on one transaction: the second gets `409 TransactionBusy` (see
+  [Many transactions at once](/docs/concepts/transactions/#many-transactions-at-once)).
 - `POST /tx` can get `503 Paused` while a [pause](/docs/http-api/pause/) is requested or in place. No transaction
   began. What to do with the command is the application's choice.
-- A client SHOULD abandon a transaction it no longer needs, for example in the error handler around a command.
+- A client SHOULD abandon a transaction it no longer needs, for example in the error handler around a command. It
+  SHOULD ignore the response: an abandon sent while a call still runs gets `409 TransactionBusy` (see
+  [Abandon](/docs/http-api/transactions/#abandon)).
 - A client SHOULD give each event of a write the `time` the write returned, before the code that reacts to it runs:
   it's the `time` the event will carry once committed.
 

@@ -32,8 +32,14 @@
 //
 // # Its end
 //
+// One call at a time uses a transaction. A call on a transaction another
+// call is using gets ErrBusy, at once, and changes nothing. Waiting would
+// make the second call check, once its turn came, what the first did to
+// the transaction; refusing leaves nothing to check.
+//
 // A transaction ends at its commit, whatever the outcome, at its first
-// error, when abandoned, or after Config.IdleTimeout without a call. A
+// error, when abandoned, or after Config.IdleTimeout without a call.
+// ErrBusy and ErrNotFound aren't errors in that sense. A
 // client that leaves is not an error: its calls run without their
 // context's cancellation, so the call goes to the end, and the
 // transaction stays open.

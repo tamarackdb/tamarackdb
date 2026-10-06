@@ -27,6 +27,9 @@ Key words in capitals follow [RFC 2119](/docs/concepts/overview/#key-words).
   transaction.
 - Any error on a transaction ends it, whatever its status, including a `400` for a malformed body. Every later call on
   it gets `404 TransactionNotFound`. `404 ProjectionNotFound` isn't an error in that sense: it's an ordinary answer.
+- `409 TransactionBusy` isn't one either. A call sent while another one still runs on the same transaction gets it
+  at once, and the transaction goes on (see
+  [Many transactions at once](/docs/concepts/transactions/#many-transactions-at-once)).
 - A client that leaves during a call isn't an error either: the transaction stays open (see
   [The client leaving](/docs/http-api/conventions/#the-client-leaving)).
 
@@ -193,8 +196,13 @@ commit may still be waiting or running, and a read never waits for it.
 curl -X DELETE http://127.0.0.1:8085/tx/7d1e4b2a-3c5f-4e6d-9a8b-0c1d2e3f4a5b
 ```
 
-`204 No Content`, always, even for a transaction that already ended. Nothing it held is written. It's meant as a
-precaution in the error handler around a command, often after an error already ended the transaction.
+`204 No Content`, even for a transaction that already ended. Nothing it held is written. It's meant as a precaution in
+the error handler around a command, often after an error already ended the transaction.
+
+- While another call still runs on the transaction, it gets `409 TransactionBusy`, and the transaction goes on. A
+  commit already sent still writes. The transaction then ends with that call, if the call fails or commits, or after
+  `txIdleTimeout`.
+- A client SHOULD ignore the response of an abandon: in every case, the transaction is over for it.
 
 ## Limits
 
@@ -228,7 +236,8 @@ its work.
 | `503` | `Paused` | `POST /tx` while a pause is requested or in place |
 | `404` | `ProjectionNotFound` | [Reading a projection](#reading-a-projection) that doesn't exist |
 | `409` | `ConcurrencyException` | At commit, a [conflict](#commit) |
+| `409` | `TransactionBusy` | A call while another one still runs on the same transaction. The transaction goes on |
 | `413` | `PayloadTooLarge` | An event or a projection over its size limit, or a body over `maxRequestBodySize` |
 
-Every error but `404 ProjectionNotFound` ends the transaction. The full list of codes is in
+Every error but `404 ProjectionNotFound` and `409 TransactionBusy` ends the transaction. The full list of codes is in
 [Errors](/docs/http-api/errors/).

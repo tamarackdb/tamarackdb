@@ -275,3 +275,39 @@ func TestStats(t *testing.T) {
 		t.Errorf("stats = %+v, want %+v", got, want)
 	}
 }
+
+// TestCallDuringACommitGets409 checks that a call on a transaction whose
+// commit waits for its turn gets 409 TransactionBusy, whatever the call:
+// an abandon, or a request this layer refuses before reaching the
+// transaction. Nothing changes: the commit still writes, and no design
+// error counts.
+func TestCallDuringACommitGets409(t *testing.T) {
+	srv, wr, _ := newTestServer(t)
+	tx := begin(t, srv)
+	txRequest(t, srv, "QUERY", tx+"/events", `{"query":"none"}`, 200)
+	txRequest(t, srv, "POST", tx+"/events", `{"events":[{"type":"a","payload":""}]}`, 200)
+	release := holdTurn(t, wr)
+	done := make(chan *httptest.ResponseRecorder, 1)
+	go func() { done <- doRequest(t, srv, "POST", tx+"/commit", "") }()
+	waitQueued(t, wr, 1)
+
+	for _, call := range []struct{ method, path, body string }{
+		{"DELETE", "", ""},
+		{"QUERY", "/events", `{"query":`},
+	} {
+		rec := txRequest(t, srv, call.method, tx+call.path, call.body, 409)
+		if code := errorCode(t, rec); code != "TransactionBusy" {
+			t.Errorf("%s %s: error = %q, want TransactionBusy", call.method, tx+call.path, code)
+		}
+	}
+	release()
+	if rec := <-done; rec.Code != 204 {
+		t.Fatalf("POST %s/commit status = %d, want 204", tx, rec.Code)
+	}
+	if n := countEvents(t, srv); n != 1 {
+		t.Errorf("events = %d, want 1", n)
+	}
+	if s := srv.txs.Stats(); s.Busy != 2 || s.DesignErrors != 0 {
+		t.Errorf("Stats() = %+v, want 2 busy and no design error", s)
+	}
+}

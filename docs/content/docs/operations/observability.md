@@ -27,7 +27,8 @@ curl http://127.0.0.1:8085/stats
     "abandoned": 40,
     "expired": 2,
     "designErrors": 0,
-    "paused": 0
+    "paused": 0,
+    "busy": 0
   },
   "pause": {
     "state": "normal",
@@ -59,6 +60,7 @@ curl http://127.0.0.1:8085/stats
 | `transactions.expired` | Transactions ended after `txIdleTimeout` without a call |
 | `transactions.designErrors` | Transactions ended by a call that broke a rule, or by a malformed request. An event or a projection over its size limit doesn't count |
 | `transactions.paused` | `POST /tx` calls refused with `503 Paused` |
+| `transactions.busy` | Calls refused with `409 TransactionBusy`: another call still ran on the transaction. They don't count in `designErrors` |
 | `pause.state` | Where the [pause](/docs/http-api/pause/) stands: `normal`, `pauseRequested`, or `paused` |
 | `pause.since` | When that state began |
 | `pause.openTransactions` | Transactions still open, and commits still writing: what a requested pause waits for |
@@ -76,6 +78,8 @@ curl http://127.0.0.1:8085/stats
   on every path.
 - **`designErrors`** SHOULD stay at zero in production. A rising count means a client library sends calls in an order
   transactions never allow: it has a bug.
+- **`busy`** rising means a client library sends calls at once on one transaction: it has a bug. A few, next to
+  `abandoned`, are abandons sent after a timeout while a commit still waited for its turn.
 - **`pauseRequested`** that lasts means a transaction is still open, or the coordinator stopped calling `POST /pause`:
   `openTransactions` says how many are open. `POST /resume` withdraws it.
 - **`lastOptimizeAt`** more than a day old means the timer that calls `POST /optimize` doesn't run (see

@@ -29,12 +29,13 @@ headers.
 | `404` | `ProjectionNotFound` | A projection that doesn't exist, read with `GET /projections/{type}/{id}` or in a transaction |
 | `404` | `TransactionNotFound` | A call on a transaction that is unknown, expired, or already over (see [Transactions](/docs/http-api/transactions/#errors)) |
 | `409` | `ConcurrencyException` | A commit or `POST /projections`: a condition doesn't hold, or a projection doesn't match the stored one. The `message` names the cause (see [Transactions](/docs/http-api/transactions/#commit) and [Projections](/docs/http-api/projections/#conflicts)). Nothing was written |
+| `409` | `TransactionBusy` | A call on a transaction while another call still runs on it. Nothing changed: the transaction goes on (see [Transactions](/docs/concepts/transactions/#many-transactions-at-once)) |
 | `409` | `NotPaused` | `POST /reset` outside a pause in place (see [Reset](/docs/http-api/reset/)). Nothing was deleted |
 | `413` | `PayloadTooLarge` | An event or a projection over its size limit, or a body over `maxRequestBodySize`. The `message` names the setting |
 | `500` | `InternalError` | An unexpected failure on the server |
 | `503` | `Paused` | `POST /tx` while a pause is requested or in place (see [Pause](/docs/http-api/pause/)). No transaction began |
-| `503` | `WriteQueueFull` | A commit, `POST /projections`, a bulk delete, `POST /pause`, `POST /resume`, or `POST /reset`, while too many requests already wait for their turn (see [Conventions](/docs/http-api/conventions/#waiting-for-a-turn)). Nothing was written |
-| `503` | `ShuttingDown` | A commit, `POST /projections`, a bulk delete, `POST /pause`, `POST /resume`, or `POST /reset`, waiting or arriving while the server shuts down. Nothing was written |
+| `503` | `WriteQueueFull` | A commit, `POST /projections`, a bulk delete, `POST /pause`, `POST /resume`, `POST /optimize`, or `POST /reset`, while too many requests already wait for their turn (see [Conventions](/docs/http-api/conventions/#waiting-for-a-turn)). Nothing was written |
+| `503` | `ShuttingDown` | A commit, `POST /projections`, a bulk delete, `POST /pause`, `POST /resume`, `POST /optimize`, or `POST /reset`, waiting or arriving while the server shuts down. Nothing was written |
 | `503` | `Unavailable` | `GET /health` only: SQLite can't be reached (see [Health check](/docs/operations/health-check/)) |
 
 How each code is logged is in [Logs](/docs/operations/logs/).

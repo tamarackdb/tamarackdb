@@ -30,7 +30,9 @@
 //
 // Any error on a transaction ends it, including one this package finds
 // before the transaction is reached, such as a malformed body: such a
-// request ends it through tx.Registry.Reject.
+// request ends it through tx.Registry.Reject. Two answers aren't errors
+// in that sense: 404 TransactionNotFound, and 409 TransactionBusy, for a
+// call while another one uses the transaction, which changes nothing.
 //
 // A client that leaves MUST NOT end its transaction, nor count as a
 // design error. Before its body is read, the request is dropped, and the

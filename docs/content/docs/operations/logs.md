@@ -30,6 +30,7 @@ Each outcome has a fixed level, not derived from the status code alone:
 | `POST /pause` (`202` while requested, `200` once in place) or `POST /resume` done, `POST /optimize` done | 2XX | `info` |
 | Projection not found | 404 | `debug` |
 | Transaction not found | 404 | `info` |
+| Call on a transaction another call still uses (`TransactionBusy`) | 409 | `info` |
 | Concurrency conflict | 409 | `debug` |
 | Invalid request | 400 | `info` |
 | Payload too large | 413 | `info` |
