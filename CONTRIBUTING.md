@@ -25,6 +25,44 @@ directly to your branch rather than asking for another round of edits
 (GitHub enables this by default for pull requests from forks). Merge
 and release decisions rest with the maintainer, on no fixed schedule.
 
+## Concurrent code
+
+Concurrent code is hard to read, to test, and to reason about. These
+recommendations help pick the simplest design. They aren't rules to
+follow to the letter: when two of them disagree, the first one wins.
+TamarackDB isn't built for many concurrent writes: SQLite has a single
+writer, so a design doesn't have to shine under a heavy write load.
+
+1. **A rare case must be safe, not pleasant.** Nothing is lost,
+   nothing stays blocked, nothing leaks. Beyond that, what matters is
+   who pays. If only the client at fault pays, the simplest behavior is
+   enough. If other clients pay, handle the case, however rare. For
+   example, a request that joined the FIFO runs even if its client
+   leaves: only that client has to deal with a lost response.
+2. **Sequential by default.** Do the work in the request that needs
+   it, when it needs it. Add a goroutine only when doing the work in
+   sequence would make one client pay for another. It then has an owner
+   that stops it and waits for it to end. Idle transactions expire when
+   the registry is next used, and `PRAGMA optimize` runs at startup and
+   on `POST /optimize`: neither needs a goroutine. What stays parallel
+   is one goroutine per HTTP request and the reads, since in sequence
+   every client would wait for every other.
+3. **Exclude a race rather than repair it.** Use a lock, the FIFO, an
+   order imposed on the client (written on the documentation site), or
+   refuse the state that allows the race. Check and act under the same
+   lock, or in the same turn. Every lock says what it guards, in the
+   comment of its field. Code that detects a race after the fact is
+   hard to reason about and to test. For example, a second call on a
+   busy transaction gets `409 TransactionBusy` instead of waiting, so
+   no call ever has to check what another one did to the transaction.
+4. **Don't wait for another client.** A request whose end depends on
+   another client answers "not yet", and the client calls again:
+   `POST /pause` answers `202` while transactions are open. A short,
+   bounded wait, like a turn in the FIFO, is fine.
+
+What a client sees when it leaves mid-request is part of the API: it's
+on the site, under "The client leaving" in the HTTP API conventions.
+
 ## Building from source
 
 For how to run TamarackDB, see the documentation at
@@ -60,6 +98,13 @@ accepts it.
 ```sh
 make test
 ```
+
+For concurrent code, also run `make test-race` after every change.
+Each mechanism that excludes a race has a test that forces the
+interleaving it excludes: the test holds the turn of the FIFO
+(`holdTurn`), or moves a test clock, instead of counting on chance or
+on `time.Sleep`. Check that the test fails without the fix: a test of
+concurrent code can pass without testing anything.
 
 ### Demo dataset
 

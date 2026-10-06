@@ -121,6 +121,8 @@ changes.
   code it concerns, with the RFC 2119 key words.
 - Design options that were set aside don't go in comments: before 1.0,
   they live in commit messages and PR descriptions.
+- Before changing concurrent code, follow the recommendations in
+  `CONTRIBUTING.md`, "Concurrent code".
 
 ## Documentation site
 
