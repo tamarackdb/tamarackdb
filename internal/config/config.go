@@ -123,7 +123,8 @@ type Config struct {
 	// limit": a FIFO with no bound would let a burst, or a broken client,
 	// pile up an unlimited number of blocked HTTP connections, so every
 	// deployment gets a bound. There is no cap on how long a request
-	// waits: its client ends the wait by closing the connection.
+	// waits, and a request whose client leaves keeps its place until its
+	// turn.
 	MaxQueuedWrites int `toml:"maxQueuedWrites"` // default: 100
 
 	// ReadPoolSize is the number of SQLite connections available for

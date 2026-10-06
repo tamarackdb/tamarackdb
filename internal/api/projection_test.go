@@ -257,9 +257,9 @@ func TestInvalidWriteProjectionsGets400WithoutWaiting(t *testing.T) {
 	}
 }
 
-// TestWriteProjectionsLeavesTheFIFOWhenTheClientLeaves checks that a
-// client gone before its turn writes nothing.
-func TestWriteProjectionsLeavesTheFIFOWhenTheClientLeaves(t *testing.T) {
+// TestWriteProjectionsRunsWhenTheClientLeaves checks that a request whose
+// client leaves while it waits for its turn still writes, in its turn.
+func TestWriteProjectionsRunsWhenTheClientLeaves(t *testing.T) {
 	srv, wr, _ := newTestServer(t)
 	release := holdTurn(t, wr)
 
@@ -273,10 +273,9 @@ func TestWriteProjectionsLeavesTheFIFOWhenTheClientLeaves(t *testing.T) {
 	}()
 	waitQueued(t, wr, 1)
 	cancel()
-	<-done
-
 	release()
-	getProjection(t, srv, "p", "1", 404)
+	<-done
+	getProjection(t, srv, "p", "1", 200)
 }
 
 // TestProjectionWritesWaitForTheirTurn checks that POST /projections and

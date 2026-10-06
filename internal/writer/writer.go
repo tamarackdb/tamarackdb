@@ -80,13 +80,11 @@ func (w *Writer) record(err error) {
 // queued, runs fn, then gives the turn to the next request. fn runs with
 // the write connection to itself, and commits on its own.
 //
-// ctx is the request's: if the client disconnects while waiting, or just
-// as its turn comes, the request leaves the FIFO and fn never runs. Once
-// fn runs, the write goes through even if the client leaves: fn gets ctx
-// without its cancellation, since database/sql would otherwise roll the
-// SQLite transaction back halfway.
+// A request that joined runs fn even if its client disconnects while it
+// waits. fn gets ctx without its cancellation, since database/sql would
+// otherwise roll the SQLite transaction back halfway.
 func (w *Writer) RunInTurn(ctx context.Context, fn func(ctx context.Context) error) error {
-	turn, err := w.q.Join(ctx)
+	turn, err := w.q.Join()
 	if errors.Is(err, queue.ErrFull) {
 		w.mu.Lock()
 		w.stats.WriteQueueFull++
@@ -96,9 +94,6 @@ func (w *Writer) RunInTurn(ctx context.Context, fn func(ctx context.Context) err
 		return err
 	}
 	defer turn.Done()
-	if err := ctx.Err(); err != nil {
-		return err // the client left just as its turn came
-	}
 	w.mu.Lock()
 	closed := w.closed
 	w.mu.Unlock()
@@ -108,15 +103,10 @@ func (w *Writer) RunInTurn(ctx context.Context, fn func(ctx context.Context) err
 	return fn(context.WithoutCancel(ctx))
 }
 
-// Optimize runs PRAGMA optimize (see store.Store.Optimize) once its turn
-// comes in the FIFO, so it never runs during a write.
+// Optimize runs PRAGMA optimize (see store.Store.Optimize) in its turn
+// in the FIFO, so it never runs during a write.
 func (w *Writer) Optimize(ctx context.Context) error {
-	turn, err := w.q.Join(ctx)
-	if err != nil {
-		return err
-	}
-	defer turn.Done()
-	return w.st.Optimize(ctx)
+	return w.RunInTurn(ctx, w.st.Optimize)
 }
 
 // Waiting returns how many requests are waiting for their turn.

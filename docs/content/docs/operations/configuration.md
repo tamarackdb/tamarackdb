@@ -109,5 +109,6 @@ They're served one at a time, in the order they arrive. One more gets `503 Write
   and the writes behind it wait that long.
 - Size `maxQueuedWrites` against how many writes the application sends at once. There's no "no limit" value: every
   deployment gets a bound.
-- The server doesn't cap how long a request waits. Each client sets its own limit and closes the connection when it's
-  reached.
+- The server doesn't cap how long a request waits. A request whose client stops waiting keeps its place, and counts
+  toward `maxQueuedWrites`, until its turn (see
+  [The client leaving](/docs/http-api/conventions/#the-client-leaving)).

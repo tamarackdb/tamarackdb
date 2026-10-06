@@ -1,7 +1,6 @@
 package queue
 
 import (
-	"context"
 	"errors"
 	"sync"
 )
@@ -13,123 +12,82 @@ var ErrClosed = errors.New("queue: closed")
 // maxQueued depth; the caller never joins the queue in that case.
 var ErrFull = errors.New("queue: full")
 
-// Manager is TamarackDB's FIFO. A new arrival has no multi-entry decision
-// to make: it either finds the manager idle (becomes active immediately)
-// or it doesn't (joins the queue). A plain sync.Mutex is enough for that;
-// no background goroutine is needed.
+// Manager is TamarackDB's FIFO, a ticket line: each request takes the next
+// ticket, and the turn goes to tickets in order. A request that holds a
+// ticket keeps it until its turn: it can't leave the line, so no request
+// ever has to be removed from the middle of it.
 type Manager struct {
-	mu        sync.Mutex
-	closed    bool
-	closedCh  chan struct{}
-	closeOnce sync.Once
+	mu      sync.Mutex // guards everything below
+	changed sync.Cond  // on mu: broadcast when served moves on, or on Close
+	closed  bool
 
-	active    bool
-	queue     []*waiter
-	maxQueued int // 0 means uncapped
-}
-
-// waiter is the internal bookkeeping for one request waiting in the queue.
-type waiter struct {
-	readyCh chan struct{} // closed exactly once, when this waiter becomes active
+	// next is the ticket the next request gets; served is the ticket that
+	// holds the turn. next == served means no request holds the turn, and
+	// none waits.
+	next, served uint64
+	maxQueued    int // 0 means uncapped
 }
 
 // New creates a Manager. maxQueued caps how many requests may wait at
 // once: a Join arriving when the queue is already at that depth fails
 // immediately with ErrFull instead of joining. 0 means no limit, for
-// callers with no opinion (tests); configuration always sets it. A queued
-// request waits as long as it takes: its client ends the wait by closing
-// the connection. Callers must Close it when done.
+// callers with no opinion (tests); configuration always sets it. Callers
+// must Close it when done.
 func New(maxQueued int) *Manager {
-	return &Manager{
-		closedCh:  make(chan struct{}),
-		maxQueued: maxQueued,
-	}
+	m := &Manager{maxQueued: maxQueued}
+	m.changed.L = &m.mu
+	return m
 }
 
-// Close stops accepting new Joins (they fail with ErrClosed) and unblocks
-// every currently queued Join with ErrClosed. It does not end the active
+// Close stops accepting new Joins (they fail with ErrClosed) and wakes
+// every queued Join, which returns ErrClosed. It does not end the active
 // turn. Safe to call more than once.
 func (m *Manager) Close() {
-	m.closeOnce.Do(func() {
-		m.mu.Lock()
-		m.closed = true
-		m.mu.Unlock()
-		close(m.closedCh)
-	})
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.closed = true
+	m.changed.Broadcast()
 }
 
-// Join blocks until the caller holds the active turn, ctx is cancelled
-// (the client disconnected), the queue is already at its configured depth
-// (ErrFull, returned immediately without joining), or the Manager is
-// closed.
+// Join takes the next ticket and blocks until it holds the turn. It
+// returns ErrFull at once, without joining, when maxQueued requests
+// already wait, and ErrClosed once the Manager is closed. A request that
+// joined MUST NOT be able to leave the line before its turn: a client that
+// leaves still gets its turn, and its request runs. That's what keeps the
+// line free of races between a departure and a turn handed out at the
+// same moment.
 //
 // On success, the returned *Turn's Done must be called exactly once, when
 // the caller is finished with the write connection.
-func (m *Manager) Join(ctx context.Context) (*Turn, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-
+func (m *Manager) Join() (*Turn, error) {
 	m.mu.Lock()
+	defer m.mu.Unlock()
 	if m.closed {
-		m.mu.Unlock()
 		return nil, ErrClosed
 	}
-	if !m.active {
-		m.active = true
-		m.mu.Unlock()
-		return &Turn{m: m}, nil
-	}
-	if m.maxQueued > 0 && len(m.queue) >= m.maxQueued {
-		m.mu.Unlock()
+	if m.maxQueued > 0 && m.waiting() >= m.maxQueued {
 		return nil, ErrFull
 	}
-	w := &waiter{readyCh: make(chan struct{})}
-	m.queue = append(m.queue, w)
-	m.mu.Unlock()
-
-	select {
-	case <-w.readyCh:
-		return &Turn{m: m}, nil
-	case <-ctx.Done():
-		return m.leave(w, ctx.Err())
-	case <-m.closedCh:
-		return m.leave(w, ErrClosed)
+	ticket := m.next
+	m.next++
+	// Every Done wakes every waiter, and each checks its own ticket. With
+	// at most maxQueued waiters, the wasted wake-ups cost nothing worth a
+	// channel per waiter.
+	for ticket != m.served && !m.closed {
+		m.changed.Wait()
 	}
-}
-
-// leave removes w from the queue and returns err, unless w was promoted to
-// active in the moment between the select above firing and this running
-// (a race against done's promotion), in which case the promotion is
-// honored rather than leaked: nothing else would ever call Done on its
-// behalf.
-func (m *Manager) leave(w *waiter, err error) (*Turn, error) {
-	m.mu.Lock()
-	for i, q := range m.queue {
-		if q == w {
-			m.queue = append(m.queue[:i], m.queue[i+1:]...)
-			m.mu.Unlock()
-			return nil, err
-		}
+	if ticket != m.served {
+		return nil, ErrClosed
 	}
-	m.mu.Unlock()
-	<-w.readyCh // already promoted: done has handed it the turn
 	return &Turn{m: m}, nil
 }
 
-// done releases the active turn, promoting the next queued request, if any.
+// done gives the turn to the next ticket.
 func (m *Manager) done() {
 	m.mu.Lock()
-	if len(m.queue) == 0 {
-		m.active = false
-		m.mu.Unlock()
-		return
-	}
-	// The turn passes straight to the head: active stays true.
-	head := m.queue[0]
-	m.queue = m.queue[1:]
-	m.mu.Unlock()
-	close(head.readyCh)
+	defer m.mu.Unlock()
+	m.served++
+	m.changed.Broadcast()
 }
 
 // Waiting returns how many requests are waiting for their turn, not
@@ -137,5 +95,13 @@ func (m *Manager) done() {
 func (m *Manager) Waiting() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return len(m.queue)
+	return m.waiting()
+}
+
+// waiting is Waiting, for a caller that holds mu.
+func (m *Manager) waiting() int {
+	if m.next == m.served {
+		return 0
+	}
+	return int(m.next - m.served - 1)
 }

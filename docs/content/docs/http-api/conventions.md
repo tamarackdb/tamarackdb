@@ -72,8 +72,8 @@ These requests wait for their turn: a transaction's commit, `POST /projections`,
 - When too many requests already wait (`maxQueuedWrites`, see [Configuration](/docs/operations/configuration/)), a
   new one gets `503 WriteQueueFull` and never joins the queue. Nothing is written.
 - A request waiting or arriving while the server shuts down gets `503 ShuttingDown`. Nothing is written.
-- The server puts no limit on how long a request waits. A client sets its own: when it no longer wants to wait, it
-  closes the connection.
+- The server puts no limit on how long a request waits. A client that stops waiting doesn't take its request out of
+  the queue (see [The client leaving](#the-client-leaving)).
 
 ## The client leaving
 
@@ -83,10 +83,13 @@ These requests wait for their turn: a transaction's commit, `POST /projections`,
   goes to the end; only a streamed read stops, at its next line. The transaction then ends by
   [`DELETE /tx/{txId}`](/docs/http-api/transactions/#abandon), or after `txIdleTimeout` (see
   [Configuration](/docs/operations/configuration/)).
-- A client that disconnects while its request waits leaves the queue, and nothing is written.
-- The server checks once more that the client is still there just as the turn comes.
-- From then on, the request goes to the end, even if the client leaves. The client then can't tell whether it was
-  written.
+- A request that joined the queue goes to the end, even if its client leaves while it waits. The client then can't
+  tell whether it was written: it's a lost response, and the client handles it as such (see
+  [A lost response](/docs/http-api/transactions/#a-lost-response) for a commit, and
+  [A lost response](/docs/http-api/projections/#a-lost-response) for a write of projections).
+
+**Why a request can't leave the queue.** A client that leaves already has to handle a lost response, since the
+connection can drop at any time. Running its request anyway costs it nothing more.
 
 ## Store ID header
 

@@ -153,9 +153,8 @@ from its write, and nothing else is returned.
 - It waits for its turn behind the requests that arrived before it, and may get `503 WriteQueueFull` or
   `503 ShuttingDown` (see [Waiting for a turn](/docs/http-api/conventions/#waiting-for-a-turn)).
 - A transaction with nothing to write gets `204` at once.
-- The transaction is over after its commit, whatever the outcome. A client that disconnects while its commit waits
-  leaves the queue, and nothing is written. Once its turn comes, the commit goes to the end, even if the client
-  leaves (see [The client leaving](/docs/http-api/conventions/#the-client-leaving)).
+- The transaction is over after its commit, whatever the outcome. A commit that joined the queue goes to the end,
+  even if its client leaves (see [The client leaving](/docs/http-api/conventions/#the-client-leaving)).
 
 A conflict gets `409 ConcurrencyException`, and nothing is written. The `message` names the cause:
 

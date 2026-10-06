@@ -13,12 +13,17 @@
 //     FIFO.
 //  2. It joins the line. If maxQueued requests already wait, Join returns
 //     ErrFull at once, and the request never joins.
-//  3. Otherwise it waits, its HTTP connection held open, until every
-//     request ahead of it is done.
-//  4. If the client disconnects while waiting, the request leaves the line
-//     at once, and everyone behind it moves up. There is no other way out
-//     of the line.
-//  5. At the head of the line, it holds the turn until it calls Turn.Done.
+//  3. Otherwise it takes the next ticket, and waits until every request
+//     ahead of it is done.
+//  4. At the head of the line, it holds the turn until it calls Turn.Done.
+//
+// A request that joined stays in the line until its turn, even if its
+// client disconnects: the request then runs, and the client treats it as
+// a lost response. The line is never changed in the middle, so no
+// departure can race a turn handed out at the same moment. The price: an
+// abandoned request keeps its place, and counts toward maxQueued, until
+// its turn. TamarackDB isn't built for many concurrent writes, so that
+// place is rarely missed, and a burst of them stays bounded by maxQueued.
 //
 // # Rules
 //
@@ -33,8 +38,7 @@
 // blocked HTTP connections. (New accepts 0 for no bound, for tests only.)
 //
 // A request waits as long as it takes, with no timeout. Each request ahead
-// holds the turn only for its own work, usually a few milliseconds. A
-// client that wants a shorter wait closes the connection.
+// holds the turn only for its own work, usually a few milliseconds.
 //
 // Close turns away every request still waiting, and every later one, with
 // ErrClosed. A request holding the turn finishes.

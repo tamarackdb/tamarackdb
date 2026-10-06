@@ -1,8 +1,8 @@
 package queue
 
 import (
-	"context"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -14,32 +14,49 @@ type joinOutcome struct {
 	err  error
 }
 
-func joinResultChan(t *testing.T, m *Manager, ctx context.Context) <-chan joinOutcome {
-	t.Helper()
+// joinAsync joins m in a goroutine, and reports the outcome on the
+// returned channel.
+func joinAsync(m *Manager) <-chan joinOutcome {
 	ch := make(chan joinOutcome, 1)
 	go func() {
-		turn, err := m.Join(ctx)
+		turn, err := m.Join()
 		ch <- joinOutcome{turn: turn, err: err}
 	}()
 	return ch
 }
 
-// isActive reports whether a request holds the turn.
-func isActive(m *Manager) bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.active
+// waitForWaiting waits until n requests wait in m: the order in which
+// requests join is then known, instead of left to the scheduler.
+func waitForWaiting(t *testing.T, m *Manager, n int) {
+	t.Helper()
+	deadline := time.Now().Add(testTimeout)
+	for m.Waiting() != n {
+		if time.Now().After(deadline) {
+			t.Fatalf("Waiting() = %d, want %d", m.Waiting(), n)
+		}
+		time.Sleep(time.Millisecond)
+	}
 }
 
 func mustJoin(t *testing.T, m *Manager) *Turn {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
-	defer cancel()
-	turn, err := m.Join(ctx)
+	turn, err := m.Join()
 	if err != nil {
 		t.Fatalf("Join() error = %v", err)
 	}
 	return turn
+}
+
+// receive waits for ch, and fails the test after testTimeout.
+func receive(t *testing.T, ch <-chan joinOutcome, what string) joinOutcome {
+	t.Helper()
+	select {
+	case out := <-ch:
+		return out
+	case <-time.After(testTimeout):
+		t.Fatalf("%s: Join() did not return", what)
+		return joinOutcome{}
+	}
 }
 
 func TestJoinAdmitsImmediatelyWhenIdle(t *testing.T) {
@@ -48,161 +65,64 @@ func TestJoinAdmitsImmediatelyWhenIdle(t *testing.T) {
 
 	turn := mustJoin(t, m)
 	defer turn.Done()
-
-	if !isActive(m) {
-		t.Errorf("active = false, want true")
-	}
 	if n := m.Waiting(); n != 0 {
 		t.Errorf("Waiting() = %d, want 0", n)
 	}
 }
 
-func TestJoinSerializesSecondWaiterUntilDone(t *testing.T) {
+func TestJoinWaitsUntilDone(t *testing.T) {
 	m := New(0)
 	defer m.Close()
 
 	first := mustJoin(t, m)
-
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
-	defer cancel()
-	ch := joinResultChan(t, m, ctx)
-
+	ch := joinAsync(m)
+	waitForWaiting(t, m, 1)
 	select {
 	case <-ch:
-		t.Fatal("second Join() returned before first was Done, want it to block")
-	case <-time.After(100 * time.Millisecond):
+		t.Fatal("second Join() returned before the first was Done")
+	default:
 	}
 
 	first.Done()
-
-	select {
-	case out := <-ch:
-		if out.err != nil {
-			t.Fatalf("Join() error = %v, want nil after first Done", out.err)
-		}
-		out.turn.Done()
-	case <-time.After(testTimeout):
-		t.Fatal("second Join() did not return after first was Done")
+	out := receive(t, ch, "second")
+	if out.err != nil {
+		t.Fatalf("second Join() error = %v", out.err)
 	}
+	out.turn.Done()
 }
 
-func TestStrictFIFOOrderAcrossMultipleWaiters(t *testing.T) {
+// TestTurnsGoInArrivalOrder checks that requests get the turn in the
+// order they joined.
+func TestTurnsGoInArrivalOrder(t *testing.T) {
 	m := New(0)
 	defer m.Close()
 
 	holder := mustJoin(t, m)
-
-	ctxA, cancelA := context.WithTimeout(context.Background(), testTimeout)
-	defer cancelA()
-	chA := joinResultChan(t, m, ctxA)
-
-	time.Sleep(30 * time.Millisecond) // ensure A is queued before B arrives
-
-	ctxB, cancelB := context.WithTimeout(context.Background(), testTimeout)
-	defer cancelB()
-	chB := joinResultChan(t, m, ctxB)
-
-	select {
-	case <-chB:
-		t.Fatal("B was admitted while A (queued ahead of it) is still waiting: FIFO order violated")
-	case <-time.After(100 * time.Millisecond):
+	const waiters = 10
+	served := make(chan int, waiters)
+	for i := range waiters {
+		go func() {
+			turn, err := m.Join()
+			if err != nil {
+				t.Errorf("waiter %d: Join() error = %v", i, err)
+				return
+			}
+			served <- i
+			turn.Done()
+		}()
+		waitForWaiting(t, m, i+1)
 	}
 
 	holder.Done()
-
-	select {
-	case outA := <-chA:
-		if outA.err != nil {
-			t.Fatalf("A Join() error = %v", outA.err)
-		}
+	for want := range waiters {
 		select {
-		case <-chB:
-			t.Fatal("B was admitted before A called Done: FIFO order violated")
-		case <-time.After(100 * time.Millisecond):
+		case got := <-served:
+			if got != want {
+				t.Fatalf("turn %d went to waiter %d, want waiter %d", want, got, want)
+			}
+		case <-time.After(testTimeout):
+			t.Fatalf("only %d of %d waiters got the turn", want, waiters)
 		}
-		outA.turn.Done()
-	case <-time.After(testTimeout):
-		t.Fatal("A was not admitted after holder called Done")
-	}
-
-	select {
-	case outB := <-chB:
-		if outB.err != nil {
-			t.Fatalf("B Join() error = %v", outB.err)
-		}
-		outB.turn.Done()
-	case <-time.After(testTimeout):
-		t.Fatal("B was not admitted after A called Done")
-	}
-}
-
-func TestJoinContextCancellationWhileQueued(t *testing.T) {
-	m := New(0)
-	defer m.Close()
-
-	holder := mustJoin(t, m)
-	defer holder.Done()
-
-	ctx, cancel := context.WithCancel(context.Background())
-	ch := joinResultChan(t, m, ctx)
-
-	time.Sleep(30 * time.Millisecond) // ensure it's queued
-	cancel()
-
-	select {
-	case out := <-ch:
-		if out.err == nil {
-			t.Fatal("Join() error = nil, want context.Canceled")
-		}
-		if out.turn != nil {
-			out.turn.Done()
-		}
-	case <-time.After(testTimeout):
-		t.Fatal("Join() did not return promptly after context cancellation")
-	}
-
-	if n := m.Waiting(); n != 0 {
-		t.Errorf("Waiting() = %d, want 0 after the cancelled entry was removed", n)
-	}
-}
-
-func TestJoinCancellationDoesNotStarveOtherWaiters(t *testing.T) {
-	m := New(0)
-	defer m.Close()
-
-	holder := mustJoin(t, m)
-
-	ctxCancel, cancel := context.WithCancel(context.Background())
-	chCancel := joinResultChan(t, m, ctxCancel)
-
-	time.Sleep(30 * time.Millisecond)
-
-	ctxOther, cancelOther := context.WithTimeout(context.Background(), testTimeout)
-	defer cancelOther()
-	chOther := joinResultChan(t, m, ctxOther)
-
-	time.Sleep(30 * time.Millisecond)
-	cancel()
-
-	select {
-	case out := <-chCancel:
-		if out.err == nil && out.turn != nil {
-			out.turn.Done()
-		}
-	case <-time.After(testTimeout):
-		t.Fatal("cancelled Join() did not return")
-	}
-
-	holder.Done()
-
-	select {
-	case out := <-chOther:
-		if out.err != nil {
-			t.Fatalf("other Join() error = %v, want nil", out.err)
-		}
-		out.turn.Done()
-	case <-time.After(testTimeout):
-		t.Fatal("other queued Join() was never admitted after the cancelled one was removed")
 	}
 }
 
@@ -212,17 +132,44 @@ func TestDoneIsIdempotent(t *testing.T) {
 
 	turn := mustJoin(t, m)
 	turn.Done()
-	turn.Done() // must not panic
+	turn.Done() // must not give the turn away twice
+	next := mustJoin(t, m)
+	ch := joinAsync(m)
+	waitForWaiting(t, m, 1)
+	select {
+	case <-ch:
+		t.Fatal("a Join() got the turn while another holds it: a second Done gave the turn away")
+	default:
+	}
+	next.Done()
+	receive(t, ch, "last").turn.Done()
 }
 
-func TestCloseIsIdempotentAndUnblocksCallers(t *testing.T) {
+func TestJoinAfterCloseFails(t *testing.T) {
 	m := New(0)
 	m.Close()
 	m.Close() // must not block or panic
 
-	if _, err := m.Join(context.Background()); err != ErrClosed {
+	if _, err := m.Join(); err != ErrClosed {
 		t.Errorf("Join() after Close() error = %v, want ErrClosed", err)
 	}
+}
+
+// TestCloseTurnsAwayWaiters checks that Close wakes every waiting request
+// with ErrClosed, and leaves the request that holds the turn alone.
+func TestCloseTurnsAwayWaiters(t *testing.T) {
+	m := New(0)
+	holder := mustJoin(t, m)
+	a, b := joinAsync(m), joinAsync(m)
+	waitForWaiting(t, m, 2)
+
+	m.Close()
+	for _, ch := range []<-chan joinOutcome{a, b} {
+		if out := receive(t, ch, "waiter"); out.err != ErrClosed {
+			t.Errorf("waiting Join() error = %v, want ErrClosed", out.err)
+		}
+	}
+	holder.Done() // the holder kept its turn, and gives it back as usual
 }
 
 func TestJoinRejectsWhenQueueFull(t *testing.T) {
@@ -230,22 +177,17 @@ func TestJoinRejectsWhenQueueFull(t *testing.T) {
 	defer m.Close()
 
 	holder := mustJoin(t, m)
+	waiter := joinAsync(m)
+	waitForWaiting(t, m, 1)
 
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
-	defer cancel()
-	waiter := joinResultChan(t, m, ctx)
-	time.Sleep(30 * time.Millisecond) // ensure it's queued, occupying the one slot
-	defer func() {
-		holder.Done()
-		out := <-waiter
-		if out.err == nil {
-			out.turn.Done()
-		}
-	}()
-
-	if _, err := m.Join(context.Background()); err != ErrFull {
+	if _, err := m.Join(); err != ErrFull {
 		t.Errorf("Join() with a full queue error = %v, want ErrFull", err)
 	}
+	if n := m.Waiting(); n != 1 {
+		t.Errorf("Waiting() = %d, want 1: a refused request never joins", n)
+	}
+	holder.Done()
+	receive(t, waiter, "waiter").turn.Done()
 }
 
 func TestJoinUncappedWhenMaxQueuedZero(t *testing.T) {
@@ -253,39 +195,23 @@ func TestJoinUncappedWhenMaxQueuedZero(t *testing.T) {
 	defer m.Close()
 
 	holder := mustJoin(t, m)
-
-	// Real admission order depends on goroutine scheduling, not spawn
-	// order, so every waiter reports into one shared channel rather than
-	// each having its own. The test only needs all of them eventually
-	// admitted, not in any particular order (FIFO ordering itself is
-	// covered by TestStrictFIFOOrderAcrossMultipleWaiters).
 	const waiters = 50
 	results := make(chan joinOutcome, waiters)
-	for i := 0; i < waiters; i++ {
-		ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
-		defer cancel()
+	for range waiters {
 		go func() {
-			turn, err := m.Join(ctx)
+			turn, err := m.Join()
 			results <- joinOutcome{turn: turn, err: err}
 		}()
 	}
-	time.Sleep(30 * time.Millisecond) // ensure all 50 are queued, not rejected
-
-	if n := m.Waiting(); n != waiters {
-		t.Fatalf("Waiting() = %d, want %d", n, waiters)
-	}
+	waitForWaiting(t, m, waiters)
 
 	holder.Done()
-	for i := 0; i < waiters; i++ {
-		select {
-		case out := <-results:
-			if out.err != nil {
-				t.Fatalf("waiter Join() error = %v", out.err)
-			}
-			out.turn.Done()
-		case <-time.After(testTimeout):
-			t.Fatalf("only %d of %d waiters were admitted", i, waiters)
+	for i := range waiters {
+		out := receive(t, results, "waiter")
+		if out.err != nil {
+			t.Fatalf("waiter %d: Join() error = %v", i, out.err)
 		}
+		out.turn.Done()
 	}
 }
 
@@ -295,27 +221,30 @@ func TestConcurrentStress(t *testing.T) {
 
 	const goroutines = 50
 	const itersEach = 20
-
+	var inTurn atomic.Int32
 	var wg sync.WaitGroup
 	wg.Add(goroutines)
-	for i := 0; i < goroutines; i++ {
+	for range goroutines {
 		go func() {
 			defer wg.Done()
-			for j := 0; j < itersEach; j++ {
-				ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
-				turn, err := m.Join(ctx)
-				cancel()
+			for range itersEach {
+				turn, err := m.Join()
 				if err != nil {
 					t.Errorf("Join() error = %v", err)
 					return
 				}
+				if n := inTurn.Add(1); n != 1 {
+					t.Errorf("%d requests hold the turn at once, want 1", n)
+				}
+				inTurn.Add(-1)
 				turn.Done()
 			}
 		}()
 	}
 	wg.Wait()
 
-	if isActive(m) || m.Waiting() != 0 {
-		t.Errorf("active = %v, Waiting() = %d, want false and 0 once all goroutines finished (leak)", isActive(m), m.Waiting())
+	if n := m.Waiting(); n != 0 {
+		t.Errorf("Waiting() = %d, want 0 once every request is done", n)
 	}
+	mustJoin(t, m).Done() // the turn is free: every Done gave it back
 }

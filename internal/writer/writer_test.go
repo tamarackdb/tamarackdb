@@ -180,27 +180,44 @@ func TestRunInTurnReturnsFnError(t *testing.T) {
 	holdTurn(t, env.m) // the turn was given back
 }
 
-func TestRunInTurnLeavesTheFIFOWhenTheClientLeaves(t *testing.T) {
+// TestRunInTurnRunsWhenTheClientLeavesWhileWaiting checks that a request
+// whose client leaves while it waits keeps its place, and runs in its
+// turn.
+func TestRunInTurnRunsWhenTheClientLeavesWhileWaiting(t *testing.T) {
 	env := newTestEnv(t)
 	release := holdTurn(t, env.m)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	ran := false
+	ran := make(chan struct{})
 	done := make(chan error, 1)
 	go func() {
-		done <- env.m.RunInTurn(ctx, func(context.Context) error { ran = true; return nil })
+		done <- env.m.RunInTurn(ctx, func(context.Context) error { close(ran); return nil })
 	}()
-	time.Sleep(30 * time.Millisecond) // ensure it's queued
+	waitForWaiting(t, env.m, 1)
 	cancel()
-	if err := <-done; !errors.Is(err, context.Canceled) {
-		t.Fatalf("RunInTurn() error = %v, want context.Canceled", err)
-	}
-	if n := env.m.Waiting(); n != 0 {
-		t.Errorf("Waiting() = %d, want 0", n)
+	if n := env.m.Waiting(); n != 1 {
+		t.Errorf("Waiting() = %d after the client left, want 1: the request keeps its place", n)
 	}
 	release()
-	if ran {
-		t.Error("fn ran after the client left")
+	if err := <-done; err != nil {
+		t.Fatalf("RunInTurn() error = %v, want nil", err)
+	}
+	select {
+	case <-ran:
+	default:
+		t.Error("fn never ran after the client left")
+	}
+}
+
+// waitForWaiting waits until n requests wait in m's FIFO.
+func waitForWaiting(t *testing.T, m *Writer, n int) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for m.Waiting() != n {
+		if time.Now().After(deadline) {
+			t.Fatalf("Waiting() = %d, want %d", m.Waiting(), n)
+		}
+		time.Sleep(time.Millisecond)
 	}
 }
 

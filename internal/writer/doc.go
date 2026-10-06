@@ -8,13 +8,12 @@
 //
 // # A write that has started goes to the end
 //
-// A request's context ends its wait: if the client disconnects while
-// waiting, or just as its turn comes, the request leaves the FIFO and its
-// work never runs. Once the work runs, it gets the context without its
-// cancellation (context.WithoutCancel). database/sql rolls a SQLite
-// transaction back when its context is cancelled: a client that left
-// halfway through would otherwise undo its write at a random point. The
-// client deals with not knowing the outcome instead.
+// A request that joined the FIFO goes to the end, even if its client
+// disconnects while it waits (see package queue). Its work gets the
+// context without its cancellation (context.WithoutCancel). database/sql
+// rolls a SQLite transaction back when its context is cancelled: a client
+// that left would otherwise undo its write at a random point. The client
+// deals with not knowing the outcome instead.
 //
 // # Time
 //
