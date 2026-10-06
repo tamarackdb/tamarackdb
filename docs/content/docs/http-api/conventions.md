@@ -1,6 +1,6 @@
 ---
 title: "Conventions"
-description: "What every endpoint of the TamarackDB HTTP API has in common: connecting, strict request bodies, waiting for a turn, the client leaving, and the store ID."
+description: "What every endpoint of the TamarackDB HTTP API has in common: bodies, waiting for a turn, the client leaving, what runs during a pause, the store ID."
 slug: "conventions"
 weight: 1
 ---
@@ -91,6 +91,30 @@ These requests wait for their turn: a transaction's commit, `POST /projections`,
 
 **Why a request can't leave the queue.** A client that leaves already has to handle a lost response, since the
 connection can drop at any time. Running its request anyway costs it nothing more.
+
+## What runs during what
+
+A [pause](/docs/http-api/pause/) puts the server in one of three states, the ones
+[`GET /stats`](/docs/operations/observability/) shows: `normal`, `pauseRequested`, and `paused`. This table says what
+each request does in each state.
+
+| Request | `normal` | `pauseRequested` | `paused` |
+|---|---|---|---|
+| `POST /tx` | Runs | `503 Paused` | `503 Paused` |
+| Calls on an open transaction, its commit included | Run | Run | None is open |
+| `QUERY /events`, `GET /projections/{type}/{id}`, `GET /health`, `GET /stats` | Run | Run | Run |
+| `POST /projections`, and the bulk deletes of projections | Run | Run | Run |
+| `POST /optimize` | Runs | Runs | Runs |
+| `POST /pause` | `202` while transactions are open, else `200` | `202` while transactions are open, else `200` | `200` |
+| `POST /resume` | Does nothing | Withdraws the requested pause | Ends the pause |
+| `POST /reset`, in development mode | `409 NotPaused` | `409 NotPaused` | Runs |
+
+- A refused request changes nothing.
+- `POST /resume` leaves both states of a pause: no state is a dead end.
+
+**Why only these refusals.** `POST /tx` is refused as soon as a pause is requested, so the open transactions can only
+go down. `POST /reset` runs only during a pause in place, so no transaction ever sees the store ID change. A pause
+holds the log still, not the projections: an operation run during a pause, a rebuild for example, writes them.
 
 ## Store ID header
 

@@ -172,9 +172,9 @@ func (r *Registry) Begin() (string, error) {
 	}
 	r.lock()
 	defer r.mu.Unlock()
-	if r.pause != Running {
+	if err := refusal(opBegin, r.pause); err != nil {
 		r.stats.Paused++
-		return "", ErrPaused
+		return "", err
 	}
 	t.lastUsed = r.cfg.Now()
 	r.txs[t.id] = t

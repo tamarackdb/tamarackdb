@@ -189,3 +189,25 @@ func TestResetNeedsAPause(t *testing.T) {
 	}
 	begin(t, env.r)
 }
+
+// TestWhatRunsDuringWhat checks every cell of the table refusal holds:
+// the error each gated operation gets in each state of the pause.
+func TestWhatRunsDuringWhat(t *testing.T) {
+	tests := []struct {
+		op    gated
+		state PauseState
+		want  error
+	}{
+		{opBegin, Running, nil},
+		{opBegin, PauseRequested, ErrPaused},
+		{opBegin, Paused, ErrPaused},
+		{opReset, Running, ErrNotPaused},
+		{opReset, PauseRequested, ErrNotPaused},
+		{opReset, Paused, nil},
+	}
+	for _, tt := range tests {
+		if err := refusal(tt.op, tt.state); !errors.Is(err, tt.want) || (tt.want == nil) != (err == nil) {
+			t.Errorf("refusal(%d, %v) = %v, want %v", tt.op, tt.state, err, tt.want)
+		}
+	}
+}

@@ -90,17 +90,11 @@ its turn, the state the other left, and does what it would do on its own.
 
 ## What a pause blocks
 
-During a pause, `POST /tx` gets `503 Paused`, and nothing else is refused:
-
-- reads of events and of projections;
-- `POST /projections`, and the bulk deletes of projections;
-- `GET /health` and `GET /stats`;
-- `POST /reset`, in development mode, which is accepted only during a pause, and leaves it in place.
+During a pause, requested or in place, `POST /tx` gets `503 Paused`, and nothing else is refused. `POST /reset`, in
+development mode, is accepted only during a pause in place. The table of what each request does in each state is in
+[What runs during what](/docs/http-api/conventions/#what-runs-during-what).
 
 What an application does with a command refused by `503 Paused` is up to it.
-
-**Why projections go on.** A pause holds the log still, not the projections. An operation run during a pause, a
-rebuild for example, has to write them.
 
 ## How long it lasts
 

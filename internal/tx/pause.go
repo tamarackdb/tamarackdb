@@ -32,6 +32,48 @@ func (s PauseState) String() string {
 	}
 }
 
+// gated is an operation the state of the pause can refuse.
+type gated int
+
+const (
+	opBegin gated = iota // POST /tx
+	opReset              // POST /reset
+)
+
+// refusal returns the error op gets in state, or nil if state allows it.
+// It's the one place that decides what runs during what; a new state or a
+// new refusal MUST be added here, and in the table below, never as a
+// check of its own elsewhere. The caller holds r.mu, or the turn in the
+// FIFO, and acts in the same hold: the state can't change between the
+// check and the action.
+//
+//	operation                       normal        pauseRequested  paused
+//	POST /tx                        yes           ErrPaused       ErrPaused
+//	POST /reset                     ErrNotPaused  ErrNotPaused    yes
+//	calls of an open transaction    yes           yes             none exists
+//	reads, GET /health, GET /stats  yes           yes             yes
+//	projections outside a tx        yes           yes             yes
+//	POST /optimize                  yes           yes             yes
+//	POST /pause, POST /resume       yes, with an outcome that depends on the state
+//
+// Only the first two are ever refused, so only Begin and Reset consult
+// refusal. Every cell is a decision. POST /tx is refused from the moment
+// a pause is requested, so the open transactions can only go down.
+// POST /reset runs only in a pause in place, so no transaction ever sees
+// the store ID change. Projections go on: a pause holds the log still,
+// not the projections, and an operation run during a pause, a rebuild for
+// example, writes them. The rest touches neither the log nor a
+// transaction. Each state has a way out: POST /resume.
+func refusal(op gated, state PauseState) error {
+	switch {
+	case op == opBegin && state != Running:
+		return ErrPaused
+	case op == opReset && state != Paused:
+		return ErrNotPaused
+	}
+	return nil
+}
+
 // PauseResult is what Pause found. Paused is true once the pause is in
 // place: no event is appended after LastSequence until it ends.
 // Otherwise, Open transactions are still open, and the caller calls Pause
@@ -124,10 +166,10 @@ func (r *Registry) Resume(ctx context.Context) error {
 func (r *Registry) Reset(ctx context.Context) error {
 	return r.wr.RunInTurn(ctx, func(ctx context.Context) error {
 		r.lock()
-		paused := r.pause == Paused
+		err := refusal(opReset, r.pause)
 		r.mu.Unlock()
-		if !paused {
-			return ErrNotPaused
+		if err != nil {
+			return err
 		}
 		return r.st.Reset(ctx)
 	})

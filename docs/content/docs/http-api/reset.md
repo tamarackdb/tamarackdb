@@ -22,7 +22,8 @@ curl -X POST http://127.0.0.1:8085/resume
 - In one SQLite transaction, it deletes every event and every projection, sets the Sequence Position counter back so
   the next event gets sequence 1, and draws a new store ID (see [Store ID](/docs/concepts/store-id/)).
 - It responds `204 No Content`.
-- Outside a pause in place, a requested one included, it gets `409 NotPaused`, and nothing changes.
+- Outside a pause in place, a requested one included, it gets `409 NotPaused`, and nothing changes (see
+  [What runs during what](/docs/http-api/conventions/#what-runs-during-what)).
 - It leaves the pause in place: `POST /resume` lets transactions begin again.
 - For the application, a reset is like a restart of the server on a brand new file.
 
