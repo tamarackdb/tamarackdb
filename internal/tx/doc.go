@@ -78,4 +78,29 @@
 // cross another: each finds, in its turn, the state the others left.
 // Reset is accepted only during a pause, when no transaction exists: a
 // transaction never sees the store ID change.
+//
+// # What runs during what
+//
+// What each operation does in each state of the pause:
+//
+//	operation                       normal        pauseRequested  paused
+//	POST /tx                        yes           ErrPaused       ErrPaused
+//	POST /reset                     ErrNotPaused  ErrNotPaused    yes
+//	calls of an open transaction    yes           yes             none exists
+//	reads, GET /health, GET /stats  yes           yes             yes
+//	projections outside a tx        yes           yes             yes
+//	POST /optimize                  yes           yes             yes
+//	POST /pause, POST /resume       yes, with an outcome that depends on the state
+//
+// Only Begin and Reset refuse, each with its own check, in the same hold
+// of r.mu, or of the turn, as its action: the state can't change between
+// the check and the action. A new check of the state of the pause MUST
+// add its row to this table, with its reason. Every cell is a decision.
+// POST /tx is refused from the moment a pause is requested, so the open
+// transactions can only go down. POST /reset runs only in a pause in
+// place, so no transaction ever sees the store ID change. Projections go
+// on: a pause holds the log still, not the projections, and an operation
+// run during a pause, a rebuild for example, writes them. The rest
+// touches neither the log nor a transaction. Each state has a way out:
+// POST /resume.
 package tx
