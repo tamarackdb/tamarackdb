@@ -104,11 +104,11 @@
 //
 // # Query planner statistics
 //
-// Optimize runs PRAGMA optimize. The server calls it every hour, in its
-// turn in the FIFO. events only grows, so statistics gathered once drift
-// further from reality the longer the process runs. PRAGMA optimize only
-// analyzes again the tables that changed enough to matter, so it's cheap
-// enough to run often. A full ANALYZE never runs on its own: it's for a
+// Optimize runs PRAGMA optimize. The server calls it at startup, and on
+// POST /optimize, in its turn in the FIFO. events only grows, so
+// statistics gathered once drift further from reality the longer the
+// process runs. PRAGMA optimize only analyzes again the tables that
+// changed enough to matter, so it's cheap enough to run often. A full ANALYZE never runs on its own: it's for a
 // one-off bulk import, run by hand while the server is stopped.
 //
 // # The pause

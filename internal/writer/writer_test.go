@@ -388,3 +388,19 @@ func TestWriteQueueFullIsCounted(t *testing.T) {
 		t.Fatalf("queued write error = %v", err)
 	}
 }
+
+// TestOptimizeRecordsItsTime checks that Stats shows when Optimize last
+// succeeded, and nothing before.
+func TestOptimizeRecordsItsTime(t *testing.T) {
+	env := newTestEnv(t)
+	if at := env.m.Stats().LastOptimize; !at.IsZero() {
+		t.Fatalf("LastOptimize = %v before any Optimize, want zero", at)
+	}
+	before := time.Now()
+	if err := env.m.Optimize(context.Background()); err != nil {
+		t.Fatalf("Optimize() error = %v", err)
+	}
+	if at := env.m.Stats().LastOptimize; at.Before(before) {
+		t.Errorf("LastOptimize = %v, want a time after %v", at, before)
+	}
+}

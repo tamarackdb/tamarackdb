@@ -31,10 +31,6 @@ const banner = " _____                                    _    ____  ____\n" +
 	"  | | (_| | | | | | | (_| | | | (_| | (__|   <| |_| | |_) |\n" +
 	"  |_|\\__,_|_| |_| |_|\\__,_|_|  \\__,_|\\___|_|\\_\\____/|____/\n"
 
-// optimizeInterval is how often the server runs PRAGMA optimize against the
-// write connection, through the FIFO (see writer.Writer.Optimize).
-const optimizeInterval = time.Hour
-
 func main() {
 	configPath := flag.String("config", "config.toml", "path to the TOML configuration file (optional; falls back to TAMARACKDB_* environment variables)")
 	showVersion := flag.Bool("version", false, "print the version and exit")
@@ -91,6 +87,12 @@ func main() {
 	// not left to main's return.
 
 	wr := writer.New(st, writer.Config{MaxQueued: cfg.MaxQueuedWrites})
+	// Statistics refreshed at every start, even with no operator timer
+	// calling POST /optimize. Old statistics slow queries down without
+	// making them wrong, so a failure doesn't stop the server.
+	if err := wr.Optimize(context.Background()); err != nil {
+		log.Printf("tamarackdb-server: PRAGMA optimize: %v", err)
+	}
 	txs := tx.New(st, wr, tx.Config{
 		IdleTimeout:         time.Duration(cfg.TxIdleTimeout) * time.Second,
 		MaxEventsPerTx:      cfg.MaxEventsPerTx,
@@ -163,21 +165,6 @@ func main() {
 	// job.
 	serveErrCh := make(chan error, 1)
 	go func() { serveErrCh <- httpServer.Serve(listener) }()
-
-	optimizeTicker := time.NewTicker(optimizeInterval)
-	defer optimizeTicker.Stop()
-	go func() {
-		for {
-			select {
-			case <-signalCtx.Done():
-				return
-			case <-optimizeTicker.C:
-				if err := wr.Optimize(signalCtx); err != nil {
-					log.Printf("tamarackdb-server: PRAGMA optimize: %v", err)
-				}
-			}
-		}
-	}()
 
 	exitCode := 0
 	select {

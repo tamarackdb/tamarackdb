@@ -15,6 +15,7 @@ curl http://127.0.0.1:8085/stats
 ```json
 {
   "startedAt": "2026-10-03T14:00:00.000000Z",
+  "lastOptimizeAt": "2026-10-04T03:00:00.000000Z",
   "writes": {
     "committed": 18234,
     "conflicts": { "condition": 12, "projection": 3 },
@@ -47,6 +48,7 @@ curl http://127.0.0.1:8085/stats
 
 | Counter | What it counts |
 |---|---|
+| `lastOptimizeAt` | Not a counter: when the query statistics were last refreshed, at startup or by [`POST /optimize`](/docs/http-api/optimize/). `null` until the first success |
 | `writes.committed` | Writes committed: transaction commits that wrote something, and `POST /projections` calls |
 | `writes.conflicts.condition` | Transaction commits refused with `409` because a condition no longer held |
 | `writes.conflicts.projection` | Writes refused with `409` because a projection wasn't at the version read: transaction commits and `POST /projections` calls |
@@ -76,5 +78,7 @@ curl http://127.0.0.1:8085/stats
   transactions never allow: it has a bug.
 - **`pauseRequested`** that lasts means a transaction is still open, or the coordinator stopped calling `POST /pause`:
   `openTransactions` says how many are open. `POST /resume` withdraws it.
+- **`lastOptimizeAt`** more than a day old means the timer that calls `POST /optimize` doesn't run (see
+  [Maintenance](/docs/operations/maintenance/#refreshing-query-statistics)).
 - **`internal`** above zero is a failure on the server: the matching log lines are at level `error` (see
   [Logs](/docs/operations/logs/)).

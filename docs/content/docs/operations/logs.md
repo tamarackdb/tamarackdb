@@ -27,7 +27,7 @@ Each outcome has a fixed level, not derived from the status code alone:
 | Outcome | Status | Level |
 |---|---|---|
 | Successful request | 2XX | `debug` |
-| `POST /pause` (`202` while requested, `200` once in place) or `POST /resume` done | 2XX | `info` |
+| `POST /pause` (`202` while requested, `200` once in place) or `POST /resume` done, `POST /optimize` done | 2XX | `info` |
 | Projection not found | 404 | `debug` |
 | Transaction not found | 404 | `info` |
 | Concurrency conflict | 409 | `debug` |

@@ -4,7 +4,7 @@
 // its own, then gives the turn to the next request. Everything that
 // touches the write connection goes through a Writer: the commit of a
 // transaction, POST /projections, the bulk deletes of projections, a
-// reset, and the hourly PRAGMA optimize.
+// reset, and PRAGMA optimize.
 //
 // # A write that has started goes to the end
 //

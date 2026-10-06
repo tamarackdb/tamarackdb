@@ -10,11 +10,14 @@ import (
 // that was. Its shape isn't part of the API: it may change between
 // versions.
 type statsResponse struct {
-	StartedAt    string            `json:"startedAt"`
-	Writes       writesStats       `json:"writes"`
-	Transactions transactionsStats `json:"transactions"`
-	Pause        pauseStats        `json:"pause"`
-	Errors       errorsStats       `json:"errors"`
+	StartedAt string `json:"startedAt"`
+	// LastOptimizeAt is when PRAGMA optimize last succeeded, at startup
+	// or by POST /optimize; null until it first succeeds.
+	LastOptimizeAt *string           `json:"lastOptimizeAt"`
+	Writes         writesStats       `json:"writes"`
+	Transactions   transactionsStats `json:"transactions"`
+	Pause          pauseStats        `json:"pause"`
+	Errors         errorsStats       `json:"errors"`
 }
 
 // pauseStats is the state of the pause, since when, and how many
@@ -52,8 +55,14 @@ type errorsStats struct {
 // handleStats implements GET /stats. It never waits for a write.
 func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 	ws, ts, ps := s.wr.Stats(), s.txs.Stats(), s.txs.PauseInfo()
+	var lastOptimize *string
+	if !ws.LastOptimize.IsZero() {
+		at := ws.LastOptimize.UTC().Format(dcb.TimeLayout)
+		lastOptimize = &at
+	}
 	writeJSON(w, http.StatusOK, statsResponse{
-		StartedAt: s.startedAt.UTC().Format(dcb.TimeLayout),
+		StartedAt:      s.startedAt.UTC().Format(dcb.TimeLayout),
+		LastOptimizeAt: lastOptimize,
 		Writes: writesStats{
 			Committed:      ws.Committed,
 			Conflicts:      conflictsStats{Condition: ws.ConditionConflicts, Projection: ws.ProjectionConflicts},

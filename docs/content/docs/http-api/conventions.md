@@ -20,6 +20,7 @@ Key words in capitals follow [RFC 2119](/docs/concepts/overview/#key-words).
 | [`DELETE /projections/{type}`](/docs/http-api/projections/#bulk-delete) | Delete every projection of one type, in its turn |
 | [`DELETE /projections`](/docs/http-api/projections/#bulk-delete) | Delete every projection, in its turn |
 | [`POST /pause`](/docs/http-api/pause/) and `POST /resume` | Stop transactions from beginning, in its turn, and let them begin again |
+| [`POST /optimize`](/docs/http-api/optimize/) | Refresh the statistics SQLite plans queries with, in its turn |
 | [`POST /reset`](/docs/http-api/reset/) | Delete all events and projections and draw a new store ID, in its turn (development mode only) |
 
 - "In its turn" means the request waits behind the requests that arrived before it: the server runs them one at a
@@ -64,7 +65,7 @@ request behind it, for as long as it likes.
 ## Waiting for a turn
 
 These requests wait for their turn: a transaction's commit, `POST /projections`, the bulk deletes of projections,
-`POST /pause` and `POST /resume`, and `POST /reset`.
+`POST /pause` and `POST /resume`, `POST /optimize`, and `POST /reset`.
 
 - They go through one at a time, in the order they arrive. Each waits, with its connection held open, behind the
   requests that arrived before it.

@@ -12,8 +12,12 @@
 //  3. It opens the store: it takes the lock on the database file, checks
 //     the schema version, and reads the highest Sequence Position and the
 //     store ID into memory (see package store).
-//  4. It serves requests, and runs PRAGMA optimize every hour, in its turn
-//     in the FIFO.
+//  4. It runs PRAGMA optimize, so every start refreshes the query
+//     planner's statistics. A failure is logged, and the server starts
+//     anyway: old statistics slow queries down without making them wrong.
+//  5. It serves requests. It runs nothing on a timer of its own: PRAGMA
+//     optimize runs again on POST /optimize, which an operator's timer
+//     calls.
 //
 // # What lives only in memory
 //

@@ -100,7 +100,7 @@ A file that holds `authToken` is a secret: see [Security](/docs/operations/secur
 ## Sizing the write queue
 
 `maxQueuedWrites` bounds how many requests wait for their turn at once: a transaction's commit, `POST /projections`,
-the bulk deletes of projections, `POST /pause`, `POST /resume`, `POST /reset`, and the hourly `PRAGMA optimize`.
+the bulk deletes of projections, `POST /pause`, `POST /resume`, `POST /optimize`, and `POST /reset`.
 They're served one at a time, in the order they arrive. One more gets `503 WriteQueueFull` instead of joining.
 
 - A write holds the turn only while its own SQLite transaction runs, usually a few milliseconds, so the queue is usually

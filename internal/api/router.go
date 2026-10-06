@@ -149,6 +149,7 @@ func New(wr *writer.Writer, txs *tx.Registry, st *store.Store, opts Options) *Se
 	mux.HandleFunc("DELETE /tx/{txId}", s.handleTxAbandon)
 	mux.HandleFunc("POST /pause", s.handlePause)
 	mux.HandleFunc("POST /resume", s.handleResume)
+	mux.HandleFunc("POST /optimize", s.handleOptimize)
 	mux.HandleFunc("GET /health", s.handleHealth)
 	mux.HandleFunc("GET /stats", s.handleStats)
 	// Deliberately no catch-all "/" route: registering one would live in

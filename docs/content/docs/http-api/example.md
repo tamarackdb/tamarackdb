@@ -2,7 +2,7 @@
 title: "Example: an online store"
 description: "One order in an online store as the HTTP calls an application sends: five decisions and their projections in one transaction, then an async projector."
 slug: "example"
-weight: 10
+weight: 11
 ---
 
 One order in an online store, as the HTTP calls the application sends. The order, its loyalty points, and its stock

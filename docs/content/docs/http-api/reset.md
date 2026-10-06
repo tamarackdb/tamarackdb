@@ -2,7 +2,7 @@
 title: "Reset"
 description: "POST /reset, in development mode only and during a pause: empties the store and draws a new store ID, for tests, between pause and resume."
 slug: "reset"
-weight: 8
+weight: 9
 ---
 
 `POST /reset` empties the store, for tests. It exists only in development mode (see
@@ -41,5 +41,5 @@ A reset waits for its turn like a write (see [Waiting for a turn](/docs/http-api
 - A write queued after it runs on the new store:
   - a `replace` or `delete` in `POST /projections` gets `409`, since its version no longer exists;
   - a `create` in `POST /projections` goes through, on the new store.
-- A reset can get `503 WriteQueueFull`. Closing the connection while it waits takes it out of the queue, and nothing is
-  deleted.
+- A reset can get `503 WriteQueueFull`. A reset that joined the queue runs, even if its client leaves (see
+  [The client leaving](/docs/http-api/conventions/#the-client-leaving)).

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"time"
 
 	"github.com/tamarackdb/tamarackdb/internal/dcb"
 	"github.com/tamarackdb/tamarackdb/internal/projection"
@@ -104,9 +105,18 @@ func (w *Writer) RunInTurn(ctx context.Context, fn func(ctx context.Context) err
 }
 
 // Optimize runs PRAGMA optimize (see store.Store.Optimize) in its turn
-// in the FIFO, so it never runs during a write.
+// in the FIFO, so it never runs during a write, and records when it
+// succeeded (see Stats).
 func (w *Writer) Optimize(ctx context.Context) error {
-	return w.RunInTurn(ctx, w.st.Optimize)
+	return w.RunInTurn(ctx, func(ctx context.Context) error {
+		if err := w.st.Optimize(ctx); err != nil {
+			return err
+		}
+		w.mu.Lock()
+		w.stats.LastOptimize = time.Now()
+		w.mu.Unlock()
+		return nil
+	})
 }
 
 // Waiting returns how many requests are waiting for their turn.

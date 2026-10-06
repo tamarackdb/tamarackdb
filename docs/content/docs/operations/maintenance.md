@@ -1,12 +1,13 @@
 ---
 title: "Maintenance"
-description: "The maintenance left to you: giving back disk space with VACUUM, a full ANALYZE, and pausing transactions for an operation that needs a still log."
+description: "The maintenance left to you: a daily timer for query statistics, giving back disk space with VACUUM, a full ANALYZE, and pausing transactions."
 slug: "maintenance"
 weight: 8
 ---
 
-The server maintains itself: SQLite checkpoints its WAL, and the server refreshes query statistics every hour. Two
-operations are left to you, both run by hand while the server is stopped. A third, the pause, runs while it serves.
+SQLite checkpoints its WAL on its own, and the server refreshes query statistics at every start. You set up one timer,
+which refreshes them every day. Two operations are left to you, both run by hand while the server is stopped. A
+fourth, the pause, runs while it serves.
 
 Run both as the server's user (see [Install](/docs/operations/install/#run)).
 
@@ -30,7 +31,39 @@ it runs.
 
 ## Refreshing query statistics
 
-After a one-off bulk import, run a full `ANALYZE` the same way:
+Call [`POST /optimize`](/docs/http-api/optimize/) once a day, from a timer, at a quiet time. A cron entry:
+
+```
+0 3 * * * curl -fsS -X POST http://127.0.0.1:8085/optimize
+```
+
+Or a systemd timer:
+
+```ini
+# /etc/systemd/system/tamarackdb-optimize.service
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/curl -fsS -X POST http://127.0.0.1:8085/optimize
+```
+
+```ini
+# /etc/systemd/system/tamarackdb-optimize.timer
+[Timer]
+OnCalendar=*-*-* 03:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+- With `enableAuth` on, the call needs the token: add `-H "Authorization: Bearer <token>"` (see
+  [Security](/docs/operations/security/#bearer-token)). On a unix socket, use
+  `curl --unix-socket /path/to/tamarackdb.sock -X POST http://localhost/optimize`.
+- `lastOptimizeAt` in `GET /stats` shows when it last ran (see [Observability](/docs/operations/observability/)).
+- Without the timer, the statistics are only refreshed when the server starts. Queries slow down little by little,
+  without giving wrong results.
+
+After a one-off bulk import, run a full `ANALYZE` the same way as a `VACUUM`, while the server is stopped:
 
 ```sh
 sudo -u tamarackdb sqlite3 /path/to/data/tamarackdb.sqlite 'ANALYZE;'

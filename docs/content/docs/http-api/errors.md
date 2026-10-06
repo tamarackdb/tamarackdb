@@ -2,7 +2,7 @@
 title: "Errors"
 description: "The error envelope of the TamarackDB HTTP API, every error code with its status and meaning, and the causes of a 400 InvalidRequest response."
 slug: "errors"
-weight: 9
+weight: 10
 ---
 
 Every error from an endpoint uses one JSON envelope, with a stable code a client can check.

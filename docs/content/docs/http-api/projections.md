@@ -141,5 +141,6 @@ curl -X DELETE http://127.0.0.1:8085/projections
   - a write queued before the delete goes through first, and the delete then removes what it wrote;
   - a later write that replaces or deletes a projection the delete removed gets `409`;
   - a delete can get `503 WriteQueueFull`;
-  - closing the connection while it waits takes it out of the queue, with nothing deleted.
+  - a delete that joined the queue runs, even if its client leaves (see
+    [The client leaving](/docs/http-api/conventions/#the-client-leaving)).
 - The store ID doesn't change.
