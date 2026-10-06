@@ -34,8 +34,9 @@ PR description, not in the doc or comment itself.
 Docs are split by subject, like a wiki. Each fact has a main page that
 states it in full, with its edge cases and its reason. Another page MAY
 restate it briefly where its reader needs it, with a link to the main
-page. When a fact changes, its main page changes first, then every page
-that restates it.
+page. When a fact changes, the code MAY change first. Its main page then
+changes, and every page that restates it, in the same series of commits,
+and always before the next `v*` tag.
 
 Sections, relative to `docs/content/docs/`:
 
