@@ -17,9 +17,29 @@ import (
 )
 
 type testEnv struct {
-	st *store.Store
-	wr *writer.Writer
-	r  *Registry
+	st    *store.Store
+	wr    *writer.Writer
+	r     *Registry
+	clock *testClock
+}
+
+// testClock is the Registry's clock in tests: time moves only when the
+// test advances it, so expiry never depends on sleeping.
+type testClock struct {
+	mu  sync.Mutex
+	now time.Time
+}
+
+func (c *testClock) Now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.now
+}
+
+func (c *testClock) advance(d time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.now = c.now.Add(d)
 }
 
 func newTestEnv(t *testing.T, idle time.Duration) *testEnv {
@@ -29,13 +49,13 @@ func newTestEnv(t *testing.T, idle time.Duration) *testEnv {
 		t.Fatalf("store.Open() error = %v", err)
 	}
 	wr := writer.New(st, writer.Config{})
-	r := New(st, wr, Config{IdleTimeout: idle, MaxEventsPerTx: 10, MaxReadsPerTx: 10, MaxProjectionsPerTx: 10})
+	clock := &testClock{now: time.Now()}
+	r := New(st, wr, Config{IdleTimeout: idle, Now: clock.Now, MaxEventsPerTx: 10, MaxReadsPerTx: 10, MaxProjectionsPerTx: 10})
 	t.Cleanup(func() {
-		r.Close()
 		wr.Close()
 		st.Close()
 	})
-	return &testEnv{st: st, wr: wr, r: r}
+	return &testEnv{st: st, wr: wr, r: r, clock: clock}
 }
 
 var bg = context.Background()
@@ -407,31 +427,77 @@ func TestProjectionConflictNamesTheProjection(t *testing.T) {
 	}
 }
 
+// TestIdleTransactionExpires checks that a transaction without a call
+// for IdleTimeout ends, and that the next use of the Registry sees it
+// gone: the call gets ErrNotFound, and Stats counts it.
 func TestIdleTransactionExpires(t *testing.T) {
-	env := newTestEnv(t, 50*time.Millisecond)
+	env := newTestEnv(t, time.Minute)
 	id := begin(t, env.r)
-	deadline := time.Now().Add(2 * time.Second)
-	for env.r.Stats().Expired == 0 {
-		if time.Now().After(deadline) {
-			t.Fatal("transaction still open after 2s")
-		}
-		time.Sleep(10 * time.Millisecond)
+	env.clock.advance(time.Minute - time.Nanosecond)
+	if s := env.r.Stats(); s.Expired != 0 {
+		t.Fatalf("Stats().Expired = %d just before IdleTimeout, want 0", s.Expired)
+	}
+	env.clock.advance(time.Nanosecond)
+	if info := env.r.PauseInfo(); info.Open != 0 {
+		t.Errorf("PauseInfo().Open = %d at IdleTimeout, want 0", info.Open)
 	}
 	if _, err := env.r.ReadEvents(bg, id, dcb.QueryNone()); !errors.Is(err, ErrNotFound) {
 		t.Errorf("ReadEvents() error = %v, want ErrNotFound", err)
+	}
+	if s := env.r.Stats(); s.Expired != 1 {
+		t.Errorf("Stats().Expired = %d, want 1", s.Expired)
 	}
 }
 
 // TestCallsKeepTheTransactionAlive checks that the idle time counts from
 // the last call, not from Begin.
 func TestCallsKeepTheTransactionAlive(t *testing.T) {
-	env := newTestEnv(t, 200*time.Millisecond)
+	env := newTestEnv(t, time.Minute)
 	id := begin(t, env.r)
 	for range 6 {
-		time.Sleep(60 * time.Millisecond)
+		env.clock.advance(30 * time.Second)
 		decide(t, env.r, id, dcb.QueryNone())
 	}
 	commit(t, env.r, id)
+}
+
+// TestPauseIgnoresAnExpiredTransaction checks that a requested pause goes
+// into place once the transaction it waited for expires.
+func TestPauseIgnoresAnExpiredTransaction(t *testing.T) {
+	env := newTestEnv(t, time.Minute)
+	begin(t, env.r)
+	if result := pause(t, env.r); result.Paused || result.Open != 1 {
+		t.Fatalf("Pause() = %+v, want 1 transaction still open", result)
+	}
+	env.clock.advance(time.Minute)
+	if result := pause(t, env.r); !result.Paused {
+		t.Errorf("Pause() = %+v after the transaction expired, want the pause in place", result)
+	}
+}
+
+// TestBusyTransactionDoesNotExpire checks that a transaction in the middle
+// of a call never expires, however long the call takes: here, a commit
+// waiting for its turn.
+func TestBusyTransactionDoesNotExpire(t *testing.T) {
+	env := newTestEnv(t, time.Minute)
+	id := begin(t, env.r)
+	decide(t, env.r, id, dcb.QueryNone(), "a")
+	release := holdTurn(t, env.wr)
+	done := make(chan error, 1)
+	go func() { done <- env.r.Commit(bg, id) }()
+	waitFor(t, "the commit to wait for its turn", func() bool { return env.wr.Waiting() == 1 })
+
+	env.clock.advance(time.Hour)
+	if s := env.r.Stats(); s.Expired != 0 {
+		t.Errorf("Stats().Expired = %d while the commit waits, want 0", s.Expired)
+	}
+	release()
+	if err := <-done; err != nil {
+		t.Fatalf("Commit() error = %v, want nil", err)
+	}
+	if n := len(committedEvents(t, env.st)); n != 1 {
+		t.Errorf("committed events = %d, want 1", n)
+	}
 }
 
 // TestSimultaneousCallsTakeTurns checks that two reads sent at once on one

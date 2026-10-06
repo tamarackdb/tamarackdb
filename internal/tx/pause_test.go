@@ -154,7 +154,6 @@ func TestPauseSurvivesANewRegistry(t *testing.T) {
 	env := newTestEnv(t, time.Minute)
 	pause(t, env.r)
 	r := New(env.st, env.wr, Config{IdleTimeout: time.Minute, MaxEventsPerTx: 10, MaxReadsPerTx: 10, MaxProjectionsPerTx: 10})
-	t.Cleanup(r.Close)
 	if info := r.PauseInfo(); info.State != Paused {
 		t.Fatalf("PauseInfo().State = %v, want paused", info.State)
 	}

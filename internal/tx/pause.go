@@ -64,7 +64,7 @@ type PauseInfo struct {
 func (r *Registry) Pause(ctx context.Context) (PauseResult, error) {
 	var result PauseResult
 	err := r.wr.RunInTurn(ctx, func(ctx context.Context) error {
-		r.mu.Lock()
+		r.lock()
 		defer r.mu.Unlock()
 		switch {
 		case r.pause == Paused:
@@ -95,14 +95,14 @@ func (r *Registry) Pause(ctx context.Context) (PauseResult, error) {
 // never crosses a Pause: each finds, in its turn, the state the other
 // left.
 func (r *Registry) Resume(ctx context.Context) error {
-	r.mu.Lock()
+	r.lock()
 	running := r.pause == Running
 	r.mu.Unlock()
 	if running {
 		return nil
 	}
 	return r.wr.RunInTurn(ctx, func(ctx context.Context) error {
-		r.mu.Lock()
+		r.lock()
 		defer r.mu.Unlock()
 		if r.pause == Paused {
 			if err := r.st.ClearPause(ctx); err != nil {
@@ -123,7 +123,7 @@ func (r *Registry) Resume(ctx context.Context) error {
 // turn: the state can't change during st.Reset.
 func (r *Registry) Reset(ctx context.Context) error {
 	return r.wr.RunInTurn(ctx, func(ctx context.Context) error {
-		r.mu.Lock()
+		r.lock()
 		paused := r.pause == Paused
 		r.mu.Unlock()
 		if !paused {
@@ -135,7 +135,7 @@ func (r *Registry) Reset(ctx context.Context) error {
 
 // PauseInfo returns the state of the pause.
 func (r *Registry) PauseInfo() PauseInfo {
-	r.mu.Lock()
+	r.lock()
 	defer r.mu.Unlock()
 	return PauseInfo{State: r.pause, Since: r.pauseSince, Open: len(r.txs)}
 }

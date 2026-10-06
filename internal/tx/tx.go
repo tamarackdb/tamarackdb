@@ -54,6 +54,10 @@ type Config struct {
 	// IdleTimeout is how long a transaction lives without a call.
 	IdleTimeout time.Duration
 
+	// Now returns the current time, for IdleTimeout. nil means time.Now;
+	// a test sets it to move time forward without sleeping.
+	Now func() time.Time
+
 	// MaxEventsPerTx caps the events a transaction writes, across all its
 	// writes of events. MaxReadsPerTx caps its reads of events, those
 	// followed by an empty write included. MaxProjectionsPerTx caps the
@@ -79,46 +83,54 @@ type Registry struct {
 	wr  *writer.Writer
 	cfg Config
 
-	mu    sync.Mutex // guards txs, stats, the pause, and each transaction's busy and lastUsed
+	mu    sync.Mutex // guards txs, stats, the pause, and each transaction's busy and lastUsed; taken only through lock
 	txs   map[string]*transaction
 	stats Stats
 
 	// The pause (see pause.go).
 	pause      PauseState
 	pauseSince time.Time
-
-	stop chan struct{}
-	done chan struct{}
 }
 
-// New creates a Registry and starts the sweep that ends idle
-// transactions. Callers must Close it when done.
+// New creates a Registry. It starts no goroutine: idle transactions end
+// when the Registry is next used (see lock), so there is nothing to
+// close. The open transactions are dropped with the Registry.
 func New(st *store.Store, wr *writer.Writer, cfg Config) *Registry {
+	if cfg.Now == nil {
+		cfg.Now = time.Now
+	}
 	r := &Registry{
 		st:         st,
 		wr:         wr,
 		cfg:        cfg,
 		txs:        map[string]*transaction{},
-		stop:       make(chan struct{}),
-		done:       make(chan struct{}),
 		pauseSince: time.Now(),
 	}
 	if at, paused := st.PausedAt(); paused {
 		r.pause, r.pauseSince = Paused, at
 	}
-	go r.sweep()
 	return r
 }
 
-// Close stops the sweep. The open transactions are dropped with the
-// Registry.
-func (r *Registry) Close() {
-	select {
-	case <-r.stop:
-	default:
-		close(r.stop)
+// lock takes r.mu, then ends every transaction idle for IdleTimeout or
+// longer. Every function of the Registry MUST take r.mu through lock:
+// nobody then sees the registry before it was cleaned, so an expired
+// transaction is never found by a call, never counted by Pause, and never
+// shown by Stats or PauseInfo. That's what lets expiry run without a
+// goroutine of its own. It walks the whole registry each time: open
+// transactions are few, and forgotten ones rare.
+func (r *Registry) lock() {
+	r.mu.Lock()
+	now := r.cfg.Now()
+	for id, t := range r.txs {
+		// busy is 0: no call holds t or waits for it, and none can start
+		// without r.mu.
+		if t.busy == 0 && now.Sub(t.lastUsed) >= r.cfg.IdleTimeout {
+			t.closed = true
+			delete(r.txs, id)
+			r.stats.Expired++
+		}
 	}
-	<-r.done
 }
 
 // transaction is one open transaction. Its mu is held for the whole of
@@ -128,8 +140,8 @@ type transaction struct {
 	id     string
 	closed bool
 
-	// Guarded by Registry.mu, so the sweep never ends a transaction a
-	// call is using or waiting for.
+	// Guarded by Registry.mu, so expiry never ends a transaction a call
+	// is using or waiting for.
 	busy     int
 	lastUsed time.Time
 
@@ -155,13 +167,13 @@ func (r *Registry) Begin() (string, error) {
 		id:          uuid.NewString(),
 		projections: map[Key]*projectionState{},
 	}
-	r.mu.Lock()
+	r.lock()
 	defer r.mu.Unlock()
 	if r.pause != Running {
 		r.stats.Paused++
 		return "", ErrPaused
 	}
-	t.lastUsed = time.Now()
+	t.lastUsed = r.cfg.Now()
 	r.txs[t.id] = t
 	r.stats.Begun++
 	return t.id, nil
@@ -179,7 +191,7 @@ func (r *Registry) do(id string, fn func(t *transaction) error) error {
 	if err := fn(t); err != nil {
 		r.end(t)
 		if errors.Is(err, ErrDesign) {
-			r.mu.Lock()
+			r.lock()
 			r.stats.DesignErrors++
 			r.mu.Unlock()
 		}
@@ -190,7 +202,7 @@ func (r *Registry) do(id string, fn func(t *transaction) error) error {
 
 // acquire finds transaction id and locks it.
 func (r *Registry) acquire(id string) (*transaction, error) {
-	r.mu.Lock()
+	r.lock()
 	t, ok := r.txs[id]
 	if !ok {
 		r.mu.Unlock()
@@ -210,45 +222,19 @@ func (r *Registry) acquire(id string) (*transaction, error) {
 }
 
 func (r *Registry) release(t *transaction) {
-	r.mu.Lock()
+	r.lock()
 	defer r.mu.Unlock()
 	t.busy--
-	t.lastUsed = time.Now()
+	t.lastUsed = r.cfg.Now()
 }
 
 // end closes t, which the caller holds locked. A call waiting for t then
 // gets ErrNotFound.
 func (r *Registry) end(t *transaction) {
 	t.closed = true
-	r.mu.Lock()
+	r.lock()
 	defer r.mu.Unlock()
 	delete(r.txs, t.id)
-}
-
-// sweep ends the transactions idle for longer than IdleTimeout.
-func (r *Registry) sweep() {
-	defer close(r.done)
-	interval := min(time.Second, max(r.cfg.IdleTimeout/2, 10*time.Millisecond))
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-r.stop:
-			return
-		case now := <-ticker.C:
-			r.mu.Lock()
-			for id, t := range r.txs {
-				// busy is 0: no call holds t or waits for it, and none
-				// can start without r.mu.
-				if t.busy == 0 && now.Sub(t.lastUsed) >= r.cfg.IdleTimeout {
-					t.closed = true
-					delete(r.txs, id)
-					r.stats.Expired++
-				}
-			}
-			r.mu.Unlock()
-		}
-	}
 }
 
 // Abandon ends transaction id. An unknown or closed transaction is not an
@@ -262,7 +248,7 @@ func (r *Registry) Abandon(id string) {
 	defer r.release(t)
 	defer t.mu.Unlock()
 	r.end(t)
-	r.mu.Lock()
+	r.lock()
 	r.stats.Abandoned++
 	r.mu.Unlock()
 }
@@ -281,7 +267,7 @@ func (r *Registry) Reject(id string, design bool) bool {
 	defer t.mu.Unlock()
 	r.end(t)
 	if design {
-		r.mu.Lock()
+		r.lock()
 		r.stats.DesignErrors++
 		r.mu.Unlock()
 	}
@@ -372,7 +358,7 @@ func (r *Registry) WriteEvents(id string, events []dcb.EventData) (time.Time, er
 // could join the FIFO ahead of that commit, and the commit's events would
 // then come after the last Sequence Position the pause returned. Staying
 // changes nothing for the other calls on the transaction: do holds t.mu
-// for the whole commit, so they wait, then find it closed, and the sweep
+// for the whole commit, so they wait, then find it closed, and expiry
 // leaves it alone since it's busy.
 func (r *Registry) Commit(ctx context.Context, id string) error {
 	return r.do(id, func(t *transaction) error {
@@ -399,7 +385,7 @@ func (r *Registry) Commit(ctx context.Context, id string) error {
 }
 
 func (r *Registry) countCommit() {
-	r.mu.Lock()
+	r.lock()
 	defer r.mu.Unlock()
 	r.stats.Committed++
 }

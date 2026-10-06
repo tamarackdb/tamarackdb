@@ -42,9 +42,9 @@
 //     once it gets its turn, so the HTTP server would otherwise wait for
 //     it.
 //  3. The HTTP server finishes the requests still in flight.
-//  4. The transaction registry closes, dropping the open transactions.
-//  5. The store closes last, releasing its connections and the .lock
-//     file.
+//  4. The store closes last, releasing its connections and the .lock
+//     file. The open transactions are dropped with the process: the
+//     transaction registry has no goroutine to stop.
 //
 // # Connection timeouts
 //

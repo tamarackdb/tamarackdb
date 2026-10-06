@@ -186,7 +186,6 @@ func main() {
 		log.Printf("tamarackdb-server: graceful shutdown error: %v", err)
 	}
 	wr.Close() // already started by Shutdown; a no-op by now
-	txs.Close()
 	if err := st.Close(); err != nil {
 		log.Printf("tamarackdb-server: store close error: %v", err)
 	}

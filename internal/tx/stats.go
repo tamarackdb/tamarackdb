@@ -12,7 +12,7 @@ type Stats struct {
 
 // Stats returns the counters.
 func (r *Registry) Stats() Stats {
-	r.mu.Lock()
+	r.lock()
 	defer r.mu.Unlock()
 	return r.stats
 }

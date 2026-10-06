@@ -36,9 +36,19 @@
 // error, when abandoned, or after Config.IdleTimeout without a call. A
 // client that leaves is not an error: its calls run without their
 // context's cancellation, so the call goes to the end, and the
-// transaction stays open. The
-// Registry then keeps nothing of it, so it can't tell an unknown
-// transaction from one that ended: both get ErrNotFound. When the server
+// transaction stays open.
+//
+// An idle transaction ends when the Registry is next used: every function
+// of the Registry takes its lock through Registry.lock, which first ends
+// the transactions idle for IdleTimeout or longer. No goroutine expires
+// them, so nothing has to be stopped. Nobody sees the registry before it
+// was cleaned: a call on an expired transaction gets ErrNotFound, and
+// Pause, Stats and PauseInfo never count one. A forgotten transaction
+// stays in memory until the next call on the Registry, which on a server
+// in use is the next Begin of any client.
+//
+// The Registry keeps nothing of an ended transaction, so it can't tell an
+// unknown transaction from one that ended: both get ErrNotFound. When the server
 // stops, every open transaction is lost, and nothing is rebuilt: the
 // client gets ErrNotFound and runs its command again, as after a
 // conflict.
