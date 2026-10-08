@@ -35,7 +35,8 @@ Key words in capitals follow [RFC 2119](/docs/concepts/overview/#key-words).
 
 - After a read of events, the next call MUST be the write of events that closes it, with events or an empty list
   (see [Transactions](/docs/concepts/transactions/#one-decision-one-read-one-write)).
-- A projection MUST be read in the transaction before it's written.
+- A projection MUST be read in the transaction before it's replaced or deleted. A `create` needs no read (see
+  [Transactions](/docs/http-api/transactions/#writing-projections)).
 - After a `409 ConcurrencyException`, or a `404 TransactionNotFound`, the client MUST run the whole command again, in
   a new transaction. Any error ends a transaction (see
   [Transactions](/docs/concepts/transactions/#the-end-of-a-transaction)).

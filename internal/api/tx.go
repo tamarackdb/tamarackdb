@@ -39,12 +39,14 @@ type txEventsRequest struct {
 	Events *[]dcb.EventInput `json:"events"`
 }
 
-// txProjectionsRequest is POST /tx/{txId}/projections's body. The server
-// knows the version of each projection the transaction read, so the
-// client only says what the projection becomes.
+// txProjectionsRequest is POST /tx/{txId}/projections's body: the same
+// three lists as POST /projections, without versions. The server knows
+// the version of each projection the transaction read. A replace has the
+// shape of a create: type, id, and payload.
 type txProjectionsRequest struct {
-	Upsert []projection.Create `json:"upsert"`
-	Delete []projection.Key    `json:"delete"`
+	Create  []projection.Create `json:"create"`
+	Replace []projection.Create `json:"replace"`
+	Delete  []projection.Key    `json:"delete"`
 }
 
 // txWriteResponse is the response to both writes of a transaction: the
@@ -218,15 +220,18 @@ func (s *Server) handleTxWriteProjections(w http.ResponseWriter, r *http.Request
 		s.txFail(w, r, id, err)
 		return
 	}
-	upsert := make([]tx.Projection, len(req.Upsert))
-	for i, p := range req.Upsert {
-		upsert[i] = tx.Projection{Key: tx.Key{Type: p.Type, ID: p.ID}, Payload: *p.Payload}
+	toTx := func(ps []projection.Create) []tx.Projection {
+		out := make([]tx.Projection, len(ps))
+		for i, p := range ps {
+			out[i] = tx.Projection{Key: tx.Key{Type: p.Type, ID: p.ID}, Payload: *p.Payload}
+		}
+		return out
 	}
-	del := make([]tx.Key, len(req.Delete))
+	writes := tx.Writes{Create: toTx(req.Create), Replace: toTx(req.Replace), Delete: make([]tx.Key, len(req.Delete))}
 	for i, k := range req.Delete {
-		del[i] = tx.Key{Type: k.Type, ID: k.ID}
+		writes.Delete[i] = tx.Key{Type: k.Type, ID: k.ID}
 	}
-	t, err := s.txs.WriteProjections(id, upsert, del)
+	t, err := s.txs.WriteProjections(id, writes)
 	if err != nil {
 		s.handleErr(w, r, err)
 		return
@@ -235,7 +240,8 @@ func (s *Server) handleTxWriteProjections(w http.ResponseWriter, r *http.Request
 }
 
 // validateTxProjections checks each projection's own rules, then
-// maxProjectionSize. A message names it as upsert[i] or delete[i].
+// maxProjectionSize. A message names it by its place, as create[i],
+// replace[i], or delete[i].
 func (s *Server) validateTxProjections(req txProjectionsRequest) error {
 	check := func(at string, validate func() error, size int) error {
 		if err := validate(); err != nil {
@@ -246,13 +252,18 @@ func (s *Server) validateTxProjections(req txProjectionsRequest) error {
 		}
 		return nil
 	}
-	for i, p := range req.Upsert {
-		size := len(p.Type) + len(p.ID)
-		if p.Payload != nil {
-			size += len(*p.Payload)
-		}
-		if err := check(fmt.Sprintf("upsert[%d]", i), p.Validate, size); err != nil {
-			return err
+	for _, list := range []struct {
+		name string
+		ps   []projection.Create
+	}{{"create", req.Create}, {"replace", req.Replace}} {
+		for i, p := range list.ps {
+			size := len(p.Type) + len(p.ID)
+			if p.Payload != nil {
+				size += len(*p.Payload)
+			}
+			if err := check(fmt.Sprintf("%s[%d]", list.name, i), p.Validate, size); err != nil {
+				return err
+			}
 		}
 	}
 	for i, k := range req.Delete {

@@ -79,7 +79,7 @@ GET /tx/{txId}/projections/customer-points/c1
 200 {"points":950}
 
 POST /tx/{txId}/projections
-{"upsert":[{"type":"customer-points","id":"c1","payload":"{\"points\":980}"}]}
+{"replace":[{"type":"customer-points","id":"c1","payload":"{\"points\":980}"}]}
 200 {"time":"2026-10-03T21:11:05.151877Z"}
 ```
 
@@ -101,14 +101,11 @@ POST /tx/{txId}/events
 ```
 
 **OrderSummaryProjector** reacts to `order-placed`, long after PlaceOrderModel wrote it. That's fine: a projection
-always follows a decision already made.
+always follows a decision already made. The order is new, so the projector creates its summary without reading it first.
 
 ```
-GET /tx/{txId}/projections/order-summary/o1
-404 {"error":"ProjectionNotFound"}
-
 POST /tx/{txId}/projections
-{"upsert":[{"type":"order-summary","id":"o1","payload":"{\"status\":\"placed\",\"total\":30}"}]}
+{"create":[{"type":"order-summary","id":"o1","payload":"{\"status\":\"placed\",\"total\":30}"}]}
 200 {"time":"2026-10-03T21:11:05.171590Z"}
 ```
 
@@ -147,18 +144,15 @@ POST /tx/{txId}/events
 **PurchasingQueueProjector** reacts to `restock-requested`, then **StockLevelProjector** reacts to `stock-reserved`.
 
 ```
-GET /tx/{txId}/projections/purchasing-queue/p1
-404 {"error":"ProjectionNotFound"}
-
 POST /tx/{txId}/projections
-{"upsert":[{"type":"purchasing-queue","id":"p1","payload":"{\"quantity\":10}"}]}
+{"create":[{"type":"purchasing-queue","id":"p1","payload":"{\"quantity\":10}"}]}
 200 {"time":"2026-10-03T21:11:05.204411Z"}
 
 GET /tx/{txId}/projections/stock-level/p1
 200 {"available":3}
 
 POST /tx/{txId}/projections
-{"upsert":[{"type":"stock-level","id":"p1","payload":"{\"available\":2}"}]}
+{"replace":[{"type":"stock-level","id":"p1","payload":"{\"available\":2}"}]}
 200 {"time":"2026-10-03T21:11:05.213907Z"}
 ```
 

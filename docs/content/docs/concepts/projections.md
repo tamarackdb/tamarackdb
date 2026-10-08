@@ -30,17 +30,17 @@ The calls are in [HTTP API: Projections](/docs/http-api/projections/), and in
 
 Every projection has a version, a random UUID (version 4), new on every write.
 
-- In a transaction, the server keeps the version of each projection read, and the client never sees it (see
-  [Transactions](/docs/concepts/transactions/#projections-in-a-transaction)). At commit, the server checks it the same
-  way as below.
-- With [`POST /projections`](/docs/http-api/projections/#writing-projections), a write changes a projection with one
-  of three operations:
+- A write changes a projection with one of three operations:
   - `create`: the `type` + `id` MUST be free.
-  - `replace`: the stored version MUST be the one given. The whole payload is replaced.
-  - `delete`: the stored version MUST be the one given.
+  - `replace`: the stored version MUST be the one read. The whole payload is replaced.
+  - `delete`: the stored version MUST be the one read.
+- With [`POST /projections`](/docs/http-api/projections/#writing-projections), the client sends the version it read
+  with each `replace` and `delete`.
+- In a transaction, the server keeps the version of each projection read, and the client never sees it (see
+  [Transactions](/docs/concepts/transactions/#projections-in-a-transaction)).
 - An operation that doesn't hold fails the whole write with `409 ConcurrencyException`. A `replace` or `delete` of a
   projection that no longer exists fails the same way: another write deleted it since it was read.
-- A `409` on a projection means another write changed it since it was read. Read it again and redo the work, in a new
+- A `409` on a projection means another write changed it since it was read, or created it. Read it again and redo the work, in a new
   transaction or a new write.
 - Only the projections a write changes are checked, never the ones it only read (see
   [Append Condition](/docs/concepts/append-condition/#what-a-condition-doesnt-cover)).

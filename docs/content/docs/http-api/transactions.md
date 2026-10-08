@@ -18,7 +18,7 @@ Key words in capitals follow [RFC 2119](/docs/concepts/overview/#key-words).
 | [`QUERY /tx/{txId}/events`](#reading-events) | `{"query": ...}` | `200`, NDJSON |
 | [`POST /tx/{txId}/events`](#writing-events) | `{"events": [...]}` | `200 {"time": "..."}` |
 | [`GET /tx/{txId}/projections/{type}/{id}`](#reading-a-projection) | none | `200`, the payload |
-| [`POST /tx/{txId}/projections`](#writing-projections) | `{"upsert": [...], "delete": [...]}` | `200 {"time": "..."}` |
+| [`POST /tx/{txId}/projections`](#writing-projections) | `{"create": [...], "replace": [...], "delete": [...]}` | `200 {"time": "..."}` |
 | [`POST /tx/{txId}/commit`](#commit) | none | `204` |
 | [`DELETE /tx/{txId}`](#abandon) | none | `204` |
 
@@ -109,6 +109,7 @@ curl -i http://127.0.0.1:8085/tx/7d1e4b2a-3c5f-4e6d-9a8b-0c1d2e3f4a5b/projection
 
 - `200 OK`: the payload, exactly as written, in `text/plain; charset=utf-8`, with no version header.
 - `404 ProjectionNotFound`: the projection doesn't exist, or the transaction deleted it.
+- The read isn't needed before a `create` (see [Writing projections](#writing-projections)).
 - The first read of a projection in a transaction reads the store. Every later one returns the projection as the
   transaction left it.
 - A read is refused while a condition is open.
@@ -119,8 +120,9 @@ curl -i http://127.0.0.1:8085/tx/7d1e4b2a-3c5f-4e6d-9a8b-0c1d2e3f4a5b/projection
 curl -X POST http://127.0.0.1:8085/tx/7d1e4b2a-3c5f-4e6d-9a8b-0c1d2e3f4a5b/projections \
   -H "Content-Type: application/json" \
   -d '{
-    "upsert": [ { "type": "show-seats", "id": "s1", "payload": "{\"free\":37}" } ],
-    "delete": [ { "type": "seat-hold", "id": "s1-A6" } ]
+    "create":  [ { "type": "seat-hold", "id": "s1-B2", "payload": "{\"customer\":\"c7\"}" } ],
+    "replace": [ { "type": "show-seats", "id": "s1", "payload": "{\"free\":37}" } ],
+    "delete":  [ { "type": "seat-hold", "id": "s1-A6" } ]
   }'
 ```
 
@@ -130,18 +132,27 @@ curl -X POST http://127.0.0.1:8085/tx/7d1e4b2a-3c5f-4e6d-9a8b-0c1d2e3f4a5b/proje
 
 | Key | What it holds |
 |---|---|
-| `upsert` | `type`, `id`, `payload`: the projection's whole new payload |
+| `create` | `type`, `id`, `payload`: a projection that MUST NOT exist in the transaction |
+| `replace` | `type`, `id`, `payload`: a projection that MUST exist in the transaction. The whole payload is replaced |
 | `delete` | `type`, `id` |
 
-- At least one of the two lists MUST be non-empty. A key left out is an empty list.
-- Every projection MUST have been read in the transaction first. No version is sent: the server knows the one read.
-- A `payload` is a string, and an empty string is valid. A missing or `null` payload gets `400`.
-- One write names a projection at most once, across the two lists.
+- At least one of the three lists MUST be non-empty. A key left out is an empty list.
+- No version is sent: the server knows the one read.
+- A `create` needs no read. The server takes the projection as absent, and checks at commit that it still is.
+- A projection to `replace` or `delete` MUST have been read in the transaction first, or created in it.
+- A projection exists in the transaction when a read in it would find it. A `create` of a projection that exists, or
+  a `replace` of one that doesn't, gets `400`.
 - Deleting a projection that doesn't exist does nothing.
+- A `payload` is a string, and an empty string is valid. A missing or `null` payload gets `400`.
+- One write names a projection at most once, across the three lists.
 - A projection over `maxProjectionSize` gets `413`.
 - A write that would take the transaction over `maxProjectionsPerTx` projections gets `400` (see [Limits](#limits)).
 - A write is refused while a condition is open.
 - `time` is the time of the write, by the server's clock: the response has the same shape as a write of events.
+
+**Why a `create` needs no read.** An application that creates a projection knows it doesn't exist yet, for example a
+projector that handles `user-created`. A read would only tell the server what the application already knows. A
+`replace` or a `delete` needs a read: the commit checks the version read.
 
 ## Commit
 
@@ -166,6 +177,7 @@ A conflict gets `409 ConcurrencyException`, and nothing is written. The `message
 | An event that matches the query of the transaction's third read was committed after that read | `conditions[2] no longer holds` |
 | A projection no longer has the version read | `projection show-seats/s1 no longer has the version read` |
 | A projection read as missing was created since | `projection seat-hold/s1-A6 was created by another write since it was read` |
+| A projection created without a read already exists | `projection seat-hold/s1-B2 already exists` |
 
 After a `409`, the client runs the whole command again, in a new transaction.
 
@@ -213,7 +225,7 @@ Three settings bound a transaction, across all its calls (see
 |---|---|
 | `maxEventsPerTx` | The events the transaction writes, across all its writes of events |
 | `maxReadsPerTx` | Its reads of events, those followed by an empty write included |
-| `maxProjectionsPerTx` | The distinct projections it writes, across all its writes of projections, `upsert` and `delete` together. A projection written twice counts once |
+| `maxProjectionsPerTx` | The distinct projections it writes, across all its writes of projections, `create`, `replace`, and `delete` together. A projection written twice counts once |
 
 - Each call is checked before it does anything. The call that would go over gets `400 InvalidRequest`, and the
   `message` names the setting, for example `the transaction would read events 101 times, more than maxReadsPerTx

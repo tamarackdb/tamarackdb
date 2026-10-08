@@ -58,7 +58,7 @@ An endpoint with a body responds `400 InvalidRequest` for:
   [Projections](/docs/http-api/projections/#limits)), or a call that would take a transaction over one of its limits
   (see [Transactions](/docs/http-api/transactions/#limits)).
 - **A transaction**: a call that breaks one of its rules, such as events written without a read, or a projection
-  written without being read first (see [Concepts: Transactions](/docs/concepts/transactions/)).
+  replaced without being read first (see [Concepts: Transactions](/docs/concepts/transactions/)).
 
 The `message` names the item at fault by its place in the body, for example `events[3]` or `create[0]`, and
 names the setting behind a limit.

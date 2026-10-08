@@ -2,8 +2,9 @@
 // memory, private to the client that began it, and touches SQLite only to
 // read, and once more at commit, in its turn in the FIFO (see package
 // writer). Nothing is locked while it lives: a conflict with another
-// write is found at commit, by the Append Conditions its reads opened and
-// by the versions of the projections it read.
+// write is found at commit, by the Append Conditions its reads opened, by
+// the versions of the projections it read, and by the absence of the
+// projections it created.
 //
 // # One decision, one read, one write
 //
@@ -27,8 +28,8 @@
 //
 // For each transaction, the Registry keeps the store ID it began on, the
 // open condition if any, the closed conditions in order, the pending
-// events, and the state of every projection it read. Nothing of it is
-// written before the commit.
+// events, and the state of every projection it read or created. Nothing
+// of it is written before the commit.
 //
 // # Its end
 //

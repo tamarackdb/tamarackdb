@@ -161,9 +161,9 @@ func getProjection(t *testing.T, r *Registry, id string, key Key) (string, bool)
 	return payload, found
 }
 
-func writeProjections(t *testing.T, r *Registry, id string, upsert []Projection, del []Key) {
+func writeProjections(t *testing.T, r *Registry, id string, w Writes) {
 	t.Helper()
-	if _, err := r.WriteProjections(id, upsert, del); err != nil {
+	if _, err := r.WriteProjections(id, w); err != nil {
 		t.Fatalf("WriteProjections() error = %v", err)
 	}
 }
@@ -185,10 +185,7 @@ func TestCommitWritesEverythingTogether(t *testing.T) {
 	read(t, env.r, id, dcb.QueryNone())
 	written := write(t, env.r, id, "a", "b")
 	key := Key{"summary", "1"}
-	if _, found := getProjection(t, env.r, id, key); found {
-		t.Fatal("projection found before any write")
-	}
-	writeProjections(t, env.r, id, []Projection{{key, "x"}}, nil)
+	writeProjections(t, env.r, id, Writes{Create: []Projection{{key, "x"}}})
 
 	if got := committedEvents(t, env.st); len(got) != 0 {
 		t.Fatalf("store holds %d events before the commit, want 0", len(got))
@@ -267,22 +264,37 @@ func TestRulesEndTheTransaction(t *testing.T) {
 			if _, err := r.ReadEvents(bg, id, dcb.QueryNone()); err != nil {
 				return err
 			}
-			_, err := r.WriteProjections(id, []Projection{{key, "x"}}, nil)
+			_, err := r.WriteProjections(id, Writes{Create: []Projection{{key, "x"}}})
 			return err
 		}},
-		{"projection written without being read", func(r *Registry, id string) error {
-			_, err := r.WriteProjections(id, []Projection{{key, "x"}}, nil)
+		{"projection replaced without being read", func(r *Registry, id string) error {
+			_, err := r.WriteProjections(id, Writes{Replace: []Projection{{key, "x"}}})
 			return err
 		}},
-		{"empty write of projections", func(r *Registry, id string) error {
-			_, err := r.WriteProjections(id, nil, nil)
+		{"projection deleted without being read", func(r *Registry, id string) error {
+			_, err := r.WriteProjections(id, Writes{Delete: []Key{key}})
 			return err
 		}},
-		{"projection twice in one write", func(r *Registry, id string) error {
+		{"projection replaced while absent", func(r *Registry, id string) error {
 			if _, _, err := r.GetProjection(bg, id, key); err != nil {
 				return err
 			}
-			_, err := r.WriteProjections(id, []Projection{{key, "x"}}, []Key{key})
+			_, err := r.WriteProjections(id, Writes{Replace: []Projection{{key, "x"}}})
+			return err
+		}},
+		{"projection created while it exists", func(r *Registry, id string) error {
+			if _, err := r.WriteProjections(id, Writes{Create: []Projection{{key, "x"}}}); err != nil {
+				return err
+			}
+			_, err := r.WriteProjections(id, Writes{Create: []Projection{{key, "y"}}})
+			return err
+		}},
+		{"empty write of projections", func(r *Registry, id string) error {
+			_, err := r.WriteProjections(id, Writes{})
+			return err
+		}},
+		{"projection twice in one write", func(r *Registry, id string) error {
+			_, err := r.WriteProjections(id, Writes{Create: []Projection{{key, "x"}}, Delete: []Key{key}})
 			return err
 		}},
 		{"commit while a condition is open", func(r *Registry, id string) error {
@@ -366,16 +378,21 @@ func TestNetProjections(t *testing.T) {
 	env := newTestEnv(t, time.Minute)
 	replaced, deleted, readOnly := Key{"p", "replaced"}, Key{"p", "deleted"}, Key{"p", "read-only"}
 	created, gone, absent := Key{"p", "created"}, Key{"p", "created-then-deleted"}, Key{"p", "absent"}
-	for _, k := range []Key{replaced, deleted, readOnly} {
+	recreated, readCreated := Key{"p", "deleted-then-created"}, Key{"p", "read-then-created"}
+	for _, k := range []Key{replaced, deleted, readOnly, recreated} {
 		seedProjection(t, env.wr, k, "old")
 	}
 
 	id := begin(t, env.r)
-	for _, k := range []Key{replaced, deleted, readOnly, created, gone, absent} {
+	for _, k := range []Key{replaced, deleted, readOnly, absent, recreated, readCreated} {
 		getProjection(t, env.r, id, k)
 	}
-	writeProjections(t, env.r, id, []Projection{{replaced, "new"}, {created, "new"}, {gone, "new"}}, []Key{deleted, absent})
-	writeProjections(t, env.r, id, nil, []Key{gone})
+	writeProjections(t, env.r, id, Writes{
+		Create:  []Projection{{created, "new"}, {gone, "new"}, {readCreated, "new"}},
+		Replace: []Projection{{replaced, "new"}},
+		Delete:  []Key{deleted, absent, recreated},
+	})
+	writeProjections(t, env.r, id, Writes{Create: []Projection{{recreated, "new"}}, Delete: []Key{gone}})
 
 	// The transaction reads its own pending state.
 	if payload, found := getProjection(t, env.r, id, replaced); !found || payload != "new" {
@@ -388,7 +405,7 @@ func TestNetProjections(t *testing.T) {
 	before, _ := env.st.GetProjection(bg, readOnly.Type, readOnly.ID)
 	commit(t, env.r, id)
 
-	for k, want := range map[Key]string{replaced: "new", created: "new", readOnly: "old"} {
+	for k, want := range map[Key]string{replaced: "new", created: "new", readOnly: "old", recreated: "new", readCreated: "new"} {
 		if payload, found := projectionPayload(t, env.st, k); !found || payload != want {
 			t.Errorf("%s = %q, %v, want %q", k, payload, found, want)
 		}
@@ -411,16 +428,38 @@ func TestProjectionConflictNamesTheProjection(t *testing.T) {
 
 	id := begin(t, env.r)
 	getProjection(t, env.r, id, key)
-	writeProjections(t, env.r, id, []Projection{{key, "mine"}}, nil)
+	writeProjections(t, env.r, id, Writes{Replace: []Projection{{key, "mine"}}})
 
 	other := begin(t, env.r)
 	getProjection(t, env.r, other, key)
-	writeProjections(t, env.r, other, []Projection{{key, "theirs"}}, nil)
+	writeProjections(t, env.r, other, Writes{Replace: []Projection{{key, "theirs"}}})
 	commit(t, env.r, other)
 
 	err := env.r.Commit(bg, id)
 	if !errors.Is(err, store.ErrConcurrencyConflict) || err.Error() != "projection summary/1 no longer has the version read" {
 		t.Fatalf("Commit() error = %v, want a conflict naming summary/1", err)
+	}
+	if payload, _ := projectionPayload(t, env.st, key); payload != "theirs" {
+		t.Errorf("payload = %q, want theirs", payload)
+	}
+}
+
+// TestCreateWithoutReadConflicts checks that a projection created without
+// a read, that exists at commit, fails the commit with a message that
+// doesn't speak of a read.
+func TestCreateWithoutReadConflicts(t *testing.T) {
+	env := newTestEnv(t, time.Minute)
+	key := Key{"summary", "1"}
+	id := begin(t, env.r)
+	writeProjections(t, env.r, id, Writes{Create: []Projection{{key, "mine"}}})
+	if payload, found := getProjection(t, env.r, id, key); !found || payload != "mine" {
+		t.Errorf("created in the transaction = %q, %v, want mine", payload, found)
+	}
+	seedProjection(t, env.wr, key, "theirs")
+
+	err := env.r.Commit(bg, id)
+	if !errors.Is(err, store.ErrConcurrencyConflict) || err.Error() != "projection summary/1 already exists" {
+		t.Fatalf("Commit() error = %v, want summary/1 already exists", err)
 	}
 	if payload, _ := projectionPayload(t, env.st, key); payload != "theirs" {
 		t.Errorf("payload = %q, want theirs", payload)
@@ -527,7 +566,7 @@ func TestSecondCallIsRefused(t *testing.T) {
 			return err
 		},
 		"WriteProjections": func() error {
-			_, err := env.r.WriteProjections(id, nil, []Key{key})
+			_, err := env.r.WriteProjections(id, Writes{Delete: []Key{key}})
 			return err
 		},
 		"Commit":  func() error { return env.r.Commit(bg, id) },
@@ -652,7 +691,8 @@ func TestTooManyReads(t *testing.T) {
 
 // TestTooManyProjections checks that the write of projections that would
 // take the transaction over maxProjectionsPerTx is refused, and ends it.
-// A projection written twice counts once, upserts and deletes together.
+// A projection written twice counts once, creates, replaces, and deletes
+// together.
 func TestTooManyProjections(t *testing.T) {
 	env := newTestEnv(t, time.Minute)
 	id := begin(t, env.r)
@@ -661,14 +701,14 @@ func TestTooManyProjections(t *testing.T) {
 		keys[i] = Key{Type: "p", ID: fmt.Sprint(i)}
 		getProjection(t, env.r, id, keys[i])
 	}
-	var upsert []Projection
+	var create []Projection
 	for _, k := range keys[:9] {
-		upsert = append(upsert, Projection{Key: k, Payload: "x"})
+		create = append(create, Projection{Key: k, Payload: "x"})
 	}
-	writeProjections(t, env.r, id, upsert, nil)
-	writeProjections(t, env.r, id, upsert[:1], keys[1:2])  // written again: still 9
-	writeProjections(t, env.r, id, nil, keys[9:10])        // the 10th
-	_, err := env.r.WriteProjections(id, nil, keys[10:11]) // the 11th
+	writeProjections(t, env.r, id, Writes{Create: create})
+	writeProjections(t, env.r, id, Writes{Replace: create[:1], Delete: keys[1:2]}) // written again: still 9
+	writeProjections(t, env.r, id, Writes{Delete: keys[9:10]})                     // the 10th
+	_, err := env.r.WriteProjections(id, Writes{Delete: keys[10:11]})              // the 11th
 	wantTooLarge(t, env.r, id, err, "maxProjectionsPerTx")
 }
 

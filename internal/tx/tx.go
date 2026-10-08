@@ -67,8 +67,8 @@ type Config struct {
 	// writes of events. MaxReadsPerTx caps its reads of events, those
 	// followed by an empty write included. MaxProjectionsPerTx caps the
 	// distinct projections it writes, across all its writes of
-	// projections, upserts and deletes together. Each call is checked
-	// before it does anything: the call that would go over gets
+	// projections, creates, replaces, and deletes together. Each call is
+	// checked before it does anything: the call that would go over gets
 	// ErrTooLarge, which ends the transaction.
 	//
 	// They MUST bound the transaction, not a single call: a transaction
@@ -152,7 +152,7 @@ type transaction struct {
 	conditions  []dcb.AppendCondition
 	events      []dcb.PendingEvent
 	projections map[Key]*projectionState
-	touched     []Key // the keys of projections, in the order first read
+	touched     []Key // the keys of projections, in the order first read or created
 	written     int   // how many projections the transaction wrote
 }
 

@@ -98,8 +98,8 @@ func TestTransactionOverHTTP(t *testing.T) {
 	}
 	txRequest(t, srv, "POST", tx+"/events", `{"events":[]}`, 200)
 
-	txRequest(t, srv, "GET", tx+"/projections/user-profile/1", "", 404)
-	txRequest(t, srv, "POST", tx+"/projections", `{"upsert":[{"type":"user-profile","id":"1","payload":"b"}]}`, 200)
+	txRequest(t, srv, "POST", tx+"/projections", `{"create":[{"type":"user-profile","id":"1","payload":"a"}]}`, 200)
+	txRequest(t, srv, "POST", tx+"/projections", `{"replace":[{"type":"user-profile","id":"1","payload":"b"}]}`, 200)
 	rec = txRequest(t, srv, "GET", tx+"/projections/user-profile/1", "", 200)
 	if rec.Body.String() != "b" || rec.Header().Get(VersionHeader) != "" {
 		t.Errorf("projection = %q, version header %q, want b and no version", rec.Body.String(), rec.Header().Get(VersionHeader))
@@ -149,10 +149,13 @@ func TestRefusedRequestsEndTheTransaction(t *testing.T) {
 		{"null events", "POST", "/events", `{"events":null}`, 400, true},
 		{"event without payload", "POST", "/events", `{"events":[{"type":"t"}]}`, 400, true},
 		{"event too large", "POST", "/events", `{"events":[{"type":"t","payload":"` + big + `"}]}`, 413, true},
-		{"upsert without payload", "POST", "/projections", `{"upsert":[{"type":"p","id":"1"}]}`, 400, false},
+		{"create without payload", "POST", "/projections", `{"create":[{"type":"p","id":"1"}]}`, 400, false},
+		{"replace without payload", "POST", "/projections", `{"replace":[{"type":"p","id":"1"}]}`, 400, false},
 		{"delete without id", "POST", "/projections", `{"delete":[{"type":"p"}]}`, 400, false},
-		{"projection too large", "POST", "/projections", `{"upsert":[{"type":"p","id":"1","payload":"` + big + `"}]}`, 413, false},
+		{"projection too large", "POST", "/projections", `{"create":[{"type":"p","id":"1","payload":"` + big + `"}]}`, 413, false},
+		{"version in a replace", "POST", "/projections", `{"replace":[{"type":"p","id":"1","version":"v","payload":""}]}`, 400, false},
 		{"version in a delete", "POST", "/projections", `{"delete":[{"type":"p","id":"1","version":"v"}]}`, 400, false},
+		{"upsert", "POST", "/projections", `{"upsert":[{"type":"p","id":"1","payload":""}]}`, 400, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -178,7 +181,7 @@ func TestRefusedRequestOnAnEndedTransactionGets404(t *testing.T) {
 		for _, call := range []struct{ method, path, body string }{
 			{"QUERY", "/events", `{"query":"*"}`},
 			{"POST", "/events", `{}`},
-			{"POST", "/projections", `{"upsert":[{"type":"p","id":"1"}]}`},
+			{"POST", "/projections", `{"create":[{"type":"p","id":"1"}]}`},
 		} {
 			rec := txRequest(t, srv, call.method, tx+call.path, call.body, 404)
 			if code := errorCode(t, rec); code != "TransactionNotFound" {

@@ -58,13 +58,14 @@ again, sees 1,020 points, and promotes the customer.
 
 - Projections are read and written only while no condition is open. A decision rests on events, never on a
   projection.
-- A projection MUST be read in the transaction before it's written. The server then knows its version, or that it
-  doesn't exist.
-- A write of projections upserts or deletes. Deleting a projection that doesn't exist does nothing. One write names a
-  projection at most once.
+- A write of projections creates, replaces, or deletes, with the same three lists as outside a transaction, but
+  without versions: the server knows the version of each projection read.
+- A projection MUST be read in the transaction before it's replaced or deleted. A projection created needs no read: the
+  server takes it as absent, and checks at commit that it still is.
+- Deleting a projection that doesn't exist does nothing. One write names a projection at most once.
 - A later read returns the projection as the transaction left it.
 - At commit, the server turns what the transaction did to each projection into one create, replace, or delete, at the
-  version read. A projection the transaction only read is neither written nor checked.
+  version read. A projection deleted then created again, for example, becomes one replace. A projection the transaction only read is neither written nor checked.
 
 What a projection may use is in [Projections](/docs/concepts/projections/#what-a-projection-may-use).
 
