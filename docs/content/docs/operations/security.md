@@ -97,7 +97,8 @@ The database file holds every event and projection in plain SQLite. Anyone who c
 `socketMode` entirely.
 
 - `tamarackdb-init` and `tamarackdb-backup` create a missing data directory as `0700`, and a new database file as
-  `0600`, whatever the umask. SQLite gives its WAL and shared-memory files the database file's permissions.
+  `0600`, whatever the umask. So is the temporary file of an [import](/docs/operations/import/). SQLite gives its WAL
+  and shared-memory files the database file's permissions.
 - A directory or database file that already exists keeps its permissions: the server never changes them. Give a
   directory you create yourself `0700`.
 - Which user runs which command is in [Install](/docs/operations/install/#run).

@@ -79,7 +79,7 @@ This builds three binaries under `bin/`:
 | Binary | Purpose |
 |---|---|
 | `tamarackdb-server` | The HTTP server |
-| `tamarackdb-init` | Creates a new database, which the server needs to start |
+| `tamarackdb-init` | Creates a new database, which the server needs to start, empty or from a dump of events |
 | `tamarackdb-backup` | Copies new events from a remote instance into a local backup file |
 
 Each binary also has its own target with the same name, so

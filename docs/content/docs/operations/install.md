@@ -134,6 +134,9 @@ overwrite an existing database. The server never creates one: when the database 
 wrong `dataDir`, or a disk that isn't mounted, would otherwise get a new, empty store, and the history would be split in
 two.
 
+To start from the history of another event store, `tamarackdb-init --import` writes it into the new database (see
+[Import](/docs/operations/import/)).
+
 On every start, the server checks that the database's schema version matches the one built into the binary, and refuses
 to start if it doesn't; it never changes the schema on its own. Once running, it logs one line per request to stdout (see
 [Logs](/docs/operations/logs/)).

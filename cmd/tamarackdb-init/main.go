@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -14,6 +15,7 @@ import (
 
 func main() {
 	dataDir := flag.String("data-dir", "", "directory to create the SQLite database file in")
+	importPath := flag.String("import", "", "NDJSON dump of events to write into the new database")
 	showVersion := flag.Bool("version", false, "print the version and exit")
 	flag.Parse()
 
@@ -27,24 +29,57 @@ func main() {
 		log.Fatal("tamarackdb-init: -data-dir is required")
 	}
 
-	cfg := config.Config{DataDir: *dataDir}
+	if err := run(context.Background(), *dataDir, *importPath); err != nil {
+		log.Fatalf("tamarackdb-init: %v", err)
+	}
+}
+
+// run creates the database in dataDir, with the events of the dump at
+// importPath unless it's empty. When an import fails, it removes dataDir
+// if it created it and it's still empty.
+func run(ctx context.Context, dataDir, importPath string) error {
+	cfg := config.Config{DataDir: dataDir}
 	path := cfg.DatabasePath()
 
 	if err := checkNotExists(path); err != nil {
-		log.Fatalf("tamarackdb-init: %v", err)
+		return err
 	}
-	if err := os.MkdirAll(*dataDir, 0o700); err != nil {
-		log.Fatalf("tamarackdb-init: %v", err)
+	var dump *os.File
+	if importPath != "" {
+		var err error
+		if dump, err = os.Open(importPath); err != nil {
+			return err
+		}
+		defer dump.Close()
 	}
 
-	st, err := store.Open(context.Background(), path, 0)
+	_, err := os.Stat(dataDir)
+	created := errors.Is(err, os.ErrNotExist)
+	if err := os.MkdirAll(dataDir, 0o700); err != nil {
+		return err
+	}
+
+	if dump == nil {
+		st, err := store.Open(ctx, path, 0)
+		if err != nil {
+			return err
+		}
+		if err := st.Close(); err != nil {
+			return err
+		}
+		log.Printf("tamarackdb-init: created %s", path)
+		return nil
+	}
+
+	sum, err := importDump(ctx, path, dump)
 	if err != nil {
-		log.Fatalf("tamarackdb-init: %v", err)
+		if created {
+			_ = os.Remove(dataDir) // fails, harmlessly, if not empty
+		}
+		return err
 	}
-	if err := st.Close(); err != nil {
-		log.Fatalf("tamarackdb-init: %v", err)
-	}
-	log.Printf("tamarackdb-init: created %s", path)
+	log.Printf("tamarackdb-init: created %s, imported %d event(s), sequence %d to %d", path, sum.count, sum.first, sum.last)
+	return nil
 }
 
 // checkNotExists returns an error if path already exists, so tamarackdb-init

@@ -2,7 +2,7 @@
 title: "Maintenance"
 description: "The maintenance left to you: a daily timer for query statistics, giving back disk space with VACUUM, a full ANALYZE, and pausing transactions."
 slug: "maintenance"
-weight: 8
+weight: 9
 ---
 
 SQLite checkpoints its WAL on its own, and the server refreshes query statistics at every start. You set up one timer,
