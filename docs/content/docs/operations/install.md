@@ -76,6 +76,13 @@ RuntimeDirectory=tamarackdb
 RuntimeDirectoryMode=0755
 StateDirectory=tamarackdb
 StateDirectoryMode=0700
+# Read-only system, no access to /home, a private /tmp, no privilege gain.
+# The directories above stay writable.
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+NoNewPrivileges=true
 
 [Install]
 WantedBy=multi-user.target

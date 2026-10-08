@@ -46,6 +46,25 @@ MUST go through a reverse proxy that handles TLS.
   }
   ```
 
+  With nginx:
+
+  ```nginx
+  server {
+      listen 443 ssl;
+      server_name tamarackdb.example.com;
+      ssl_certificate     /etc/ssl/tamarackdb.example.com/fullchain.pem;
+      ssl_certificate_key /etc/ssl/tamarackdb.example.com/privkey.pem;
+      client_max_body_size 8m;
+
+      location / {
+          proxy_pass http://unix:/run/tamarackdb/tamarackdb.sock:;
+      }
+  }
+  ```
+
+- nginx refuses a body larger than 1 MiB by default. Set `client_max_body_size` to the server's
+  `maxRequestBodySize` (see [Configuration](/docs/operations/configuration/#settings)).
+
 - The proxy's user MUST be allowed by `socketMode`, like the application's.
 - Turn `enableAuth` on: once the proxy is up, the API is reachable over the network, and the token is what keeps others
   out. The proxy passes the `Authorization` header through unchanged.
