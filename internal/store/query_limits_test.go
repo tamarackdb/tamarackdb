@@ -11,7 +11,7 @@ import (
 
 // largestQuery builds the heaviest Query dcb.Query.Validate accepts:
 // MaxQueryItems items, each with MaxQueryItemValues identifiers, since an
-// identifier costs SQLite more (a subquery and two bound parameters) than a
+// identifier costs SQLite more (a subquery and three bound parameters) than a
 // type.
 func largestQuery(t *testing.T) dcb.Query {
 	t.Helper()

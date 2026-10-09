@@ -115,7 +115,7 @@ FROM events
 WHERE events.sequence > ?`)
 	args = append(args, after)
 
-	if where, whereArgs := queryToSQL(q); where != "" {
+	if where, whereArgs := queryToSQL(q, after); where != "" {
 		b.WriteString(" AND ")
 		b.WriteString(where)
 		args = append(args, whereArgs...)

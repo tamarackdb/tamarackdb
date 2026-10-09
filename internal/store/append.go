@@ -204,7 +204,7 @@ func checkFailIfEventsMatchSQL(ctx context.Context, tx *sql.Tx, q dcb.Query, aft
 	var b strings.Builder
 	args := []any{after}
 	b.WriteString("SELECT EXISTS (SELECT 1 FROM events WHERE events.sequence > ?")
-	if where, whereArgs := queryToSQL(q); where != "" {
+	if where, whereArgs := queryToSQL(q, after); where != "" {
 		b.WriteString(" AND ")
 		b.WriteString(where)
 		args = append(args, whereArgs...)
