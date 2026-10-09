@@ -23,12 +23,12 @@ func TestPauseSurvivesReopen(t *testing.T) {
 	}
 
 	at := time.Date(2026, 10, 5, 12, 0, 0, 123456000, time.UTC)
-	last, storeID, err := s.SetPause(context.Background(), at)
+	last, err := s.SetPause(context.Background(), at)
 	if err != nil {
 		t.Fatalf("SetPause() error = %v", err)
 	}
-	if last != 2 || storeID != s.StoreID() {
-		t.Errorf("SetPause() = %d, %q, want 2, %q", last, storeID, s.StoreID())
+	if last != 2 {
+		t.Errorf("SetPause() = %d, want 2", last)
 	}
 	s.Close()
 
@@ -54,7 +54,7 @@ func TestPauseSurvivesReopen(t *testing.T) {
 
 func TestResetKeepsThePause(t *testing.T) {
 	s := openTestStore(t)
-	if _, _, err := s.SetPause(context.Background(), time.Now()); err != nil {
+	if _, err := s.SetPause(context.Background(), time.Now()); err != nil {
 		t.Fatalf("SetPause() error = %v", err)
 	}
 	if err := s.Reset(context.Background()); err != nil {

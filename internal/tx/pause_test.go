@@ -70,8 +70,8 @@ func TestPauseWhileTransactionsAreOpen(t *testing.T) {
 
 	commit(t, env.r, id)
 	got := pause(t, env.r)
-	if !got.Paused || got.LastSequence != 1 || got.StoreID != env.st.StoreID() {
-		t.Fatalf("Pause() = %+v, want paused at sequence 1 on the current store", got)
+	if !got.Paused || got.LastSequence != 1 {
+		t.Fatalf("Pause() = %+v, want paused at sequence 1", got)
 	}
 	if _, paused := env.st.PausedAt(); !paused {
 		t.Error("store not paused")

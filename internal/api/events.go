@@ -11,13 +11,6 @@ import (
 	"github.com/tamarackdb/tamarackdb/internal/store"
 )
 
-// StoreHeader carries the store ID in a response that depends on the
-// store: QUERY /events, GET /projections/{type}/{id}, POST /projections,
-// and a transaction's commit. A
-// read takes it in the same SQLite snapshot as the events or projection
-// returned, and a write in the same SQLite transaction as what it wrote.
-const StoreHeader = "X-Tamarackdb-Store"
-
 // readRequest is the exact wire shape of QUERY /events's JSON body.
 // Query's own UnmarshalJSON (dispatched automatically by encoding/json on
 // this named field) handles "all", "none", and an array of QueryItem.
@@ -54,8 +47,7 @@ type readEventWire struct {
 }
 
 // handleReadEvents implements QUERY /events: the read runs on the read pool
-// and sees committed events only, and the response carries the store ID in
-// the X-Tamarackdb-Store header.
+// and sees committed events only.
 func (s *Server) handleReadEvents(w http.ResponseWriter, r *http.Request) {
 	filter, err := s.parseReadRequest(r)
 	if err != nil {
@@ -67,7 +59,6 @@ func (s *Server) handleReadEvents(w http.ResponseWriter, r *http.Request) {
 		s.handleErr(w, r, err)
 		return
 	}
-	w.Header().Set(StoreHeader, it.StoreID())
 	renew, done := s.stallDeadline(w)
 	defer done()
 	if err := streamEvents(w, it, renew); err != nil {

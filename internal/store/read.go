@@ -22,20 +22,12 @@ type ReadFilter struct {
 }
 
 // Read runs a paginated DCB read on the read pool: it sees committed
-// events only. It reads the store ID and the page in one read transaction,
-// so both come from the same SQLite snapshot: a page never pairs the events
-// of one store ID with another (see Reset). The returned *EventIterator
-// holds that transaction until it's closed, by the caller directly or by
-// exhausting Next.
+// events only. The returned *EventIterator holds its read transaction
+// until it's closed, by the caller directly or by exhausting Next.
 func (s *Store) Read(ctx context.Context, f ReadFilter) (*EventIterator, error) {
 	tx, err := s.readDB.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, wrapf("begin read", err)
-	}
-	storeID, err := readStoreID(ctx, tx)
-	if err != nil {
-		tx.Rollback()
-		return nil, err
 	}
 	it, err := readEvents(ctx, tx, f)
 	if err != nil {
@@ -43,16 +35,14 @@ func (s *Store) Read(ctx context.Context, f ReadFilter) (*EventIterator, error) 
 		return nil, err
 	}
 	it.tx = tx
-	it.storeID = storeID
 	return it, nil
 }
 
 // ReadDecision runs the read a decision rests on, on the read pool: every
 // committed event q matches, with no page limit, since a decision must see
-// all of them. In the same SQLite snapshot it reads the store ID and the
-// position, the highest Sequence Position committed (0 for an empty
-// store): an Append Condition built from this read uses that position as
-// its afterSequence. For dcb.QueryNone it reads no event. The returned
+// all of them. In the same SQLite snapshot it reads the position, the
+// highest Sequence Position committed (0 for an empty store): an Append
+// Condition built from this read uses that position as its afterSequence. For dcb.QueryNone it reads no event. The returned
 // *EventIterator holds the read transaction until it's closed; HasMore is
 // always false.
 func (s *Store) ReadDecision(ctx context.Context, q dcb.Query) (*EventIterator, error) {
@@ -70,15 +60,11 @@ func (s *Store) ReadDecision(ctx context.Context, q dcb.Query) (*EventIterator, 
 }
 
 func readDecision(ctx context.Context, tx *sql.Tx, q dcb.Query) (*EventIterator, error) {
-	storeID, err := readStoreID(ctx, tx)
-	if err != nil {
-		return nil, err
-	}
 	var position int64
 	if err := tx.QueryRowContext(ctx, "SELECT coalesce(max(sequence), 0) FROM events").Scan(&position); err != nil {
 		return nil, wrapf("read position", err)
 	}
-	it := &EventIterator{storeID: storeID, position: position}
+	it := &EventIterator{position: position}
 	if q.None() {
 		return it, nil
 	}
@@ -186,7 +172,6 @@ func scanEvent(rows *sql.Rows) (ReadEvent, error) {
 type EventIterator struct {
 	rows     *sql.Rows // nil when the read selects no event at all
 	tx       *sql.Tx   // the read transaction Close ends
-	storeID  string    // read in the same transaction as the page
 	position int64     // ReadDecision only: the highest Sequence Position in the snapshot
 	limit    int       // 0: no limit (ReadDecision)
 	n        int
@@ -237,9 +222,6 @@ func (it *EventIterator) Next() bool {
 func (it *EventIterator) Event() ReadEvent { return it.cur }
 func (it *EventIterator) Err() error       { return it.err }
 func (it *EventIterator) HasMore() bool    { return it.hasMore }
-
-// StoreID returns the store ID read in the same snapshot as the page.
-func (it *EventIterator) StoreID() string { return it.storeID }
 
 // Position returns, for ReadDecision, the highest Sequence Position
 // committed in the snapshot the events were read from.

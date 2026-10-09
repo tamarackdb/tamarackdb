@@ -9,9 +9,9 @@ import (
 	"github.com/tamarackdb/tamarackdb/internal/projection"
 )
 
-// mustReadDecision drains ReadDecision and returns its events, store ID,
-// and position.
-func mustReadDecision(t *testing.T, s *Store, q dcb.Query) ([]dcb.Event, string, int64) {
+// mustReadDecision drains ReadDecision and returns its events and
+// position.
+func mustReadDecision(t *testing.T, s *Store, q dcb.Query) ([]dcb.Event, int64) {
 	t.Helper()
 	it, err := s.ReadDecision(context.Background(), q)
 	if err != nil {
@@ -28,14 +28,14 @@ func mustReadDecision(t *testing.T, s *Store, q dcb.Query) ([]dcb.Event, string,
 	if it.HasMore() {
 		t.Errorf("HasMore() = true, want false")
 	}
-	return events, it.StoreID(), it.Position()
+	return events, it.Position()
 }
 
 func TestReadDecisionEmptyStore(t *testing.T) {
 	s := openTestStore(t)
-	events, storeID, position := mustReadDecision(t, s, dcb.QueryAll())
-	if len(events) != 0 || position != 0 || storeID != s.storeID {
-		t.Errorf("events = %d, position = %d, store = %q, want 0, 0, %q", len(events), position, storeID, s.storeID)
+	events, position := mustReadDecision(t, s, dcb.QueryAll())
+	if len(events) != 0 || position != 0 {
+		t.Errorf("events = %d, position = %d, want 0, 0", len(events), position)
 	}
 }
 
@@ -51,7 +51,7 @@ func TestReadDecisionReadsEveryMatchWithNoLimit(t *testing.T) {
 	}
 	mustAppend(t, s, events, nil)
 
-	got, _, position := mustReadDecision(t, s, dcb.NewQuery([]dcb.QueryItem{{Types: []string{"wanted"}}}))
+	got, position := mustReadDecision(t, s, dcb.NewQuery([]dcb.QueryItem{{Types: []string{"wanted"}}}))
 	if len(got) != 1500 {
 		t.Fatalf("got %d events, want 1500", len(got))
 	}
@@ -69,9 +69,9 @@ func TestReadDecisionReadsEveryMatchWithNoLimit(t *testing.T) {
 func TestReadDecisionNone(t *testing.T) {
 	s := openTestStore(t)
 	mustAppend(t, s, []dcb.EventData{{Type: "a"}, {Type: "b"}}, nil)
-	events, storeID, position := mustReadDecision(t, s, dcb.QueryNone())
-	if len(events) != 0 || position != 2 || storeID != s.storeID {
-		t.Errorf("events = %d, position = %d, store = %q, want 0, 2, %q", len(events), position, storeID, s.storeID)
+	events, position := mustReadDecision(t, s, dcb.QueryNone())
+	if len(events) != 0 || position != 2 {
+		t.Errorf("events = %d, position = %d, want 0, 2", len(events), position)
 	}
 }
 

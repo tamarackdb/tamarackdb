@@ -39,7 +39,6 @@ func (s PauseState) String() string {
 type PauseResult struct {
 	Paused       bool
 	LastSequence int64
-	StoreID      string
 	Open         int
 }
 
@@ -68,7 +67,7 @@ func (r *Registry) Pause(ctx context.Context) (PauseResult, error) {
 		defer r.mu.Unlock()
 		switch {
 		case r.pause == Paused:
-			result.LastSequence, result.StoreID = r.st.Position()
+			result.LastSequence = r.st.LastSequence()
 		case len(r.txs) > 0:
 			if r.pause == Running {
 				r.pause, r.pauseSince = PauseRequested, time.Now()
@@ -77,12 +76,12 @@ func (r *Registry) Pause(ctx context.Context) (PauseResult, error) {
 			return nil
 		default:
 			now := time.Now()
-			last, storeID, err := r.st.SetPause(ctx, now)
+			last, err := r.st.SetPause(ctx, now)
 			if err != nil {
 				return err
 			}
 			r.pause, r.pauseSince = Paused, now
-			result.LastSequence, result.StoreID = last, storeID
+			result.LastSequence = last
 		}
 		result.Paused = true
 		return nil
@@ -118,7 +117,7 @@ func (r *Registry) Resume(ctx context.Context) error {
 
 // Reset empties the store (see store.Store.Reset), in its turn in the
 // FIFO. It's accepted only while the pause is in place, and leaves it in
-// place: then no transaction exists, so none can see the store ID change.
+// place: then no transaction exists, so none can see the reset.
 // While paused, only Resume changes the state, and it runs in its own
 // turn: the state can't change during st.Reset.
 func (r *Registry) Reset(ctx context.Context) error {

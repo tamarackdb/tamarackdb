@@ -14,7 +14,6 @@ import (
 )
 
 // The endpoints under /tx/{txId} work on one transaction (see package tx).
-// None of their responses carries the store ID: the transaction keeps it.
 // Any error ends the transaction, including one this layer finds before
 // the transaction is reached, such as a malformed body: such an error
 // goes through txFail, which ends it. 409 TransactionBusy, for a call

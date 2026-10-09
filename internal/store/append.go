@@ -13,7 +13,6 @@ import (
 
 // AppendResult is what Append wrote.
 type AppendResult struct {
-	StoreID  string      // the store ID the write happened on
 	Events   []dcb.Event // each event with its Sequence Position and time
 	Versions Versions    // the new version of each created and replaced projection
 }
@@ -45,7 +44,7 @@ func (s *Store) Append(ctx context.Context, events []dcb.PendingEvent, condition
 		}
 	}
 	if len(events) == 0 && len(conditions) == 0 && projections.Len() == 0 {
-		return AppendResult{StoreID: s.StoreID()}, nil
+		return AppendResult{}, nil
 	}
 
 	// BEGIN IMMEDIATE (the write pool's _txlock=immediate DSN): SQLite's
@@ -57,10 +56,6 @@ func (s *Store) Append(ctx context.Context, events []dcb.PendingEvent, condition
 	}
 	defer tx.Rollback() // no-op after Commit
 
-	// Reset runs on the same single write connection, and updates the
-	// store ID before it frees it: the ID can't change until this
-	// transaction ends.
-	storeID := s.StoreID()
 	for i, c := range conditions {
 		holds, err := s.checkCondition(ctx, tx, c)
 		if err != nil {
@@ -100,7 +95,7 @@ func (s *Store) Append(ctx context.Context, events []dcb.PendingEvent, condition
 		return AppendResult{}, wrapf("commit", err)
 	}
 	committed = true
-	return AppendResult{StoreID: storeID, Events: appended, Versions: versions}, nil
+	return AppendResult{Events: appended, Versions: versions}, nil
 }
 
 // afterReserve, when set, runs in Append right after it reserves its
@@ -150,13 +145,6 @@ func insertEvents(ctx context.Context, tx *sql.Tx, events []dcb.PendingEvent, st
 		return nil, err
 	}
 	return result, nil
-}
-
-// StoreID returns the current store ID (see storeid.go), without SQL.
-func (s *Store) StoreID() string {
-	s.seqMu.Lock()
-	defer s.seqMu.Unlock()
-	return s.storeID
 }
 
 // peekLastAssigned returns the highest sequence number the in-memory

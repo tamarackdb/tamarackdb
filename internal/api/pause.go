@@ -2,9 +2,7 @@ package api
 
 import "net/http"
 
-// pauseResponse is POST /pause's body once the pause is in place. The
-// store ID goes in the X-Tamarackdb-Store header, as on every response
-// that depends on the store.
+// pauseResponse is POST /pause's body once the pause is in place.
 type pauseResponse struct {
 	LastSequence int64 `json:"lastSequence"`
 }
@@ -29,7 +27,6 @@ func (s *Server) handlePause(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusAccepted, pauseRequestedResponse{OpenTransactions: result.Open})
 		return
 	}
-	w.Header().Set(StoreHeader, result.StoreID)
 	writeJSON(w, http.StatusOK, pauseResponse{LastSequence: result.LastSequence})
 }
 

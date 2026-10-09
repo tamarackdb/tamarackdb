@@ -71,7 +71,7 @@ Pages, relative to `docs/content/docs/`, in sidebar order:
   - `client-libraries.md`: first in the section; the available client
     libraries, with a link to each one's repository.
   - `concepts.md`: the ideas the API builds on, on one page: events and
-    tags, the store ID, the Append Condition, transactions, projections.
+    tags, the Append Condition, transactions, projections.
   - `http-api.md`: the HTTP API reference, on one page.
   - `writing-a-client.md`: what a client of the protocol has to do, in
     brief. It is the only page that points to the repository and

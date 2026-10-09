@@ -76,17 +76,6 @@ func writeBackupConfig(t *testing.T, sourceURL, dataDir string, pageLimit int) s
 	return path
 }
 
-// sourceStoreID returns st's store ID, as a read reports it.
-func sourceStoreID(t *testing.T, st *store.Store) string {
-	t.Helper()
-	it, err := st.Read(context.Background(), store.ReadFilter{Query: dcb.QueryAll(), Limit: 1})
-	if err != nil {
-		t.Fatalf("Read() error = %v", err)
-	}
-	defer it.Close()
-	return it.StoreID()
-}
-
 // backupFiles lists the backup files in dataDir: the .sqlite files, not
 // the lock file next to each.
 func backupFiles(t *testing.T, dataDir string) []string {
@@ -176,7 +165,7 @@ func TestRunCopiesAllEventsAcrossMultiplePages(t *testing.T) {
 	ts := newSourceServer(t, sourceStore)
 	dataDir := filepath.Join(t.TempDir(), "backup")
 	configPath := writeBackupConfig(t, ts.URL, dataDir, 2) // small page size forces multiple pages
-	backupPath := filepath.Join(dataDir, sourceStoreID(t, sourceStore)+".sqlite")
+	backupPath := filepath.Join(dataDir, backupFile)
 
 	if err := run(context.Background(), configPath); err != nil {
 		t.Fatalf("run() error = %v", err)
@@ -219,7 +208,7 @@ func TestRunResumesFromLastImportedSequence(t *testing.T) {
 	ts := newSourceServer(t, sourceStore)
 	dataDir := filepath.Join(t.TempDir(), "backup")
 	configPath := writeBackupConfig(t, ts.URL, dataDir, 100)
-	backupPath := filepath.Join(dataDir, sourceStoreID(t, sourceStore)+".sqlite")
+	backupPath := filepath.Join(dataDir, backupFile)
 
 	if err := run(context.Background(), configPath); err != nil {
 		t.Fatalf("run() error = %v", err)
@@ -236,7 +225,7 @@ func TestRunResumesFromLastImportedSequence(t *testing.T) {
 		t.Fatalf("len(got) after second run = %d, want 5", len(got))
 	}
 	if files := backupFiles(t, dataDir); len(files) != 1 {
-		t.Errorf("backup files = %v, want the one file of the source's store", files)
+		t.Errorf("backup files = %v, want one", files)
 	}
 }
 
@@ -246,7 +235,6 @@ func TestFetchPageFailsOnMissingTrailer(t *testing.T) {
 		// {"hasMore":...} line, simulating a source that cut the page
 		// short partway through (see readTrailer's doc comment).
 		w.Header().Set("Content-Type", "application/x-ndjson")
-		w.Header().Set(storeHeader, testStoreID)
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprintln(w, `{"sequence":1,"time":"2026-01-01T00:00:00.000000Z","type":"Seeded","identifiers":{},"metadata":{},"payload":""}`)
 		fmt.Fprintln(w, `{"sequence":2,"time":"2026-01-01T00:00:00.000001Z","type":"Seeded","identifiers":{},"metadata":{},"payload":""}`)
@@ -254,7 +242,7 @@ func TestFetchPageFailsOnMissingTrailer(t *testing.T) {
 	defer ts.Close()
 
 	cfg := &config.BackupConfig{SourceURL: ts.URL, PageLimit: 100}
-	_, _, _, err := fetchPage(context.Background(), newSource(cfg), cfg, 0, cfg.PageLimit)
+	_, _, err := fetchPage(context.Background(), newSource(cfg), cfg, 0, cfg.PageLimit)
 	if err == nil {
 		t.Fatal("fetchPage() error = nil, want error for a response with no trailing hasMore line")
 	}
@@ -277,7 +265,7 @@ func TestRunFailsWithoutTouchingAlreadyImportedPages(t *testing.T) {
 	ts := newSourceServer(t, sourceStore)
 	dataDir := filepath.Join(t.TempDir(), "backup")
 	configPath := writeBackupConfig(t, ts.URL, dataDir, 100)
-	backupPath := filepath.Join(dataDir, sourceStoreID(t, sourceStore)+".sqlite")
+	backupPath := filepath.Join(dataDir, backupFile)
 
 	if err := run(context.Background(), configPath); err != nil {
 		t.Fatalf("run() error = %v", err)
@@ -311,7 +299,7 @@ func TestRunCopiesAllEventsThroughUnixSocket(t *testing.T) {
 
 	socketPath := newSocketSourceServer(t, sourceStore)
 	dataDir := filepath.Join(t.TempDir(), "backup")
-	backupPath := filepath.Join(dataDir, sourceStoreID(t, sourceStore)+".sqlite")
+	backupPath := filepath.Join(dataDir, backupFile)
 	configPath := filepath.Join(t.TempDir(), "backup-config.toml")
 	data := fmt.Sprintf("[backup]\nsourceSocket = %q\ndataDir = %q\npageLimit = 2\n", socketPath, dataDir)
 	if err := os.WriteFile(configPath, []byte(data), 0o600); err != nil {
@@ -332,9 +320,6 @@ func TestRunCopiesAllEventsThroughUnixSocket(t *testing.T) {
 	}
 }
 
-// testStoreID is a store ID for fake sources.
-const testStoreID = "3f1c2b4a-5d6e-4f70-8a9b-0c1d2e3f4a5b"
-
 // openSource opens a fresh source store.
 func openSource(t *testing.T) *store.Store {
 	t.Helper()
@@ -354,9 +339,8 @@ func TestRunBacksUpAnEmptySource(t *testing.T) {
 	if err := run(context.Background(), writeBackupConfig(t, ts.URL, dataDir, 100)); err != nil {
 		t.Fatalf("run() error = %v", err)
 	}
-	want := sourceStoreID(t, sourceStore) + ".sqlite"
-	if files := backupFiles(t, dataDir); len(files) != 1 || files[0] != want {
-		t.Errorf("backup files = %v, want [%s]", files, want)
+	if files := backupFiles(t, dataDir); len(files) != 1 || files[0] != backupFile {
+		t.Errorf("backup files = %v, want [%s]", files, backupFile)
 	}
 }
 
@@ -376,101 +360,5 @@ func TestRunCreatesItsDataDirPrivate(t *testing.T) {
 	}
 	if perm := info.Mode().Perm(); perm != 0o700 {
 		t.Errorf("dataDir permissions = %o, want 700", perm)
-	}
-}
-
-// TestRunStartsANewFileAfterAReset checks that a reset of the source makes
-// the next run copy the new store into a file of its own, from its first
-// event, and leaves the file of the old store as it was.
-func TestRunStartsANewFileAfterAReset(t *testing.T) {
-	sourceStore := openSource(t)
-	appendSeeded := func(n int) {
-		for range n {
-			if _, err := sourceStore.Append(context.Background(), dcb.NewPendingEvents([]dcb.EventData{{Type: "Seeded"}}, dcb.Now()), nil, projection.Writes{}); err != nil {
-				t.Fatalf("Append() error = %v", err)
-			}
-		}
-	}
-	appendSeeded(3)
-	ts := newSourceServer(t, sourceStore)
-	dataDir := filepath.Join(t.TempDir(), "backup")
-	configPath := writeBackupConfig(t, ts.URL, dataDir, 100)
-
-	if err := run(context.Background(), configPath); err != nil {
-		t.Fatalf("first run() error = %v", err)
-	}
-	oldPath := filepath.Join(dataDir, sourceStoreID(t, sourceStore)+".sqlite")
-
-	if err := sourceStore.Reset(context.Background()); err != nil {
-		t.Fatalf("Reset() error = %v", err)
-	}
-	appendSeeded(2)
-	if err := run(context.Background(), configPath); err != nil {
-		t.Fatalf("second run() error = %v", err)
-	}
-	newPath := filepath.Join(dataDir, sourceStoreID(t, sourceStore)+".sqlite")
-
-	if newPath == oldPath {
-		t.Fatal("the store ID didn't change with the reset")
-	}
-	if got := mustReadAllFrom(t, oldPath); len(got) != 3 {
-		t.Errorf("old store's file holds %d events, want 3 (left as it was)", len(got))
-	}
-	got := mustReadAllFrom(t, newPath)
-	if len(got) != 2 || got[0].Sequence != 1 {
-		t.Errorf("new store's file = %+v, want its 2 events from sequence 1", got)
-	}
-}
-
-// fakeSource serves QUERY /events with the store ID storeIDs[i] on its
-// i-th response (the last one repeats), each page holding one event and
-// no more after it.
-func fakeSource(t *testing.T, storeIDs ...string) *httptest.Server {
-	t.Helper()
-	var calls int
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		id := storeIDs[min(calls, len(storeIDs)-1)]
-		calls++
-		w.Header().Set(storeHeader, id)
-		w.WriteHeader(http.StatusOK)
-		fmt.Fprintln(w, `{"sequence":1,"time":"2026-01-01T00:00:00.000000Z","type":"Seeded","identifiers":{},"metadata":{},"payload":""}`)
-		fmt.Fprintln(w, `{"hasMore":false}`)
-	}))
-	t.Cleanup(ts.Close)
-	return ts
-}
-
-// TestRunStopsWhenTheStoreChangesDuringTheRun checks that a page read on
-// another store ID than the one the file was opened for is never
-// imported.
-func TestRunStopsWhenTheStoreChangesDuringTheRun(t *testing.T) {
-	other := "9a8b7c6d-5e4f-4a3b-9c2d-1e0f9a8b7c6d"
-	ts := fakeSource(t, testStoreID, other)
-	dataDir := filepath.Join(t.TempDir(), "backup")
-
-	err := run(context.Background(), writeBackupConfig(t, ts.URL, dataDir, 100))
-	if err == nil || !strings.Contains(err.Error(), "changed from "+testStoreID+" to "+other) {
-		t.Fatalf("run() error = %v, want it to report the store ID change", err)
-	}
-	if got := mustReadAllFrom(t, filepath.Join(dataDir, testStoreID+".sqlite")); len(got) != 0 {
-		t.Errorf("backup file holds %d events, want 0: the page of the other store must not be imported", len(got))
-	}
-}
-
-// TestRunRejectsABadStoreHeader checks that a store ID that isn't a UUID in
-// its canonical form never becomes a file name.
-func TestRunRejectsABadStoreHeader(t *testing.T) {
-	for _, header := range []string{"", "../evil", "{" + testStoreID + "}", strings.ToUpper(testStoreID)} {
-		t.Run(header, func(t *testing.T) {
-			ts := fakeSource(t, header)
-			dataDir := filepath.Join(t.TempDir(), "backup")
-			err := run(context.Background(), writeBackupConfig(t, ts.URL, dataDir, 100))
-			if err == nil || !strings.Contains(err.Error(), "want a store ID") {
-				t.Fatalf("run() error = %v, want it to reject the header", err)
-			}
-			if _, err := os.Stat(dataDir); !os.IsNotExist(err) {
-				t.Errorf("Stat(dataDir) error = %v, want the directory never created", err)
-			}
-		})
 	}
 }

@@ -26,10 +26,10 @@
 //
 // # What a transaction holds
 //
-// For each transaction, the Registry keeps the store ID it began on, the
-// open condition if any, the closed conditions in order, the pending
-// events, and the state of every projection it read or created. Nothing
-// of it is written before the commit.
+// For each transaction, the Registry keeps the open condition if any, the
+// closed conditions in order, the pending events, and the state of every
+// projection it read or created. Nothing of it is written before the
+// commit.
 //
 // # Its end
 //
@@ -78,7 +78,7 @@
 // Resume and Reset take their turn in the FIFO too, so none of them can
 // cross another: each finds, in its turn, the state the others left.
 // Reset is accepted only during a pause, when no transaction exists: a
-// transaction never sees the store ID change.
+// transaction never sees a reset.
 //
 // # What runs during what
 //
@@ -99,7 +99,7 @@
 // add its row to this table, with its reason. Every cell is a decision.
 // POST /tx is refused from the moment a pause is requested, so the open
 // transactions can only go down. POST /reset runs only in a pause in
-// place, so no transaction ever sees the store ID change. Projections go
+// place, so no transaction ever sees a reset. Projections go
 // on: a pause holds the log still, not the projections, and an operation
 // run during a pause, a rebuild for example, writes them. The rest
 // touches neither the log nor a transaction. Each state has a way out:

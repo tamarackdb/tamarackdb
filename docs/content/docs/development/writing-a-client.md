@@ -1,17 +1,12 @@
 ---
 title: "Writing a Client"
-description: "What a client of the TamarackDB protocol has to do, whatever its language: positions, reads cut short, transactions, retries, and lost responses."
+description: "What a client of the TamarackDB protocol has to do, whatever its language: reads cut short, transactions, retries, and lost responses."
 slug: "writing-a-client"
 weight: 4
 ---
 
 What a client of the protocol has to do, whatever its language. The calls themselves are in the
 [HTTP API](/docs/development/http-api/).
-
-## Positions
-
-- Keep the store ID and the Sequence Position together.
-- If a read returns another store ID, start over from the beginning.
 
 ## Reads
 

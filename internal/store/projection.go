@@ -11,31 +11,19 @@ import (
 
 // ProjectionRead is GetProjection's result.
 type ProjectionRead struct {
-	StoreID string // read in the same snapshot as the projection
-	Found   bool   // false when no projection exists at that type+id
+	Found   bool // false when no projection exists at that type+id
 	Version string
 	Payload string
 }
 
 // GetProjection reads a projection's version and payload by type+id from
-// the read pool: it sees committed projections only. It reads the store ID
-// and the projection in one read transaction, so both come from the same
-// SQLite snapshot, the same way Read does.
+// the read pool: it sees committed projections only.
 func (s *Store) GetProjection(ctx context.Context, typ, id string) (ProjectionRead, error) {
-	tx, err := s.readDB.BeginTx(ctx, nil)
-	if err != nil {
-		return ProjectionRead{}, wrapf("begin read", err)
-	}
-	defer tx.Rollback() // the transaction only read: rolling it back just ends it
-	storeID, err := readStoreID(ctx, tx)
+	version, payload, found, err := getProjection(ctx, s.readDB, typ, id)
 	if err != nil {
 		return ProjectionRead{}, err
 	}
-	version, payload, found, err := getProjection(ctx, tx, typ, id)
-	if err != nil {
-		return ProjectionRead{}, err
-	}
-	return ProjectionRead{StoreID: storeID, Found: found, Version: version, Payload: payload}, nil
+	return ProjectionRead{Found: found, Version: version, Payload: payload}, nil
 }
 
 func getProjection(ctx context.Context, q querier, typ, id string) (version, payload string, found bool, err error) {

@@ -11,7 +11,7 @@
 //     history would be split in two.
 //  3. It opens the store: it takes the lock on the database file, checks
 //     the schema version, and reads the highest Sequence Position and the
-//     store ID into memory (see package store).
+//     state of the pause into memory (see package store).
 //  4. It runs PRAGMA optimize, so every start refreshes the query
 //     planner's statistics. A failure is logged, and the server starts
 //     anyway: old statistics slow queries down without making them wrong.
@@ -27,8 +27,8 @@
 // and no transaction. That's right: every client waiting before a crash
 // lost its connection too, and a client whose transaction is lost gets
 // 404 TransactionNotFound and runs its command again. The Sequence
-// Position counter and the store ID are read back from the database at
-// startup, since they have to match what's on disk.
+// Position counter and the state of the pause are read back from the
+// database at startup, since they have to match what's on disk.
 //
 // # Shutdown
 //

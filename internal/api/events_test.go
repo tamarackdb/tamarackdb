@@ -156,7 +156,7 @@ func TestAppendReadRoundTrip(t *testing.T) {
 }
 
 // TestReadNone checks that "none" reads no event, and still answers with
-// the store ID and a trailer.
+// a trailer.
 func TestReadNone(t *testing.T) {
 	srv, _, _ := newTestServer(t)
 	commitEvents(t, srv, `[{"type":"user-created","payload":""}]`)
@@ -168,8 +168,5 @@ func TestReadNone(t *testing.T) {
 	trailer, events := parseNDJSON(t, rec.Body.String())
 	if len(events) != 0 || trailer.HasMore {
 		t.Errorf("events = %+v, hasMore = %v, want none and false", events, trailer.HasMore)
-	}
-	if rec.Header().Get(StoreHeader) == "" {
-		t.Errorf("%s header missing", StoreHeader)
 	}
 }

@@ -29,9 +29,6 @@ func TestPauseOverHTTP(t *testing.T) {
 	if rec.Code != 200 || rec.Body.String() != "{\"lastSequence\":1}\n" {
 		t.Fatalf("POST /pause = %d %s, want 200 {\"lastSequence\":1}", rec.Code, rec.Body.String())
 	}
-	if got := storeHeader(t, rec, "POST /pause"); got != currentStore(t, srv) {
-		t.Errorf("%s = %q, want the current store", StoreHeader, got)
-	}
 	if !healthPaused(t, srv) {
 		t.Error("GET /health paused = false during the pause")
 	}
@@ -76,9 +73,6 @@ func TestPauseRequestedOverHTTP(t *testing.T) {
 	rec := doRequest(t, srv, "POST", "/pause", "")
 	if rec.Code != 202 || rec.Body.String() != "{\"openTransactions\":1}\n" {
 		t.Fatalf("POST /pause = %d %s, want 202 {\"openTransactions\":1}", rec.Code, rec.Body.String())
-	}
-	if h := rec.Header().Get(StoreHeader); h != "" {
-		t.Errorf("202 carries %s = %q, want none", StoreHeader, h)
 	}
 	if healthPaused(t, srv) {
 		t.Error("GET /health paused = true while the pause is only requested")

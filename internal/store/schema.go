@@ -66,14 +66,13 @@ CREATE TABLE projections (
     PRIMARY KEY (type, id)
 ) WITHOUT ROWID;
 
--- A single row holding the store ID: the CHECK keeps a second row out.
--- It's written with the rest of the schema, in the same transaction, and
--- changed only by a reset. paused_at is NULL outside a pause, and the time
--- the pause began, in dcb.TimeLayout, during one: the pause survives a
--- restart and a reset.
+-- A single row holding the state of the store: the CHECK keeps a second
+-- row out. It's written with the rest of the schema, in the same
+-- transaction. paused_at is NULL outside a pause, and the time the pause
+-- began, in dcb.TimeLayout, during one: the pause survives a restart and
+-- a reset.
 CREATE TABLE store (
     singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
-    id        TEXT NOT NULL,
     paused_at TEXT
 );
 `
@@ -113,8 +112,8 @@ func createSchema(ctx context.Context, db *sql.DB) error {
 	if _, err := tx.ExecContext(ctx, schemaDDL); err != nil {
 		return wrapf("create schema", err)
 	}
-	if _, err := tx.ExecContext(ctx, "INSERT INTO store (singleton, id) VALUES (1, ?)", newStoreID()); err != nil {
-		return wrapf("create store id", err)
+	if _, err := tx.ExecContext(ctx, "INSERT INTO store (singleton) VALUES (1)"); err != nil {
+		return wrapf("create store row", err)
 	}
 	// PRAGMA doesn't accept bound parameters; schemaVersion is a
 	// compile-time constant, never untrusted input.

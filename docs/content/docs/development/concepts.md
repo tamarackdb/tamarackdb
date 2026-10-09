@@ -1,6 +1,6 @@
 ---
 title: "Concepts"
-description: "The ideas the TamarackDB API builds on: events and tags, the store ID, the Append Condition, transactions, and projections, on a single page."
+description: "The ideas the TamarackDB API builds on: events and tags, the Append Condition, transactions, and projections, on a single page."
 slug: "concepts"
 weight: 2
 ---
@@ -32,15 +32,6 @@ An event is a fact the application recorded. Once written, it never changes and 
   it. Don't order events by `time`, and don't base a decision on it: the clock can go back.
 - An event is at most `maxEventSize` bytes, counting its `type`, its tags, and its `payload`. Store large content
   elsewhere and reference it.
-
-## Store ID
-
-The store ID is a UUID that names the history a database holds. It's drawn when the database is created, and changes
-only with [`POST /reset`](/docs/development/http-api/#reset), in development mode. A backup has its own store ID.
-
-- Responses that depend on the store carry it in the `X-Tamarackdb-Store` header.
-- A Sequence Position only means something next to its store ID. A client that keeps a position keeps both.
-- If a read returns another store ID, the position no longer means anything: start over from the beginning.
 
 ## Queries
 

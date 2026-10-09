@@ -68,7 +68,7 @@ curl -X POST http://127.0.0.1:8085/resume
 
 `devMode` turns on two things, for a local instance or a short troubleshooting session. Leave it off in production.
 
-- `POST /reset`: during a pause, deletes every event and projection, and draws a new store ID.
+- `POST /reset`: during a pause, deletes every event and projection.
 - `/debug/pprof/*`: Go's profiling endpoints. To profile a request, start a CPU profile, then send the request:
 
   ```sh

@@ -127,7 +127,7 @@ sudo -u tamarackdb /usr/local/bin/tamarackdb-server --config /path/to/config.tom
 ```
 
 - `/run` is emptied at every reboot. For a lasting service, use the [systemd unit](#systemd).
-- `tamarackdb-init` creates `dataDir` and a new database, with a new store ID. It never overwrites an existing database.
+- `tamarackdb-init` creates `dataDir` and a new database. It never overwrites an existing database.
 - The server never creates a database: it refuses to start when the file is missing.
 - The server refuses to start when the database's schema version doesn't match its own. It never changes the schema.
 - At startup, the server prints its resolved configuration to stdout (never `authToken`).

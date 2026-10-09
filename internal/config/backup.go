@@ -16,7 +16,7 @@ const (
 
 // BackupConfig is tamarackdb-backup's startup configuration: which source
 // instance to copy events from, and the directory holding the backup
-// files, one per store ID of the source.
+// file.
 // Resolved the same way Config is: the [backup] section of a TOML file,
 // then TAMARACKDB_BACKUP_* environment variables, then defaults. The file
 // may also hold a [server] section (see Config); LoadBackup reads only
@@ -29,8 +29,8 @@ type BackupConfig struct {
 	SourceSocket string `toml:"sourceSocket"`
 	SourceToken  string `toml:"sourceToken"`
 
-	// DataDir is the directory holding the backup files, each named after
-	// the store ID it copies: <store ID>.sqlite. Its default isn't the
+	// DataDir is the directory holding the backup file,
+	// tamarackdb-backup.sqlite. Its default isn't the
 	// server's "data", so the two never share a directory by accident.
 	// DataDir and PageLimit are optional; defaulted by LoadBackup when
 	// omitted.

@@ -163,7 +163,7 @@ type openCondition struct {
 	position int64
 }
 
-// Begin opens a transaction on the current store ID and returns its ID.
+// Begin opens a transaction and returns its ID.
 // While a pause is requested or in place, it returns ErrPaused.
 func (r *Registry) Begin() (string, error) {
 	t := &transaction{

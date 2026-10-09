@@ -44,16 +44,15 @@ tamarackdb-backup --config backup-config.toml
 
 ### How a run works
 
-- The backup file is named after the source's store ID: `<store ID>.sqlite`, in `dataDir`. After a reset of the
-  source, the next run starts a new file and leaves the old one alone.
+- The backup file is `tamarackdb-backup.sqlite`, in `dataDir`.
 - A run copies the events after the last one already in the file, page by page. Each event keeps its `sequence` and
   its `time`.
 - Each page is written as soon as it's read. A run that fails keeps the pages already written, and the next run resumes
   from there.
-- A run fails, with a non-zero exit code and the error on stderr, when a page is cut short, when a page takes more than
-  5 minutes, or when the source is reset during the run.
+- A run fails, with a non-zero exit code and the error on stderr, when a page is cut short, or when a page takes more
+  than 5 minutes.
 - A backup file holds events only. Projections are left out: they can be rebuilt from events.
-- A backup file is a regular TamarackDB database, with a store ID of its own.
+- The backup file is a regular TamarackDB database.
 
 ### Scheduling
 
@@ -84,19 +83,19 @@ WantedBy=timers.target
 
 ### Restoring
 
-Serve the backup file of the source's current store ID as the new instance. Each run logs that file's path.
+Serve the backup file as the new instance.
 
 1. Wait for the running backup to finish, and stop scheduling new ones.
 2. Copy the file into a new data directory, under the name `tamarackdb.sqlite`, owned by the server's user:
 
    ```sh
    sudo install -d -o tamarackdb -g tamarackdb -m 700 /path/to/new-data
-   sudo install -o tamarackdb -g tamarackdb -m 600 /path/to/backup/<store ID>.sqlite /path/to/new-data/tamarackdb.sqlite
+   sudo install -o tamarackdb -g tamarackdb -m 600 /path/to/backup/tamarackdb-backup.sqlite /path/to/new-data/tamarackdb.sqlite
    ```
 
 3. Start `tamarackdb-server` with `dataDir` set to that directory.
-4. Rebuild every projection before the application uses the instance. Anything that kept a position on the source
-   starts over: the backup has its own store ID.
+4. With the application stopped, restart every projector from the beginning. Start the application once the
+   projections are rebuilt.
 
 ## Import
 

@@ -32,8 +32,6 @@ server on `127.0.0.1:8085`, with authentication off.
   `/resume`, `/optimize`, and `/reset`. They can get `503 WriteQueueFull` when too many wait, or `503 ShuttingDown`.
   Nothing is written then.
 - A write that joined the queue runs, even if its client leaves. Its client then handles a lost response.
-- Responses that depend on the store carry the store ID in the `X-Tamarackdb-Store` header: `QUERY /events`,
-  `GET /projections/{type}/{id}`, `POST /projections`, and `POST /pause` once in place. Transaction endpoints don't.
 
 ## Queries
 
@@ -341,7 +339,6 @@ curl -i http://127.0.0.1:8085/projections/user-profile/123
 HTTP/1.1 200 OK
 Content-Type: text/plain; charset=utf-8
 X-Tamarackdb-Version: 9f3c2a1e-7b4d-4c8e-a5f6-0d1e2f3a4b5c
-X-Tamarackdb-Store: 5b0c7e2a-1f4d-4a9b-8c3e-6d2f1a0b9e47
 
 {"name":"Ada Lovelace"}
 ```
@@ -371,8 +368,7 @@ curl -X POST http://127.0.0.1:8085/pause
 
 - While transactions are still open: `202 Accepted`, `{"openTransactions":3}`. The pause is requested: `POST /tx`
   gets `503 Paused`, and open transactions go on to their commit.
-- Once none is open: `200 OK`, `{"lastSequence":5042}`, with the store ID header. No event comes after that position
-  until `/resume`.
+- Once none is open: `200 OK`, `{"lastSequence":5042}`. No event comes after that position until `/resume`.
 - Call `/pause` again, after a short delay, until it answers `200`:
 
   ```sh
@@ -398,8 +394,8 @@ Refreshes the statistics SQLite plans queries with. `204 No Content`. Call it on
 
 ## Reset
 
-Empties the store, for tests: every event and projection is deleted, the next event gets sequence 1, and the store
-gets a new store ID. It exists only in development mode, and runs only during a pause:
+Empties the store, for tests: every event and projection is deleted, and the next event gets sequence 1. It exists
+only in development mode, and runs only during a pause:
 
 ```sh
 curl -X POST http://127.0.0.1:8085/pause

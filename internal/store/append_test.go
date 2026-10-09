@@ -337,19 +337,6 @@ func TestAppendChecksConditionsWithNothingElseToWrite(t *testing.T) {
 	assertConditionConflict(t, err, 0)
 }
 
-func TestAppendReturnsTheStoreID(t *testing.T) {
-	s := openTestStore(t)
-	for _, events := range [][]dcb.EventData{nil, {{Type: "a"}}} {
-		got, err := s.Append(context.Background(), dcb.NewPendingEvents(events, dcb.Now()), nil, projection.Writes{})
-		if err != nil {
-			t.Fatalf("Append() error = %v", err)
-		}
-		if got.StoreID != s.storeID {
-			t.Errorf("StoreID with %d events = %q, want %q", len(events), got.StoreID, s.storeID)
-		}
-	}
-}
-
 // TestAppendProjectionConflictWritesNothing checks that a projection
 // conflict rolls back the events written with it, and leaves no gap in the
 // sequence.

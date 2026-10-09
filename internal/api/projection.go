@@ -37,8 +37,7 @@ func toProjectionVersions(versions []string) []projectionVersion {
 // handleGetProjection implements GET /projections/{type}/{id}: 404 when no
 // projection exists, or 200 with the payload as the response body and the
 // version in the X-Tamarackdb-Version header. It sees committed projections
-// only, and both the 200 and the 404 carry the store ID in the
-// X-Tamarackdb-Store header.
+// only.
 // The payload is returned as-is: its own format (JSON, XML, plain text) is
 // up to the writing application, the store never parses it.
 func (s *Server) handleGetProjection(w http.ResponseWriter, r *http.Request) {
@@ -48,7 +47,6 @@ func (s *Server) handleGetProjection(w http.ResponseWriter, r *http.Request) {
 		s.handleErr(w, r, err)
 		return
 	}
-	w.Header().Set(StoreHeader, p.StoreID)
 	if !p.Found {
 		writeError(w, http.StatusNotFound, "ProjectionNotFound", "")
 		return
@@ -72,9 +70,7 @@ func (s *Server) handleWriteProjections(w http.ResponseWriter, r *http.Request) 
 	}
 	var result store.AppendResult
 	if err == nil {
-		if req.Len() == 0 {
-			result.StoreID = s.st.StoreID()
-		} else {
+		if req.Len() > 0 {
 			result, err = s.wr.WriteProjections(r.Context(), req)
 		}
 	}
@@ -82,7 +78,6 @@ func (s *Server) handleWriteProjections(w http.ResponseWriter, r *http.Request) 
 		s.handleErr(w, r, err)
 		return
 	}
-	w.Header().Set(StoreHeader, result.StoreID)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(projectionsResponse{

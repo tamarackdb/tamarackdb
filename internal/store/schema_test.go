@@ -112,3 +112,11 @@ func TestOpenRejectsVersionMismatch(t *testing.T) {
 		t.Errorf("SchemaVersionError = %+v, want Found=999 Want=%d", verErr, schemaVersion)
 	}
 }
+
+func TestStoreTableHoldsOneRow(t *testing.T) {
+	s := openTestStore(t)
+	_, err := s.writeDB.ExecContext(context.Background(), "INSERT INTO store (singleton) VALUES (2)")
+	if err == nil {
+		t.Fatal("inserting a second store row succeeded, want an error")
+	}
+}

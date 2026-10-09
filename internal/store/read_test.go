@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"testing"
 
 	"github.com/tamarackdb/tamarackdb/internal/dcb"
@@ -88,5 +89,34 @@ func TestQueryTranslationEndToEnd(t *testing.T) {
 				t.Errorf("got %d events, want %d", len(events), tt.want)
 			}
 		})
+	}
+}
+
+// TestReadReleasesItsConnection checks that closing an iterator, or
+// exhausting it, ends its read transaction and frees the connection.
+func TestReadReleasesItsConnection(t *testing.T) {
+	s := openTestStore(t)
+	mustAppend(t, s, []dcb.EventData{{Type: "a"}, {Type: "b"}}, nil)
+
+	it, err := s.Read(context.Background(), ReadFilter{Query: dcb.QueryAll(), Limit: 1})
+	if err != nil {
+		t.Fatalf("Read() error = %v", err)
+	}
+	it.Next()
+	if err := it.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+	if inUse := s.ReadPoolStats().InUse; inUse != 0 {
+		t.Errorf("read connections in use after Close() = %d, want 0", inUse)
+	}
+
+	it, err = s.Read(context.Background(), ReadFilter{Query: dcb.QueryAll(), Limit: 10})
+	if err != nil {
+		t.Fatalf("Read() error = %v", err)
+	}
+	for it.Next() {
+	}
+	if inUse := s.ReadPoolStats().InUse; inUse != 0 {
+		t.Errorf("read connections in use after exhausting Next = %d, want 0", inUse)
 	}
 }

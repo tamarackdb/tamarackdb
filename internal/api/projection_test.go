@@ -98,12 +98,10 @@ func TestStaleVersionGets409(t *testing.T) {
 	}
 }
 
-// TestWriteProjectionsResponse checks that POST /projections reports the
-// store ID, and a new version for each create and replace, in request
-// order.
+// TestWriteProjectionsResponse checks that POST /projections reports a
+// new version for each create and replace, in request order.
 func TestWriteProjectionsResponse(t *testing.T) {
 	srv, _, _ := newTestServer(t)
-	store := currentStore(t, srv)
 	v1 := writeProjectionsCommitted(t, srv, `{"create":[{"type":"user-list","id":"all","payload":"old"}]}`).Create[0].Version
 
 	rec := doRequest(t, srv, "POST", "/projections", `{
@@ -111,9 +109,6 @@ func TestWriteProjectionsResponse(t *testing.T) {
 		"replace":[{"type":"user-list","id":"all","version":"`+v1+`","payload":"new"}]}`)
 	if rec.Code != 200 {
 		t.Fatalf("status = %d, body = %s, want 200", rec.Code, rec.Body.String())
-	}
-	if got := storeHeader(t, rec, "POST /projections"); got != store {
-		t.Errorf("%s = %q, want %q", StoreHeader, got, store)
 	}
 	var resp projectionsResponse
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
@@ -133,8 +128,7 @@ func TestWriteProjectionsResponse(t *testing.T) {
 }
 
 // TestWriteProjectionsEmptyBodyWritesNothing checks that a write with
-// nothing in it succeeds at once, without waiting for a turn, and reports
-// the store.
+// nothing in it succeeds at once, without waiting for a turn.
 func TestWriteProjectionsEmptyBodyWritesNothing(t *testing.T) {
 	srv, wr, _ := newTestServer(t)
 	holdTurn(t, wr)
@@ -143,7 +137,6 @@ func TestWriteProjectionsEmptyBodyWritesNothing(t *testing.T) {
 	if rec.Code != 200 {
 		t.Fatalf("status = %d, body = %s, want 200", rec.Code, rec.Body.String())
 	}
-	storeHeader(t, rec, "POST /projections")
 	if strings.TrimSpace(rec.Body.String()) != `{"create":[],"replace":[]}` {
 		t.Errorf("body = %s, want empty lists", rec.Body.String())
 	}

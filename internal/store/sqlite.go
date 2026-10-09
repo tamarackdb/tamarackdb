@@ -36,13 +36,8 @@ type Store struct {
 	seqMu   sync.Mutex
 	nextSeq int64 // next sequence value to assign; nextSeq-1 is the highest assigned so far
 
-	// storeID is the store ID (see storeid.go), read at Open and changed
-	// only by Reset. seqMu guards it too: Reset changes both together.
-	storeID string
-
 	// pausedAt is when the pause began, zero outside a pause (see
-	// pause.go). seqMu guards it too: SetPause reads the counter and the
-	// store ID with it.
+	// pause.go). seqMu guards it too: SetPause reads the counter with it.
 	pausedAt time.Time
 }
 
@@ -128,13 +123,6 @@ func Open(ctx context.Context, path string, readPoolSize int) (*Store, error) {
 		releaseLock(lock)
 		return nil, wrapf("read max sequence", err)
 	}
-	storeID, err := readStoreID(ctx, writeDB)
-	if err != nil {
-		writeDB.Close()
-		readDB.Close()
-		releaseLock(lock)
-		return nil, err
-	}
 	pausedAt, err := readPausedAt(ctx, writeDB)
 	if err != nil {
 		writeDB.Close()
@@ -143,7 +131,7 @@ func Open(ctx context.Context, path string, readPoolSize int) (*Store, error) {
 		return nil, err
 	}
 
-	return &Store{writeDB: writeDB, readDB: readDB, lock: lock, nextSeq: maxSeq + 1, storeID: storeID, pausedAt: pausedAt}, nil
+	return &Store{writeDB: writeDB, readDB: readDB, lock: lock, nextSeq: maxSeq + 1, pausedAt: pausedAt}, nil
 }
 
 // createPrivate creates the database file, empty, readable and writable
@@ -206,9 +194,9 @@ func (s *Store) ReadPoolStats() PoolStats {
 }
 
 // Reset deletes every event and every projection, sets the Sequence
-// Position counter back to zero (the next event appended gets sequence 1),
-// and draws a new store ID. It leaves the pause as it is. The schema stays in place. It's meant for dev
-// mode only. Since the write pool holds a single connection, Reset waits
+// Position counter back to zero (the next event appended gets sequence 1).
+// It leaves the pause as it is. The schema stays in place. It's meant for
+// dev mode only. Since the write pool holds a single connection, Reset waits
 // for a write in progress to end.
 func (s *Store) Reset(ctx context.Context) error {
 	tx, err := s.writeDB.BeginTx(ctx, nil)
@@ -227,20 +215,15 @@ func (s *Store) Reset(ctx context.Context) error {
 			return wrapf("reset", err)
 		}
 	}
-	storeID := newStoreID()
-	if _, err := tx.ExecContext(ctx, "UPDATE store SET id = ?", storeID); err != nil {
-		return wrapf("reset", err)
-	}
 	// The counter's mutex is held across the commit: the commit frees the
-	// write connection, and an Append waiting for it reads the counter and
-	// the store ID right after. Holding the mutex makes that Append read 1
-	// and the new store ID, not the values from before the reset.
+	// write connection, and an Append waiting for it reads the counter right
+	// after. Holding the mutex makes that Append read 1, not the value from
+	// before the reset.
 	s.seqMu.Lock()
 	defer s.seqMu.Unlock()
 	if err := tx.Commit(); err != nil {
 		return wrapf("commit reset", err)
 	}
 	s.nextSeq = 1
-	s.storeID = storeID
 	return nil
 }

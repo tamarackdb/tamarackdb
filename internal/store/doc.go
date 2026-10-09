@@ -56,11 +56,8 @@
 // before a commit doesn't see the new events. That's fine: a client that
 // then writes uses the Sequence Position it actually read.
 //
-// Each read takes the store ID first, then the events or the projection.
-// SQLite takes the snapshot at the first statement, so both come from the
-// same one: a response never pairs the data of one store ID with another,
-// even if a reset commits in between. ReadDecision takes the highest
-// Sequence Position in that same snapshot.
+// ReadDecision takes the events and the highest Sequence Position in the
+// same snapshot.
 //
 // A read holds its connection, and pins its snapshot, until its
 // EventIterator is closed. Package api bounds how long a client may take
@@ -114,7 +111,7 @@
 // # The pause
 //
 // The pause is kept in the store table, in paused_at, and in memory
-// next to the store ID. It MUST survive a restart: an operation that
+// next to the Sequence Position counter. It MUST survive a restart: an operation that
 // relies on it, a rebuild for example, would otherwise see commands start
 // again because the server restarted. SetPause and ClearPause write it on
 // the write connection, in their caller's turn in the FIFO. Reset leaves

@@ -122,12 +122,6 @@ func resetStore(t *testing.T, srv *Server) {
 	}
 }
 
-// currentStore returns the store ID a read reports.
-func currentStore(t *testing.T, srv *Server) string {
-	t.Helper()
-	return storeHeader(t, doRequest(t, srv, "QUERY", "/events", `{"query":"all"}`), "read")
-}
-
 // countEvents returns how many events the store holds.
 func countEvents(t *testing.T, srv *Server) int {
 	t.Helper()

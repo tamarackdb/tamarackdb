@@ -15,15 +15,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/tamarackdb/tamarackdb/internal/config"
 	"github.com/tamarackdb/tamarackdb/internal/dcb"
 	"github.com/tamarackdb/tamarackdb/internal/store"
 )
 
-// storeHeader carries the source's store ID on every QUERY /events
-// response, empty pages included.
-const storeHeader = "X-Tamarackdb-Store"
+// backupFile is the name of the backup file, in the backup directory.
+const backupFile = "tamarackdb-backup.sqlite"
 
 // maxNDJSONLine is the largest single NDJSON line (the hasMore trailer, or
 // one event) this tool accepts from the source. It has no visibility into
@@ -77,10 +75,7 @@ type readTrailer struct {
 	HasMore bool `json:"hasMore"`
 }
 
-// run copies the events the backup file doesn't have yet. The file is
-// named after the source's store ID, so the events of one store never land
-// in the file of another: the store ID is asked first, then that file is
-// opened or created, and every page read after must carry the same ID.
+// run copies the events the backup file doesn't have yet.
 func run(ctx context.Context, configPath string) error {
 	cfg, err := config.LoadBackup(configPath)
 	if err != nil {
@@ -88,18 +83,10 @@ func run(ctx context.Context, configPath string) error {
 	}
 	src := newSource(cfg)
 
-	// The first event of the source, read only for the store ID its page
-	// carries: the event itself is dropped. The page is empty for an empty
-	// source, and carries the store ID all the same.
-	_, _, storeID, err := fetchPage(ctx, src, cfg, 0, 1)
-	if err != nil {
-		return err
-	}
-
 	if err := os.MkdirAll(cfg.DataDir, 0o700); err != nil {
 		return fmt.Errorf("create backup directory: %w", err)
 	}
-	path := filepath.Join(cfg.DataDir, storeID+".sqlite")
+	path := filepath.Join(cfg.DataDir, backupFile)
 	st, err := store.Open(ctx, path, 0)
 	if err != nil {
 		return err
@@ -109,13 +96,9 @@ func run(ctx context.Context, configPath string) error {
 	lastSeq := st.LastSequence()
 	var imported int
 	for {
-		events, hasMore, pageStoreID, err := fetchPage(ctx, src, cfg, lastSeq, cfg.PageLimit)
+		events, hasMore, err := fetchPage(ctx, src, cfg, lastSeq, cfg.PageLimit)
 		if err != nil {
 			return err
-		}
-		if pageStoreID != storeID {
-			return fmt.Errorf("the source's store ID changed from %s to %s during the run (a reset): "+
-				"nothing of this page was imported, the next run starts a new backup file", storeID, pageStoreID)
 		}
 		if len(events) > 0 {
 			if err := st.Import(ctx, events); err != nil {
@@ -135,22 +118,20 @@ func run(ctx context.Context, configPath string) error {
 
 // fetchPage issues one QUERY /events request against the source for every
 // event after afterSeq, up to limit events, and decodes the NDJSON
-// response. It also returns the store ID the page was read on, once it's
-// checked to be a UUID in its canonical form: it ends up in a file name,
-// and must never be able to point outside the backup directory.
-func fetchPage(ctx context.Context, src source, cfg *config.BackupConfig, afterSeq int64, limit int) ([]dcb.Event, bool, string, error) {
+// response.
+func fetchPage(ctx context.Context, src source, cfg *config.BackupConfig, afterSeq int64, limit int) ([]dcb.Event, bool, error) {
 	body, err := json.Marshal(struct {
 		Query         string `json:"query"`
 		AfterSequence int64  `json:"afterSequence"`
 		Limit         int    `json:"limit"`
 	}{Query: "all", AfterSequence: afterSeq, Limit: limit})
 	if err != nil {
-		return nil, false, "", fmt.Errorf("build read request: %w", err)
+		return nil, false, fmt.Errorf("build read request: %w", err)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "QUERY", src.baseURL+"/events", bytes.NewReader(body))
 	if err != nil {
-		return nil, false, "", fmt.Errorf("build read request: %w", err)
+		return nil, false, fmt.Errorf("build read request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	if cfg.SourceToken != "" {
@@ -159,17 +140,13 @@ func fetchPage(ctx context.Context, src source, cfg *config.BackupConfig, afterS
 
 	resp, err := src.client.Do(req)
 	if err != nil {
-		return nil, false, "", fmt.Errorf("read from %s: %w", src.name, err)
+		return nil, false, fmt.Errorf("read from %s: %w", src.name, err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return nil, false, "", fmt.Errorf("read from %s: unexpected status %s: %s", src.name, resp.Status, snippet)
-	}
-	storeID := resp.Header.Get(storeHeader)
-	if id, err := uuid.Parse(storeID); err != nil || id.String() != storeID {
-		return nil, false, "", fmt.Errorf("read from %s: %s header is %q, want a store ID (a UUID)", src.name, storeHeader, storeID)
+		return nil, false, fmt.Errorf("read from %s: unexpected status %s: %s", src.name, resp.Status, snippet)
 	}
 
 	scanner := bufio.NewScanner(resp.Body)
@@ -192,16 +169,16 @@ func fetchPage(ctx context.Context, src source, cfg *config.BackupConfig, afterS
 		}
 		var ev dcb.Event
 		if err := json.Unmarshal(line, &ev); err != nil {
-			return nil, false, "", fmt.Errorf("parse event: %w", err)
+			return nil, false, fmt.Errorf("parse event: %w", err)
 		}
 		events = append(events, ev)
 	}
 	if err := scanner.Err(); err != nil {
-		return nil, false, "", fmt.Errorf("read response body: %w", err)
+		return nil, false, fmt.Errorf("read response body: %w", err)
 	}
 	if trailer == nil {
-		return nil, false, "", fmt.Errorf("read %s: response ended before the page finished (no trailing hasMore line); retry", src.name)
+		return nil, false, fmt.Errorf("read %s: response ended before the page finished (no trailing hasMore line); retry", src.name)
 	}
 
-	return events, trailer.HasMore, storeID, nil
+	return events, trailer.HasMore, nil
 }

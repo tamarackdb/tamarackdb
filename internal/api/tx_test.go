@@ -22,9 +22,6 @@ func begin(t *testing.T, srv *Server) string {
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil || resp.TxID == "" {
 		t.Fatalf("POST /tx body = %s, want a txId", rec.Body.String())
 	}
-	if h := rec.Header().Get(StoreHeader); h != "" {
-		t.Errorf("POST /tx carries %s = %q, want none", StoreHeader, h)
-	}
 	return "/tx/" + resp.TxID
 }
 
@@ -34,9 +31,6 @@ func txRequest(t *testing.T, srv *Server, method, path, body string, wantCode in
 	rec := doRequest(t, srv, method, path, body)
 	if rec.Code != wantCode {
 		t.Fatalf("%s %s status = %d, body = %s, want %d", method, path, rec.Code, rec.Body.String(), wantCode)
-	}
-	if h := rec.Header().Get(StoreHeader); h != "" {
-		t.Errorf("%s %s carries %s = %q, want none", method, path, StoreHeader, h)
 	}
 	return rec
 }
