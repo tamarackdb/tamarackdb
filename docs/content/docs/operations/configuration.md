@@ -53,6 +53,7 @@ tamarackdb-backup --default-config >> config.toml
 | `maxQueuedWrites` | `TAMARACKDB_MAX_QUEUED_WRITES` | `100` | The most writes waiting for their turn at once |
 | `readPoolSize` | `TAMARACKDB_READ_POOL_SIZE` | `8` | How many reads run at once |
 | `txIdleTimeout` | `TAMARACKDB_TX_IDLE_TIMEOUT` | `60` | How long, in seconds, a transaction lives without a call |
+| `maxOpenTx` | `TAMARACKDB_MAX_OPEN_TX` | `1000` | The most transactions open at once |
 
 ## Listening
 
@@ -70,6 +71,8 @@ tamarackdb-backup --default-config >> config.toml
   start otherwise.
 - `txIdleTimeout` only ends transactions the application forgot. A transaction that keeps making calls lives as long
   as it needs.
+- Past `maxOpenTx`, `POST /tx` gets `503 TooManyTransactions`. The open transactions go on. A commit still writing
+  counts as open.
 
 ## Write queue
 

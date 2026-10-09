@@ -36,6 +36,7 @@ func TestLoadFullConfig(t *testing.T) {
 		maxQueuedWrites = 250
 		readPoolSize = 16
 		txIdleTimeout = 30
+		maxOpenTx = 50
 	`)
 
 	cfg, err := Load(path)
@@ -50,7 +51,7 @@ func TestLoadFullConfig(t *testing.T) {
 		MaxProjectionSize: 16384,
 		MaxEventsPerTx:    20, MaxReadsPerTx: 30, MaxProjectionsPerTx: 300,
 		MaxProjectionsPerWrite: 200, MaxRequestBodySize: 1 << 20,
-		MaxQueuedWrites: 250, ReadPoolSize: 16, TxIdleTimeout: 30,
+		MaxQueuedWrites: 250, ReadPoolSize: 16, TxIdleTimeout: 30, MaxOpenTx: 50,
 	}
 	if *cfg != want {
 		t.Errorf("Load() = %+v, want %+v", *cfg, want)
@@ -132,6 +133,9 @@ func TestLoadAppliesDefaults(t *testing.T) {
 	}
 	if cfg.TxIdleTimeout != DefaultTxIdleTimeout {
 		t.Errorf("TxIdleTimeout = %d, want %d", cfg.TxIdleTimeout, DefaultTxIdleTimeout)
+	}
+	if cfg.MaxOpenTx != DefaultMaxOpenTx {
+		t.Errorf("MaxOpenTx = %d, want %d", cfg.MaxOpenTx, DefaultMaxOpenTx)
 	}
 }
 
@@ -287,7 +291,7 @@ func TestLoadFileNotFoundUsesBuiltInDefaults(t *testing.T) {
 		DefaultEventsPerPage: DefaultEventsPerPage, MaxEventsPerPage: DefaultMaxEventsPerPage, MaxEventSize: DefaultEventSize,
 		MaxProjectionSize: DefaultProjectionSize,
 		MaxEventsPerTx:    DefaultMaxEventsPerTx, MaxReadsPerTx: DefaultMaxReadsPerTx, MaxProjectionsPerTx: DefaultMaxProjectionsPerTx, MaxProjectionsPerWrite: DefaultMaxProjectionsPerWrite, MaxRequestBodySize: DefaultMaxRequestBodySize,
-		MaxQueuedWrites: DefaultMaxQueuedWrites, ReadPoolSize: DefaultReadPoolSize, TxIdleTimeout: DefaultTxIdleTimeout,
+		MaxQueuedWrites: DefaultMaxQueuedWrites, ReadPoolSize: DefaultReadPoolSize, TxIdleTimeout: DefaultTxIdleTimeout, MaxOpenTx: DefaultMaxOpenTx,
 	}
 	if *cfg != want {
 		t.Errorf("Load() = %+v, want %+v", *cfg, want)
@@ -395,7 +399,7 @@ func TestLoadFromEnvWithoutFile(t *testing.T) {
 		DefaultEventsPerPage: DefaultEventsPerPage, MaxEventsPerPage: DefaultMaxEventsPerPage, MaxEventSize: DefaultEventSize,
 		MaxProjectionSize: DefaultProjectionSize,
 		MaxEventsPerTx:    DefaultMaxEventsPerTx, MaxReadsPerTx: DefaultMaxReadsPerTx, MaxProjectionsPerTx: DefaultMaxProjectionsPerTx, MaxProjectionsPerWrite: DefaultMaxProjectionsPerWrite, MaxRequestBodySize: DefaultMaxRequestBodySize,
-		MaxQueuedWrites: DefaultMaxQueuedWrites, ReadPoolSize: DefaultReadPoolSize, TxIdleTimeout: DefaultTxIdleTimeout,
+		MaxQueuedWrites: DefaultMaxQueuedWrites, ReadPoolSize: DefaultReadPoolSize, TxIdleTimeout: DefaultTxIdleTimeout, MaxOpenTx: DefaultMaxOpenTx,
 	}
 	if *cfg != want {
 		t.Errorf("Load() = %+v, want %+v", *cfg, want)
@@ -743,7 +747,7 @@ func TestValidateLogLevelValues(t *testing.T) {
 				DefaultEventsPerPage: 1000, MaxEventsPerPage: 10000, MaxEventSize: 65536,
 				MaxProjectionSize: 65536,
 				MaxEventsPerTx:    100, MaxReadsPerTx: 100, MaxProjectionsPerTx: 500, MaxProjectionsPerWrite: 500, MaxRequestBodySize: 8 << 20,
-				MaxQueuedWrites: 100, ReadPoolSize: 8, TxIdleTimeout: 60,
+				MaxQueuedWrites: 100, ReadPoolSize: 8, TxIdleTimeout: 60, MaxOpenTx: 1000,
 			}
 			if err := cfg.Validate(); err != nil {
 				t.Errorf("Validate() error = %v, want nil for logLevel = %q", err, lvl)
@@ -759,7 +763,7 @@ func TestValidateInvalidLogLevel(t *testing.T) {
 		DefaultEventsPerPage: 1000, MaxEventsPerPage: 10000, MaxEventSize: 65536,
 		MaxProjectionSize: 65536,
 		MaxEventsPerTx:    100, MaxReadsPerTx: 100, MaxProjectionsPerTx: 500, MaxProjectionsPerWrite: 500, MaxRequestBodySize: 8 << 20,
-		MaxQueuedWrites: 100, ReadPoolSize: 8, TxIdleTimeout: 60,
+		MaxQueuedWrites: 100, ReadPoolSize: 8, TxIdleTimeout: 60, MaxOpenTx: 1000,
 	}
 	if err := cfg.Validate(); err == nil {
 		t.Error("Validate() error = nil, want error for logLevel = \"verbose\"")
@@ -773,7 +777,7 @@ func TestValidateNonPositiveMaxProjectionSize(t *testing.T) {
 		DefaultEventsPerPage: 1000, MaxEventsPerPage: 10000, MaxEventSize: 65536,
 		MaxProjectionSize: 0,
 		MaxEventsPerTx:    100, MaxReadsPerTx: 100, MaxProjectionsPerTx: 500, MaxProjectionsPerWrite: 500, MaxRequestBodySize: 8 << 20,
-		MaxQueuedWrites: 100, ReadPoolSize: 8, TxIdleTimeout: 60,
+		MaxQueuedWrites: 100, ReadPoolSize: 8, TxIdleTimeout: 60, MaxOpenTx: 1000,
 	}
 	if err := cfg.Validate(); err == nil {
 		t.Error("Validate() error = nil, want error for MaxProjectionSize = 0")
@@ -795,7 +799,7 @@ func TestValidateNonPositiveWriteLimits(t *testing.T) {
 				DefaultEventsPerPage: 1000, MaxEventsPerPage: 10000, MaxEventSize: 65536,
 				MaxProjectionSize: 65536,
 				MaxEventsPerTx:    100, MaxReadsPerTx: 100, MaxProjectionsPerTx: 500, MaxProjectionsPerWrite: 500, MaxRequestBodySize: 8 << 20,
-				MaxQueuedWrites: 100, ReadPoolSize: 8, TxIdleTimeout: 60,
+				MaxQueuedWrites: 100, ReadPoolSize: 8, TxIdleTimeout: 60, MaxOpenTx: 1000,
 			}
 			zero(&cfg)
 			if err := cfg.Validate(); err == nil {
@@ -812,7 +816,7 @@ func TestValidateEmptyDataDir(t *testing.T) {
 		DefaultEventsPerPage: 1000, MaxEventsPerPage: 10000, MaxEventSize: 65536,
 		MaxProjectionSize: 65536,
 		MaxEventsPerTx:    100, MaxReadsPerTx: 100, MaxProjectionsPerTx: 500, MaxProjectionsPerWrite: 500, MaxRequestBodySize: 8 << 20,
-		MaxQueuedWrites: 100, ReadPoolSize: 8, TxIdleTimeout: 60,
+		MaxQueuedWrites: 100, ReadPoolSize: 8, TxIdleTimeout: 60, MaxOpenTx: 1000,
 	}
 	if err := cfg.Validate(); err == nil {
 		t.Error("Validate() error = nil, want error for empty DataDir")
@@ -826,7 +830,7 @@ func TestValidateDirectly(t *testing.T) {
 		DefaultEventsPerPage: 1000, MaxEventsPerPage: 10000, MaxEventSize: 65536,
 		MaxProjectionSize: 65536, MaxQueuedWrites: 100,
 		MaxEventsPerTx: 100, MaxReadsPerTx: 100, MaxProjectionsPerTx: 500, MaxProjectionsPerWrite: 500, MaxRequestBodySize: 8 << 20,
-		ReadPoolSize: 8, TxIdleTimeout: 60,
+		ReadPoolSize: 8, TxIdleTimeout: 60, MaxOpenTx: 1000,
 	}
 	if err := cfg.Validate(); err != nil {
 		t.Errorf("Validate() error = %v, want nil", err)
@@ -854,7 +858,7 @@ func TestValidateNonPositiveMaxQueuedWrites(t *testing.T) {
 				DefaultEventsPerPage: 1000, MaxEventsPerPage: 10000, MaxEventSize: 65536,
 				MaxProjectionSize: 65536,
 				MaxEventsPerTx:    100, MaxReadsPerTx: 100, MaxProjectionsPerTx: 500, MaxProjectionsPerWrite: 500, MaxRequestBodySize: 8 << 20,
-				MaxQueuedWrites: tt.maxQueuedWrites, ReadPoolSize: 8, TxIdleTimeout: 60,
+				MaxQueuedWrites: tt.maxQueuedWrites, ReadPoolSize: 8, TxIdleTimeout: 60, MaxOpenTx: 1000,
 			}
 			if err := cfg.Validate(); err == nil {
 				t.Errorf("Validate() error = nil, want error for MaxQueuedWrites = %d", tt.maxQueuedWrites)
@@ -879,7 +883,7 @@ func TestValidateNonPositiveReadPoolSize(t *testing.T) {
 				DefaultEventsPerPage: 1000, MaxEventsPerPage: 10000, MaxEventSize: 65536,
 				MaxProjectionSize: 65536,
 				MaxEventsPerTx:    100, MaxReadsPerTx: 100, MaxProjectionsPerTx: 500, MaxProjectionsPerWrite: 500, MaxRequestBodySize: 8 << 20,
-				MaxQueuedWrites: 100, ReadPoolSize: tt.readPoolSize, TxIdleTimeout: 60,
+				MaxQueuedWrites: 100, ReadPoolSize: tt.readPoolSize, TxIdleTimeout: 60, MaxOpenTx: 1000,
 			}
 			if err := cfg.Validate(); err == nil {
 				t.Errorf("Validate() error = nil, want error for ReadPoolSize = %d", tt.readPoolSize)
@@ -1028,10 +1032,37 @@ func TestValidateNonPositiveTxIdleTimeout(t *testing.T) {
 			DefaultEventsPerPage: 1000, MaxEventsPerPage: 10000, MaxEventSize: 65536,
 			MaxProjectionSize: 65536,
 			MaxEventsPerTx:    100, MaxReadsPerTx: 100, MaxProjectionsPerTx: 500, MaxProjectionsPerWrite: 500, MaxRequestBodySize: 8 << 20,
-			MaxQueuedWrites: 100, ReadPoolSize: 8, TxIdleTimeout: timeout,
+			MaxQueuedWrites: 100, ReadPoolSize: 8, TxIdleTimeout: timeout, MaxOpenTx: 1000,
 		}
 		if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "txIdleTimeout") {
 			t.Errorf("Validate() error = %v, want one naming txIdleTimeout for %d", err, timeout)
+		}
+	}
+}
+
+func TestLoadMaxOpenTxFromEnv(t *testing.T) {
+	setEnv(t, map[string]string{"TAMARACKDB_MAX_OPEN_TX": "25"})
+	cfg, err := Load(filepath.Join(t.TempDir(), "does-not-exist.toml"))
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.MaxOpenTx != 25 {
+		t.Errorf("MaxOpenTx = %d, want 25 (from env)", cfg.MaxOpenTx)
+	}
+}
+
+func TestValidateNonPositiveMaxOpenTx(t *testing.T) {
+	for _, max := range []int{-1, 0} {
+		cfg := Config{
+			BindAddress: "0.0.0.0", Port: 8443,
+			AuthToken: "secret", DataDir: "data", LogLevel: "warning",
+			DefaultEventsPerPage: 1000, MaxEventsPerPage: 10000, MaxEventSize: 65536,
+			MaxProjectionSize: 65536,
+			MaxEventsPerTx:    100, MaxReadsPerTx: 100, MaxProjectionsPerTx: 500, MaxProjectionsPerWrite: 500, MaxRequestBodySize: 8 << 20,
+			MaxQueuedWrites: 100, ReadPoolSize: 8, TxIdleTimeout: 60, MaxOpenTx: max,
+		}
+		if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "maxOpenTx") {
+			t.Errorf("Validate() error = %v, want one naming maxOpenTx for %d", err, max)
 		}
 	}
 }

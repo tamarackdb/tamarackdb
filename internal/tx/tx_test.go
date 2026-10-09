@@ -517,6 +517,36 @@ func TestCallsKeepTheTransactionAlive(t *testing.T) {
 	commit(t, env.r, id)
 }
 
+// TestMaxOpenTx checks that Begin refuses past MaxOpenTx, without
+// touching the open transactions, and accepts again once one ends,
+// whether by its commit or by expiry.
+func TestMaxOpenTx(t *testing.T) {
+	env := newTestEnv(t, time.Minute)
+	r := New(env.st, env.wr, Config{IdleTimeout: time.Minute, Now: env.clock.Now, MaxEventsPerTx: 10, MaxReadsPerTx: 10, MaxProjectionsPerTx: 10, MaxOpenTx: 2})
+	first, second := begin(t, r), begin(t, r)
+	if _, err := r.Begin(); !errors.Is(err, ErrTooManyTransactions) {
+		t.Fatalf("third Begin() error = %v, want ErrTooManyTransactions", err)
+	}
+	if s := r.Stats(); s.TooMany != 1 {
+		t.Errorf("Stats().TooMany = %d, want 1", s.TooMany)
+	}
+
+	decide(t, r, first, dcb.QueryNone(), "a")
+	commit(t, r, first)
+	begin(t, r)
+
+	env.clock.advance(30 * time.Second)
+	decide(t, r, second, dcb.QueryNone())
+	if _, err := r.Begin(); !errors.Is(err, ErrTooManyTransactions) {
+		t.Fatalf("Begin() with 2 transactions open error = %v, want ErrTooManyTransactions", err)
+	}
+	// The transaction begun after the commit is now idle for IdleTimeout,
+	// and second for half of it: the first expires, and its place frees up.
+	env.clock.advance(30 * time.Second)
+	begin(t, r)
+	commit(t, r, second)
+}
+
 // TestPauseIgnoresAnExpiredTransaction checks that a requested pause goes
 // into place once the transaction it waited for expires.
 func TestPauseIgnoresAnExpiredTransaction(t *testing.T) {

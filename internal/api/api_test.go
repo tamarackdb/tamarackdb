@@ -27,6 +27,7 @@ type testOptions struct {
 	maxQueued int           // default: uncapped
 	txIdle    time.Duration // default: a minute
 	maxReads  int           // maxReadsPerTx; default: 100
+	maxOpenTx int           // default: uncapped
 }
 
 func newTestServer(t *testing.T) (*Server, *writer.Writer, *store.Store) {
@@ -53,7 +54,7 @@ func newTestServerWith(t *testing.T, o testOptions) (*Server, *writer.Writer, *s
 	if o.maxReads == 0 {
 		o.maxReads = 100
 	}
-	txs := tx.New(st, wr, tx.Config{IdleTimeout: o.txIdle, MaxEventsPerTx: 100, MaxReadsPerTx: o.maxReads, MaxProjectionsPerTx: 500})
+	txs := tx.New(st, wr, tx.Config{IdleTimeout: o.txIdle, MaxEventsPerTx: 100, MaxReadsPerTx: o.maxReads, MaxProjectionsPerTx: 500, MaxOpenTx: o.maxOpenTx})
 	srv := New(wr, txs, st, Options{
 		EnableAuth:             true,
 		AuthToken:              testToken,

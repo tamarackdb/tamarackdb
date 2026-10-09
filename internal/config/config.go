@@ -29,6 +29,7 @@ const (
 	DefaultMaxEventsPerTx         = 100
 	DefaultMaxReadsPerTx          = 100
 	DefaultMaxProjectionsPerTx    = 500
+	DefaultMaxOpenTx              = 1000
 	DefaultMaxProjectionsPerWrite = 500
 	DefaultMaxRequestBodySize     = 8 << 20 // 8 MiB
 	DefaultLogLevel               = "warning"
@@ -138,6 +139,13 @@ type Config struct {
 	// no other limit on how long it lives. Optional; defaulted by Load
 	// when omitted.
 	TxIdleTimeout int `toml:"txIdleTimeout"` // default: 60
+
+	// MaxOpenTx caps how many transactions may be open at once, commits
+	// still writing included. One more POST /tx gets 503
+	// TooManyTransactions; the open ones go on. It bounds what a client
+	// that begins transactions and never ends them holds in memory until
+	// TxIdleTimeout. Optional; defaulted by Load when omitted.
+	MaxOpenTx int `toml:"maxOpenTx"` // default: 1000
 }
 
 // Load reads and parses the [server] section of the TOML configuration file
@@ -224,6 +232,9 @@ func Load(path string) (*Config, error) {
 	if cfg.TxIdleTimeout == 0 {
 		cfg.TxIdleTimeout = DefaultTxIdleTimeout
 	}
+	if cfg.MaxOpenTx == 0 {
+		cfg.MaxOpenTx = DefaultMaxOpenTx
+	}
 
 	if err := cfg.Validate(); err != nil {
 		return nil, validationError(path, found, err)
@@ -266,6 +277,7 @@ func applyEnv(cfg *Config, inFile fileBools) error {
 		envInt(&cfg.MaxQueuedWrites, "TAMARACKDB_MAX_QUEUED_WRITES"),
 		envInt(&cfg.ReadPoolSize, "TAMARACKDB_READ_POOL_SIZE"),
 		envInt(&cfg.TxIdleTimeout, "TAMARACKDB_TX_IDLE_TIMEOUT"),
+		envInt(&cfg.MaxOpenTx, "TAMARACKDB_MAX_OPEN_TX"),
 	)
 }
 
@@ -361,6 +373,8 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("readPoolSize must be positive, got %d", c.ReadPoolSize)
 	case c.TxIdleTimeout <= 0:
 		return fmt.Errorf("txIdleTimeout must be positive, got %d", c.TxIdleTimeout)
+	case c.MaxOpenTx <= 0:
+		return fmt.Errorf("maxOpenTx must be positive, got %d", c.MaxOpenTx)
 	}
 	return nil
 }

@@ -45,7 +45,8 @@ change from one version to the next.
     "expired": 2,
     "designErrors": 0,
     "paused": 0,
-    "busy": 0
+    "busy": 0,
+    "tooMany": 0
   },
   "pause": {
     "state": "normal",
@@ -65,6 +66,8 @@ What to watch:
   [Configuration](/docs/operations/configuration/#write-queue)).
 - **`transactions.expired`** rising: the application begins transactions and forgets them.
 - **`transactions.designErrors`** or **`transactions.busy`** above zero: the client library has a bug.
+- **`transactions.tooMany`** above zero: `maxOpenTx` is too low, or the application begins transactions and never
+  ends them (see `expired`).
 - **`pause.state`** stuck at `pauseRequested`: transactions are still open (`openTransactions`), or whoever asked for
   the pause stopped calling `POST /pause`.
 - **`lastOptimizeAt`** more than a day old: the daily `POST /optimize` doesn't run (see
@@ -84,5 +87,5 @@ tamarackdb-server: [WARNING] POST /projections 503 27B 0.07ms
   request.
 - `debug`: a success, or an expected refusal such as a conflict.
 - `info`: a client's mistake, such as a malformed request or a bad token, or a pause or resume.
-- `warning`: the write queue is full.
+- `warning`: the write queue is full, or `maxOpenTx` transactions are open.
 - `error`: a failure on the server.

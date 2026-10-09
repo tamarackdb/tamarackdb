@@ -131,7 +131,8 @@ curl -X POST http://127.0.0.1:8085/tx
 {"txId":"7d1e4b2a-3c5f-4e6d-9a8b-0c1d2e3f4a5b"}
 ```
 
-During a pause, `POST /tx` gets `503 Paused`.
+During a pause, `POST /tx` gets `503 Paused`. While `maxOpenTx` transactions are open, it gets
+`503 TooManyTransactions`: try again later.
 
 ### Read events
 
@@ -429,6 +430,7 @@ behind a limit.
 | `413` | `PayloadTooLarge` | An event, a projection, or a body over its size limit |
 | `500` | `InternalError` | A failure on the server |
 | `503` | `Paused` | `POST /tx` during a pause |
+| `503` | `TooManyTransactions` | `POST /tx` while `maxOpenTx` transactions are open |
 | `503` | `WriteQueueFull` | A write while too many already wait. Nothing was written |
 | `503` | `ShuttingDown` | A write while the server shuts down. Nothing was written |
 | `503` | `Unavailable` | `GET /health` when the database can't be reached |

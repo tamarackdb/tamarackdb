@@ -21,7 +21,8 @@ What a client of the protocol has to do, whatever its language. The calls themse
 - Read a projection in the transaction before you replace or delete it. A `create` needs no read.
 - Send one call at a time on a transaction.
 - After `409 ConcurrencyException` or `404 TransactionNotFound`, run the whole command again, in a new transaction.
-- `POST /tx` can get `503 Paused`. What to do with the command is the application's choice.
+- `POST /tx` can get `503 Paused`, or `503 TooManyTransactions`. What to do with the command is the application's
+  choice.
 - Abandon a transaction you no longer need, for example in the error handler around a command, and ignore the
   response.
 - Give each event of a write the `time` the write returned: it's the `time` the event keeps once committed.

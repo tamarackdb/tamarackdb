@@ -101,6 +101,8 @@ func (s *Server) handleErr(w http.ResponseWriter, r *http.Request, err error) {
 		writeError(w, http.StatusConflict, "TransactionBusy", "")
 	case errors.Is(err, tx.ErrPaused):
 		writeError(w, http.StatusServiceUnavailable, "Paused", "")
+	case errors.Is(err, tx.ErrTooManyTransactions):
+		writeError(w, http.StatusServiceUnavailable, "TooManyTransactions", "")
 	case errors.Is(err, tx.ErrNotPaused):
 		writeError(w, http.StatusConflict, "NotPaused", "")
 	case errors.Is(err, queue.ErrFull):

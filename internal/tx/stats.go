@@ -9,6 +9,7 @@ type Stats struct {
 	DesignErrors uint64 // transactions ended by a broken rule, or a malformed request refused before the Registry
 	Paused       uint64 // Begin calls refused with ErrPaused
 	Busy         uint64 // calls refused with ErrBusy: another call was using the transaction
+	TooMany      uint64 // Begin calls refused with ErrTooManyTransactions
 }
 
 // Stats returns the counters.

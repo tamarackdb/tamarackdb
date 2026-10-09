@@ -62,6 +62,7 @@ var codeLevel = map[string]level{
 	"PayloadTooLarge":      levelInfo,    // 413, client-side noise
 	"Unauthorized":         levelInfo,    // 401, client-side noise
 	"WriteQueueFull":       levelWarning, // 503, real capacity signal
+	"TooManyTransactions":  levelWarning, // 503, real capacity signal, or a client that never ends its transactions
 	"ShuttingDown":         levelInfo,    // 503, the operator stopped the server
 	"Paused":               levelInfo,    // 503, the operator paused transactions
 	"NotPaused":            levelInfo,    // 409, a reset outside a pause

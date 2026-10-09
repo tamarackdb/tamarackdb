@@ -74,7 +74,8 @@ func main() {
 	fmt.Printf("maxRequestBodySize: %d\n", cfg.MaxRequestBodySize)
 	fmt.Printf("maxQueuedWrites: %d\n", cfg.MaxQueuedWrites)
 	fmt.Printf("readPoolSize: %d\n", cfg.ReadPoolSize)
-	fmt.Printf("txIdleTimeout: %d\n\n", cfg.TxIdleTimeout)
+	fmt.Printf("txIdleTimeout: %d\n", cfg.TxIdleTimeout)
+	fmt.Printf("maxOpenTx: %d\n\n", cfg.MaxOpenTx)
 
 	if err := requireDatabase(*cfg); err != nil {
 		log.Fatalf("tamarackdb-server: %v", err)
@@ -98,6 +99,7 @@ func main() {
 		MaxEventsPerTx:      cfg.MaxEventsPerTx,
 		MaxReadsPerTx:       cfg.MaxReadsPerTx,
 		MaxProjectionsPerTx: cfg.MaxProjectionsPerTx,
+		MaxOpenTx:           cfg.MaxOpenTx,
 	})
 
 	fatalCh := make(chan error, 1)
@@ -271,6 +273,7 @@ const defaultConfigTemplate = `[server]
 # maxQueuedWrites = %d
 # readPoolSize = %d
 # txIdleTimeout = %d # seconds
+# maxOpenTx = %d
 `
 
 // printDefaultConfig writes defaultConfigTemplate to stdout, with its
@@ -283,7 +286,7 @@ func printDefaultConfig() {
 		config.DefaultProjectionSize,
 		config.DefaultMaxEventsPerTx, config.DefaultMaxReadsPerTx, config.DefaultMaxProjectionsPerTx,
 		config.DefaultMaxProjectionsPerWrite, config.DefaultMaxRequestBodySize,
-		config.DefaultMaxQueuedWrites, config.DefaultReadPoolSize, config.DefaultTxIdleTimeout)
+		config.DefaultMaxQueuedWrites, config.DefaultReadPoolSize, config.DefaultTxIdleTimeout, config.DefaultMaxOpenTx)
 }
 
 // requireDatabase checks that the database file already exists: only

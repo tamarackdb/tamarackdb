@@ -241,6 +241,29 @@ func TestTransactionLimitGets400(t *testing.T) {
 	}
 }
 
+// TestTooManyTransactionsGets503 checks that POST /tx past maxOpenTx gets
+// 503 TooManyTransactions, counted in GET /stats, and that the open
+// transaction goes on.
+func TestTooManyTransactionsGets503(t *testing.T) {
+	srv, _, _ := newTestServerWith(t, testOptions{maxOpenTx: 1})
+	tx := begin(t, srv)
+	rec := doRequest(t, srv, "POST", "/tx", "")
+	if rec.Code != 503 || errorCode(t, rec) != "TooManyTransactions" {
+		t.Fatalf("POST /tx = %d %s, want 503 TooManyTransactions", rec.Code, rec.Body.String())
+	}
+	var stats statsResponse
+	if err := json.Unmarshal(doRequest(t, srv, "GET", "/stats", "").Body.Bytes(), &stats); err != nil {
+		t.Fatalf("decode stats: %v", err)
+	}
+	if stats.Transactions.TooMany != 1 {
+		t.Errorf("transactions.tooMany = %d, want 1", stats.Transactions.TooMany)
+	}
+	txRequest(t, srv, "QUERY", tx+"/events", `{"query":"none"}`, 200)
+	txRequest(t, srv, "POST", tx+"/events", `{"events":[]}`, 200)
+	txRequest(t, srv, "POST", tx+"/commit", "", 204)
+	begin(t, srv)
+}
+
 func TestStats(t *testing.T) {
 	srv, _, _ := newTestServer(t)
 	writeProjectionsCommitted(t, srv, `{"create":[{"type":"p","id":"1","payload":""}]}`)

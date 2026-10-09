@@ -29,6 +29,10 @@ var ErrBusy = errors.New("tx: transaction busy with another call")
 // *dcb.ValidationError whose message names the rule.
 var ErrDesign = errors.New("tx: design error")
 
+// ErrTooManyTransactions is what Begin returns while Config.MaxOpenTx
+// transactions are already open.
+var ErrTooManyTransactions = errors.New("tx: too many open transactions")
+
 // ErrTooLarge is what a call that would take the transaction over
 // maxEventsPerTx, maxReadsPerTx, or maxProjectionsPerTx unwraps to, as a
 // *dcb.ValidationError.
@@ -80,6 +84,14 @@ type Config struct {
 	MaxEventsPerTx      int
 	MaxReadsPerTx       int
 	MaxProjectionsPerTx int
+
+	// MaxOpenTx caps how many transactions may be open at once, commits
+	// still writing included: Begin returns ErrTooManyTransactions past
+	// it. Without it, a client that begins transactions and never ends
+	// them would hold memory until IdleTimeout, and lock, which walks
+	// every transaction, would grow slower with each one. 0 means no
+	// limit, for tests only; configuration always sets it.
+	MaxOpenTx int
 }
 
 // Registry holds the open transactions.
@@ -164,7 +176,10 @@ type openCondition struct {
 }
 
 // Begin opens a transaction and returns its ID.
-// While a pause is requested or in place, it returns ErrPaused.
+// While a pause is requested or in place, it returns ErrPaused. While
+// Config.MaxOpenTx transactions are open, it returns
+// ErrTooManyTransactions. Transactions idle for IdleTimeout are ended
+// first (see lock), so they never count.
 func (r *Registry) Begin() (string, error) {
 	t := &transaction{
 		id:          uuid.NewString(),
@@ -175,6 +190,10 @@ func (r *Registry) Begin() (string, error) {
 	if r.pause != Running {
 		r.stats.Paused++
 		return "", ErrPaused
+	}
+	if r.cfg.MaxOpenTx > 0 && len(r.txs) >= r.cfg.MaxOpenTx {
+		r.stats.TooMany++
+		return "", ErrTooManyTransactions
 	}
 	t.lastUsed = r.cfg.Now()
 	r.txs[t.id] = t
