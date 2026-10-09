@@ -79,12 +79,13 @@ everything at commit, or nothing.
 
 1. **Begin.** The server returns a transaction ID.
 2. **Decide.** Each decision reads events, then writes its events, or an empty list.
-3. **Projections.** Between two decisions, the command reads and writes projections.
-4. **Commit.** The server checks every condition and every projection, then writes everything at once.
+3. **Projections.** Between two decisions, the command writes projections. It reads them at any time.
+4. **Commit.** The server checks every condition and every projection written, then writes everything at once.
 
 - A read of events opens a condition. The next call must be the write of events that closes it, even with an empty
   list. The decision to write nothing is checked at commit too.
 - A decision that rests on no event reads `"none"` first.
+- A projection only read is not checked at commit: a decision that rests on it is not protected.
 - To read events without making a decision, use `QUERY /events`, outside the transaction.
 - A read in a transaction sees committed events, then the transaction's own pending events. A pending event has no
   `sequence` until the commit.

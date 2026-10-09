@@ -3,22 +3,24 @@
 // read, and once more at commit, in its turn in the FIFO (see package
 // writer). Nothing is locked while it lives: a conflict with another
 // write is found at commit, by the Append Conditions its reads opened, by
-// the versions of the projections it read, and by the absence of the
-// projections it created.
+// the versions read of the projections it replaced or deleted, and by the
+// absence of the projections it created. A projection only read is never
+// checked.
 //
 // # One decision, one read, one write
 //
 // A read of events opens a condition, and the write of events that
-// follows closes it, with events or with none. Projections are read and
-// written only while no condition is open. A call that breaks a rule ends
+// follows closes it, with events or with none. Projections are written
+// only while no condition is open. They can be read at any time: a read
+// of a projection adds no pending event. A call that breaks a rule ends
 // the transaction, like any other error: the server doesn't accommodate a
 // client library with a bug.
 //
-// Since nothing comes between a read and its write, no pending event can
-// be added after a read and before its decision. An event added later,
-// that matches a condition already closed, isn't an error: each decision
-// has its place in the order of the pending events, and what comes after
-// it lands after it in the log.
+// Since only a read of projections comes between a read of events and its
+// write, no pending event can be added after a read and before its
+// decision. An event added later, that matches a condition already
+// closed, isn't an error: each decision has its place in the order of the
+// pending events, and what comes after it lands after it in the log.
 //
 // An empty write still closes a condition, and the condition is still
 // checked at commit. A decision to do nothing then stays protected: if

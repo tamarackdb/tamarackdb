@@ -196,7 +196,8 @@ curl http://127.0.0.1:8085/tx/<txId>/projections/show-seats/s1
 - `200 OK`: the payload, as written.
 - `404 ProjectionNotFound`: it doesn't exist, or the transaction deleted it. The transaction goes on.
 - A later read returns the projection as the transaction left it.
-- Refused while a condition is open.
+- Allowed while a condition is open, for example to add metadata to the events of a decision before writing them.
+- A projection only read is not checked at commit.
 
 ### Write projections
 

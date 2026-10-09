@@ -250,13 +250,6 @@ func TestRulesEndTheTransaction(t *testing.T) {
 			_, err := r.ReadEvents(bg, id, dcb.QueryNone())
 			return err
 		}},
-		{"projection read while a condition is open", func(r *Registry, id string) error {
-			if _, err := r.ReadEvents(bg, id, dcb.QueryNone()); err != nil {
-				return err
-			}
-			_, _, err := r.GetProjection(bg, id, key)
-			return err
-		}},
 		{"projection written while a condition is open", func(r *Registry, id string) error {
 			if _, _, err := r.GetProjection(bg, id, key); err != nil {
 				return err
@@ -418,6 +411,30 @@ func TestNetProjections(t *testing.T) {
 	after, _ := env.st.GetProjection(bg, readOnly.Type, readOnly.ID)
 	if after.Version != before.Version {
 		t.Errorf("read-only projection was written: version %s, then %s", before.Version, after.Version)
+	}
+}
+
+// TestProjectionReadWhileAConditionIsOpen checks that a projection can be
+// read between a read of events and its write, that the read sees what the
+// transaction created, and that the transaction goes on to its commit.
+func TestProjectionReadWhileAConditionIsOpen(t *testing.T) {
+	env := newTestEnv(t, time.Minute)
+	committed, created := Key{"activity", "committed"}, Key{"activity", "created"}
+	seedProjection(t, env.wr, committed, "2026")
+
+	id := begin(t, env.r)
+	writeProjections(t, env.r, id, Writes{Create: []Projection{{created, "2027"}}})
+	read(t, env.r, id, types("a"))
+	for k, want := range map[Key]string{committed: "2026", created: "2027"} {
+		if payload, found := getProjection(t, env.r, id, k); !found || payload != want {
+			t.Errorf("%s while a condition is open = %q, %v, want %q", k, payload, found, want)
+		}
+	}
+	write(t, env.r, id, "a")
+	commit(t, env.r, id)
+
+	if payload, found := projectionPayload(t, env.st, created); !found || payload != "2027" {
+		t.Errorf("%s = %q, %v, want 2027", created, payload, found)
 	}
 }
 

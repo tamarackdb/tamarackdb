@@ -57,12 +57,14 @@ type projectionState struct {
 // transaction deleted it. As in ReadEvents, the read runs with ctx
 // without its cancellation: a client that leaves MUST NOT end its
 // transaction.
+//
+// A read is allowed while a condition is open: it adds no pending event.
+// A client can then read projections after a decision and before its
+// write, to add metadata to its events for example. When the read ran
+// changes nothing at commit: a projection only read is never checked.
 func (r *Registry) GetProjection(ctx context.Context, id string, key Key) (payload string, found bool, err error) {
 	ctx = context.WithoutCancel(ctx)
 	err = r.do(id, func(t *transaction) error {
-		if t.open != nil {
-			return designError("projection read while a condition is open: write the events of the last read first, or an empty list")
-		}
 		p, ok := t.projections[key]
 		if !ok {
 			read, err := r.st.GetProjection(ctx, key.Type, key.ID)
