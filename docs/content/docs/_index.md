@@ -1,4 +1,4 @@
 ---
 title: "Documentation"
-description: "TamarackDB documentation: a quickstart, the concepts behind the event store, the HTTP API contract, and how to install and run an instance."
+description: "TamarackDB documentation: key features, a quickstart, running an instance, and building an application with a client library or the HTTP API."
 ---

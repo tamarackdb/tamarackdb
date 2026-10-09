@@ -65,8 +65,9 @@ on the site, under "The client leaving" in the HTTP API conventions.
 
 ## Building from source
 
-For how to run TamarackDB, see the documentation at
-<https://tamarackdb.github.io/>.
+To install the published binaries, see
+[Install](https://tamarackdb.github.io/docs/operations/install/). For how
+to run TamarackDB, see the documentation at <https://tamarackdb.github.io/>.
 
 ### Build
 
@@ -153,17 +154,15 @@ directory.
 ### Documentation site
 
 The documentation is a [Hugo](https://gohugo.io/) site in `docs/`,
-using the [Doks](https://getdoks.org/) theme. You need Hugo extended
-and Node.js 20 or later. From `docs/`:
+using the [Hextra](https://github.com/imfing/hextra) theme, imported as
+a Hugo module. You need Hugo extended and Go. From `docs/`:
 
 ```sh
-npm ci
-npm run dev
+hugo serve
 ```
 
-`npm run dev` serves the site at `http://localhost:1313/` and reloads
-on every change. `npm run build` writes the static site to
-`docs/public/`.
+`hugo serve` serves the site at `http://localhost:1313/` and reloads on
+every change. `hugo --minify` writes the static site to `docs/public/`.
 
 The site is published to <https://tamarackdb.github.io/> each time a
 `v*` tag is pushed. A maintainer can also publish it by hand with

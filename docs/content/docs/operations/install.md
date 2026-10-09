@@ -5,12 +5,9 @@ slug: "install"
 weight: 1
 ---
 
-Getting an instance running: on your own machine, in production with systemd, or in Docker. For building the binaries,
-see [CONTRIBUTING.md](https://github.com/tamarackdb/tamarackdb/blob/main/CONTRIBUTING.md#building-from-source).
+Getting an instance running: on your own machine, from the release binaries, in production with systemd, or in Docker.
 
 ## Local development
-
-To code against a local instance, run the published image:
 
 ```sh
 docker run -d --rm --name tamarackdb -p 127.0.0.1:8085:8085 \
@@ -20,44 +17,57 @@ docker run -d --rm --name tamarackdb -p 127.0.0.1:8085:8085 \
 ```
 
 - The API is at `http://127.0.0.1:8085`, reachable from your machine only.
-- `TAMARACKDB_DEV_MODE=true` turns on `POST /reset`, to start each test run from an empty store (see [Development
-  mode](/docs/operations/dev-mode/)).
-- `TAMARACKDB_LOG_LEVEL=debug` logs every request, which helps while you write the integration (see
-  [Logs](/docs/operations/logs/)). Read them with `docker logs -f tamarackdb`.
-- The data lives in the container's own volume, and `--rm` deletes it when the container stops (`docker stop
-  tamarackdb`). Mount a named volume on `/data` to keep it across runs (see [Docker](#docker)).
+- `TAMARACKDB_DEV_MODE=true` turns on `POST /reset`, to start each test run from an empty store (see
+  [Development mode](/docs/operations/maintenance/#development-mode)).
+- `TAMARACKDB_LOG_LEVEL=debug` logs every request. Read them with `docker logs -f tamarackdb`.
+- `--rm` deletes the data when the container stops. Mount a volume on `/data` to keep it (see [Docker](#docker)).
 
-Authentication stays off: the port only listens on your own machine.
+## Binaries
+
+Each release publishes three binaries for Linux, on amd64 and arm64:
+
+| Binary | What it does |
+|---|---|
+| `tamarackdb-server` | The HTTP server |
+| `tamarackdb-init` | Creates a new database, empty or from a dump of events. The server needs one to start |
+| `tamarackdb-backup` | Copies new events from an instance into a backup file |
+
+Download a release and install its binaries (see the
+[releases](https://github.com/tamarackdb/tamarackdb/releases) for the latest version):
+
+```sh
+VERSION=v0.32.0 ARCH=amd64
+curl -fLO https://github.com/tamarackdb/tamarackdb/releases/download/$VERSION/tamarackdb-$VERSION-linux-$ARCH.zip
+unzip tamarackdb-$VERSION-linux-$ARCH.zip
+sudo install -m 755 tamarackdb-$VERSION-linux-$ARCH/tamarackdb-* /usr/local/bin/
+```
+
+- The binaries are static: no runtime and no library to install.
+- `--version` prints a binary's version and exits.
+- To build them from source instead, run `make build` in a clone of the repository, with Go. The binaries land in
+  `bin/`. Details are in
+  [CONTRIBUTING.md](https://github.com/tamarackdb/tamarackdb/blob/main/CONTRIBUTING.md#building-from-source).
 
 ## Production
 
 Check each point before an instance holds real data:
 
-1. **A dedicated user.** Run the server as its own system user, never as root, and run every command that touches
-   `dataDir` as that user (see [Run](#run)).
-2. **A private data directory.** `dataDir` is readable by the server's user only (`0700`). `tamarackdb-init` creates it
-   that way; give a directory you create yourself the same permissions (see
-   [Security](/docs/operations/security/#files)).
-3. **The same host, over the unix socket.** Installed directly on the host, run TamarackDB next to the application, on
-   the socket. If the application runs as another user, set `socketMode = "0660"` and add that user to the server's
-   group (see [Security](/docs/operations/security/#unix-socket)). In Docker, use TCP on a private network instead (see
-   [Alongside the application](#alongside-the-application)).
-4. **A reverse proxy and a token over the network.** If the application must reach TamarackDB from another host, put a
-   reverse proxy in front of the socket to handle TLS, and turn `enableAuth` on (see
+1. Run the server as its own system user, never as root.
+2. Keep `dataDir` readable by that user only (`0700`).
+3. Run the server on the application's host, on its unix socket (see
+   [Security](/docs/operations/security/#unix-socket)).
+4. From another host, go through a reverse proxy for TLS, and turn `enableAuth` on (see
    [Security](/docs/operations/security/#another-host)).
-5. **A protected configuration file.** A `config.toml` that holds `authToken` is readable by the server's user only
-   (`chmod 600`).
-6. **No developer mode.** `devMode` stays off: it exposes `POST /reset`, which deletes every event (see [Development
-   mode](/docs/operations/dev-mode/)).
-7. **A sized queue.** Set `maxQueuedWrites` from how many writes the application sends at once (see [Sizing the write
-   queue](/docs/operations/configuration/#sizing-the-write-queue)).
-8. **Monitoring.** Point a supervisor at `/health`, watch the counters of `/stats`, and keep `logLevel` at `warning`
-   (see [Health check](/docs/operations/health-check/), [Observability](/docs/operations/observability/), and
-   [Logs](/docs/operations/logs/)).
-9. **Backups.** Schedule `tamarackdb-backup`. On the same host, it reads straight from the socket with `sourceSocket`;
-   from another host, through a reverse proxy that handles TLS (see [Backup](/docs/operations/backup/)).
+5. Make a `config.toml` that holds `authToken` readable by the server's user only (`chmod 600`).
+6. Leave `devMode` off.
+7. Size `maxQueuedWrites` (see [Configuration](/docs/operations/configuration/#write-queue)).
+8. Watch `/health` and `/stats` (see [Monitoring](/docs/operations/monitoring/)).
+9. Schedule `tamarackdb-backup` (see [Backup and Import](/docs/operations/backup/)), and the daily `POST /optimize`
+   (see [Maintenance](/docs/operations/maintenance/#query-statistics)).
 
-A systemd unit for the server, running as user `tamarackdb`:
+### systemd
+
+A unit for the server, running as user `tamarackdb`:
 
 ```ini
 # /etc/systemd/system/tamarackdb.service
@@ -70,14 +80,10 @@ User=tamarackdb
 Group=tamarackdb
 ExecStart=/usr/local/bin/tamarackdb-server --config /etc/tamarackdb/config.toml
 Restart=on-failure
-# Creates /run/tamarackdb for the socket, and /var/lib/tamarackdb as 0700,
-# both owned by the user above.
 RuntimeDirectory=tamarackdb
 RuntimeDirectoryMode=0755
 StateDirectory=tamarackdb
 StateDirectoryMode=0700
-# Read-only system, no access to /home, a private /tmp, no privilege gain.
-# The directories above stay writable.
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
@@ -88,7 +94,8 @@ NoNewPrivileges=true
 WantedBy=multi-user.target
 ```
 
-With this `config.toml`, readable by `tamarackdb` only:
+systemd creates `/run/tamarackdb` for the socket, and `/var/lib/tamarackdb` for the data, both owned by `tamarackdb`.
+With this `config.toml`:
 
 ```toml
 [server]
@@ -96,9 +103,7 @@ socketMode = "0660"
 dataDir = "/var/lib/tamarackdb"
 ```
 
-The socket stays at its default path, `/run/tamarackdb/tamarackdb.sock`, in the directory systemd creates.
-
-To create the user and start the service:
+Create the user and the database, then start the service:
 
 ```sh
 sudo useradd --system --user-group --no-create-home --shell /usr/sbin/nologin tamarackdb
@@ -107,88 +112,50 @@ sudo -u tamarackdb /usr/local/bin/tamarackdb-init --data-dir /var/lib/tamarackdb
 sudo systemctl enable --now tamarackdb
 ```
 
-On `systemctl stop`, systemd sends `SIGTERM`, and the server shuts down in order: it turns away the requests waiting for
-their turn, with `503 ShuttingDown`, and lets a write already running finish.
+On `systemctl stop`, the server lets a write already running finish, and turns away the requests still waiting with
+`503 ShuttingDown`.
 
-## Run
+## Running the binaries
 
-Run every command that creates or rewrites files under `dataDir` as the user the server runs as: the server,
-`tamarackdb-init`, and any `sqlite3` you run on the database by hand. The data directory is readable by its owner only,
-so a file created by another user, such as root, is one the server can't open, and it refuses to start. The examples
-below assume the server runs as a user named `tamarackdb`:
-
-Create the default socket's directory first (see [Configuration](/docs/operations/configuration/#listening)):
+Run every command that touches `dataDir` as the server's user: the server, `tamarackdb-init`, and any `sqlite3` you
+run by hand. A file created by another user, such as root, is one the server can't open, and it refuses to start.
 
 ```sh
 sudo install -d -o tamarackdb -g tamarackdb -m 755 /run/tamarackdb
-sudo -u tamarackdb ./bin/tamarackdb-init --data-dir /path/to/data
-sudo -u tamarackdb ./bin/tamarackdb-server --config /path/to/config.toml
+sudo -u tamarackdb /usr/local/bin/tamarackdb-init --data-dir /path/to/data
+sudo -u tamarackdb /usr/local/bin/tamarackdb-server --config /path/to/config.toml
 ```
 
-`/run` is emptied at every reboot, so a directory created by hand is gone the next time the machine starts. For a
-lasting service, use the systemd unit in [Production](#production): `User=tamarackdb` replaces `sudo`, and
-`RuntimeDirectory=tamarackdb` creates the directory at every start.
-
-`tamarackdb-init` creates `dataDir` and a new database in it, with the schema and a new store ID. It refuses to
-overwrite an existing database. The server never creates one: when the database file is missing, it refuses to start. A
-wrong `dataDir`, or a disk that isn't mounted, would otherwise get a new, empty store, and the history would be split in
-two.
-
-To start from the history of another event store, `tamarackdb-init --import` writes it into the new database (see
-[Import](/docs/operations/import/)).
-
-On every start, the server checks that the database's schema version matches the one built into the binary, and refuses
-to start if it doesn't; it never changes the schema on its own. Once running, it logs one line per request to stdout (see
-[Logs](/docs/operations/logs/)).
+- `/run` is emptied at every reboot. For a lasting service, use the [systemd unit](#systemd).
+- `tamarackdb-init` creates `dataDir` and a new database, with a new store ID. It never overwrites an existing database.
+- The server never creates a database: it refuses to start when the file is missing.
+- The server refuses to start when the database's schema version doesn't match its own. It never changes the schema.
+- At startup, the server prints its resolved configuration to stdout (never `authToken`).
 
 ## Docker
 
-Each release publishes an image for `linux/amd64` and `linux/arm64`:
+Each release publishes an image for `linux/amd64` and `linux/arm64`. Pin a version with
+`ghcr.io/tamarackdb/tamarackdb:v<version>` (see the [releases](https://github.com/tamarackdb/tamarackdb/releases)).
 
 ```sh
 docker run -d -p 127.0.0.1:8085:8085 -v tamarackdb-data:/data ghcr.io/tamarackdb/tamarackdb:latest
 ```
 
-The container speaks plain HTTP, with `enableAuth` off unless you turn it on, so the examples publish its port on
-`127.0.0.1` only. A plain `-p 8085:8085` would publish it on every interface of the host, and give anyone who can reach
-the host full access to the API. To expose it to the network, turn `enableAuth` on (`TAMARACKDB_ENABLE_AUTH`,
-`TAMARACKDB_AUTH_TOKEN`), and put a reverse proxy in front of it for TLS (see
-[Security](/docs/operations/security/#another-host)).
-
-Use a version tag, such as `ghcr.io/tamarackdb/tamarackdb:v<version>`, to pin a release (see the
-[releases](https://github.com/tamarackdb/tamarackdb/releases)). To build the image from source instead:
-
-```sh
-docker build -t tamarackdb .
-docker run -d -p 127.0.0.1:8085:8085 -v tamarackdb-data:/data tamarackdb
-```
-
-The examples below use the local `tamarackdb` image; replace it with the published one if that's what you run.
-
-The image is set up entirely through `TAMARACKDB_*` environment variables (see
-[Configuration](/docs/operations/configuration/)); no `config.toml` is needed inside the container. It sets
-`TAMARACKDB_BIND_ADDRESS=0.0.0.0` and `TAMARACKDB_PORT=8085` itself, so it listens over TCP, on port `8085`, unlike a
-plain `tamarackdb-server` binary. The unix socket is for a server installed directly on the host (see
-[Production](#production)); in a container, use TCP. It also sets `TAMARACKDB_DATA_DIR=/data`, so mount a volume on
-`/data` to keep the database across restarts.
-
-The server runs as user and group `tamarackdb`, UID and GID `10001`. A named volume, as above, works as is. To mount a
-directory of the host instead, give it to that UID first, readable by it only:
-
-```sh
-sudo install -d -o 10001 -g 10001 -m 700 /srv/tamarackdb
-docker run -d -p 127.0.0.1:8085:8085 -v /srv/tamarackdb:/data tamarackdb
-```
-
-When `/data` holds no database, the image runs `tamarackdb-init` before the server and logs `tamarackdb-init: created
-/data/tamarackdb.sqlite`. That line is expected on the first start only. On a restart, it means the container got an
-empty volume: check the volume's name and where it's mounted.
+- The image is set up with `TAMARACKDB_*` environment variables only (see
+  [Configuration](/docs/operations/configuration/)).
+- It listens over TCP on port `8085`, and keeps the database in `/data`.
+- Publish the port on `127.0.0.1` only. A plain `-p 8085:8085` opens the API to anyone who can reach the host. To
+  expose it, turn `enableAuth` on and put a reverse proxy in front for TLS (see
+  [Security](/docs/operations/security/#another-host)).
+- The server runs as UID and GID `10001`. To mount a host directory instead of a named volume, give it to that user
+  first: `sudo install -d -o 10001 -g 10001 -m 700 /srv/tamarackdb`.
+- When `/data` holds no database, the image creates one and logs `tamarackdb-init: created /data/tamarackdb.sqlite`.
+  If that line shows up on a restart, the container got an empty volume: check its name and mount point.
 
 ### Alongside the application
 
-When the application runs in a container too, put both on the same Docker network, and publish no port at all: the
-application reaches TamarackDB by its service name, and nothing is reachable from outside the host. With `docker
-compose`:
+When the application runs in a container too, put both on the same Docker network and publish no port. The
+application reaches TamarackDB by its service name:
 
 ```yaml
 services:
@@ -199,21 +166,10 @@ services:
   app:
     image: my-app
     environment:
-      # The application's own setting, whatever it's named.
       TAMARACKDB_URL: http://tamarackdb:8085
 
 volumes:
   tamarackdb-data:
 ```
 
-Every container on that network can reach the API. If the network holds containers you don't trust, turn `enableAuth` on
-(`TAMARACKDB_ENABLE_AUTH` and `TAMARACKDB_AUTH_TOKEN` on the `tamarackdb` service), and give the token to the
-application.
-
-## Startup banner
-
-At startup, before opening the store, the server prints a banner and its resolved configuration to stdout: bind address,
-port, the socket path and mode, the auth flag (`authToken` itself is never printed), data directory, development mode,
-log level, the pagination, size, write, and queue-depth limits, the read pool size, and the transaction idle
-timeout. Use it to check what an instance
-actually runs with. It's not a machine-readable format.
+Every container on that network can reach the API. If some of them aren't trusted, turn `enableAuth` on.

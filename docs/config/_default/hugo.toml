@@ -3,33 +3,19 @@ baseurl = "http://localhost/"
 disableAliases = true
 disableHugoGeneratorInject = true
 disableKinds = ["taxonomy", "term"]
-enableEmoji = true
 enableGitInfo = false
 enableRobotsTXT = true
 locale = "en-US"
 defaultContentLanguage = "en"
-summarylength = 20
 
-copyRight = "Copyright (c) 2026 Maxime Gosselin"
-
-[build.buildStats]
-  enable = true
+[module]
+  [[module.imports]]
+    path = "github.com/imfing/hextra"
 
 [outputs]
-  home = ["HTML", "searchIndex", "llms", "llmsfull"]
+  home = ["HTML", "llms", "llmsfull"]
   section = ["HTML"]
-
-[outputFormats.searchIndex]
-  mediaType = "application/json"
-  baseName = "search-index"
-  isPlainText = true
-  notAlternative = true
-
-[outputFormats.llms]
-  baseName = "llms"
-  isHTML = false
-  isPlainText = true
-  mediaType = "text/plain"
+  page = ["HTML"]
 
 [outputFormats.llmsfull]
   baseName = "llms-full"
@@ -37,20 +23,10 @@ copyRight = "Copyright (c) 2026 Maxime Gosselin"
   isPlainText = true
   mediaType = "text/plain"
 
+[permalinks]
+  docs = "/docs/:sections[1:]/:slug/"
+
 [sitemap]
   changefreq = "monthly"
   filename = "sitemap.xml"
   priority = 0.5
-
-[permalinks]
-  docs = "/docs/:sections[1:]/:slug/"
-
-[minify.tdewolff.html]
-  keepWhitespace = false
-
-[imaging]
-  anchor = "Center"
-  bgColor = "#ffffff"
-  hint = "photo"
-  quality = 85
-  resampleFilter = "Lanczos"

@@ -6,109 +6,77 @@ weight: 2
 ---
 
 Every setting of `tamarackdb-server`. The settings of `tamarackdb-backup` are in
-[Backup](/docs/operations/backup/#configuration).
-
-Key words in capitals follow [RFC 2119](/docs/concepts/overview/#key-words).
+[Backup and Import](/docs/operations/backup/#settings).
 
 ## Sources
 
 A setting comes from, in this order:
 
-1. A TOML file, passed with `--config` (`config.toml` in the working directory by default). Settings live under a
-   `[server]` section.
-2. A `TAMARACKDB_*` environment variable, one per setting.
-3. A built-in default, for the settings that have one.
+1. A TOML file, passed with `--config` (`config.toml` in the working directory by default), under a `[server]`
+   section.
+2. A `TAMARACKDB_*` environment variable.
+3. A built-in default.
 
-- A value set in the file always wins over the environment variable.
-- The file is optional. Use one file per instance in production. In Docker, environment variables cover a deployment
-  with no file at all.
-- The file is checked as a whole, `[server]` and `[backup]` sections included. An unknown key, or a key outside any
-  section, stops the server at startup with an error naming it, so a typo never leaves a setting at its default.
+- The file wins over the environment. It's optional: in Docker, environment variables are enough.
+- An unknown key stops the server at startup, with an error naming it.
 - The same file can hold the `[backup]` section of `tamarackdb-backup`. Each binary reads only its own section.
 
-Generate a starter file, with every setting commented out at its default:
+Generate a starter file, with every setting at its default:
 
 ```sh
-./bin/tamarackdb-server --default-config > config.toml
-./bin/tamarackdb-backup --default-config >> config.toml
+tamarackdb-server --default-config > config.toml
+tamarackdb-backup --default-config >> config.toml
 ```
-
-A file that holds `authToken` is a secret: see [Security](/docs/operations/security/#files).
 
 ## Settings
 
 | Key | Environment variable | Default | What it sets |
 |---|---|---|---|
-| `socketPath` | `TAMARACKDB_SOCKET_PATH` | `/run/tamarackdb/tamarackdb.sock` | The unix socket to listen on. At most 107 bytes, the Linux limit |
-| `socketMode` | `TAMARACKDB_SOCKET_MODE` | `"0600"` | The socket's permissions, as an octal string. Only with `socketPath` |
+| `socketPath` | `TAMARACKDB_SOCKET_PATH` | `/run/tamarackdb/tamarackdb.sock` | The unix socket to listen on |
+| `socketMode` | `TAMARACKDB_SOCKET_MODE` | `"0600"` | The socket's permissions, as an octal string |
 | `bindAddress` | `TAMARACKDB_BIND_ADDRESS` | `127.0.0.1` | The address to listen on over TCP |
 | `port` | `TAMARACKDB_PORT` | `8085` | The port to listen on over TCP |
 | `enableAuth` | `TAMARACKDB_ENABLE_AUTH` | `false` | Whether every request needs the Bearer token |
 | `authToken` | `TAMARACKDB_AUTH_TOKEN` | none | The Bearer token |
-| `dataDir` | `TAMARACKDB_DATA_DIR` | `data` | The directory holding the database file |
-| `logLevel` | `TAMARACKDB_LOG_LEVEL` | `warning` | The lowest level logged: `debug`, `info`, `warning`, or `error` (see [Logs](/docs/operations/logs/)) |
-| `devMode` | `TAMARACKDB_DEV_MODE` | `false` | Turns on `POST /reset` and the profiling endpoints (see [Development mode](/docs/operations/dev-mode/)) |
+| `dataDir` | `TAMARACKDB_DATA_DIR` | `data` | The directory holding the database file, `tamarackdb.sqlite` |
+| `logLevel` | `TAMARACKDB_LOG_LEVEL` | `warning` | The lowest level logged: `debug`, `info`, `warning`, or `error` |
+| `devMode` | `TAMARACKDB_DEV_MODE` | `false` | Turns on `POST /reset` and the profiling endpoints |
 | `defaultEventsPerPage` | `TAMARACKDB_DEFAULT_EVENTS_PER_PAGE` | `1000` | The `limit` of a `QUERY /events` that leaves it out |
 | `maxEventsPerPage` | `TAMARACKDB_MAX_EVENTS_PER_PAGE` | `10000` | The highest `limit` a `QUERY /events` may ask for |
-| `maxEventSize` | `TAMARACKDB_MAX_EVENT_SIZE` | `65536` (64 KiB) | The largest event, in bytes (see [Events](/docs/concepts/events/#size)) |
-| `maxProjectionSize` | `TAMARACKDB_MAX_PROJECTION_SIZE` | `65536` (64 KiB) | The largest projection, in bytes: its `type`, `id`, and `payload` together |
-| `maxEventsPerTx` | `TAMARACKDB_MAX_EVENTS_PER_TX` | `100` | The most events one transaction writes, across all its writes of events (see [Transactions](/docs/http-api/transactions/#limits)) |
-| `maxReadsPerTx` | `TAMARACKDB_MAX_READS_PER_TX` | `100` | The most reads of events in one transaction, those followed by an empty write included |
-| `maxProjectionsPerTx` | `TAMARACKDB_MAX_PROJECTIONS_PER_TX` | `500` | The most distinct projections one transaction writes, across all its writes of projections |
-| `maxProjectionsPerWrite` | `TAMARACKDB_MAX_PROJECTIONS_PER_WRITE` | `500` | The most projections in one `POST /projections` (see [Projections](/docs/http-api/projections/#limits)) |
-| `maxRequestBodySize` | `TAMARACKDB_MAX_REQUEST_BODY_SIZE` | `8388608` (8 MiB) | The largest request body, in bytes, for every endpoint |
-| `maxQueuedWrites` | `TAMARACKDB_MAX_QUEUED_WRITES` | `100` | The most requests waiting for their turn at once (see below) |
-| `readPoolSize` | `TAMARACKDB_READ_POOL_SIZE` | `8` | SQLite connections for reads, and so how many reads run at once |
-| `txIdleTimeout` | `TAMARACKDB_TX_IDLE_TIMEOUT` | `60` | How long, in seconds, a transaction lives without a call (see [Transactions](/docs/concepts/transactions/#the-end-of-a-transaction)) |
+| `maxEventSize` | `TAMARACKDB_MAX_EVENT_SIZE` | `65536` (64 KiB) | The largest event, in bytes |
+| `maxProjectionSize` | `TAMARACKDB_MAX_PROJECTION_SIZE` | `65536` (64 KiB) | The largest projection, in bytes |
+| `maxEventsPerTx` | `TAMARACKDB_MAX_EVENTS_PER_TX` | `100` | The most events one transaction writes |
+| `maxReadsPerTx` | `TAMARACKDB_MAX_READS_PER_TX` | `100` | The most reads of events in one transaction |
+| `maxProjectionsPerTx` | `TAMARACKDB_MAX_PROJECTIONS_PER_TX` | `500` | The most projections one transaction writes |
+| `maxProjectionsPerWrite` | `TAMARACKDB_MAX_PROJECTIONS_PER_WRITE` | `500` | The most projections in one `POST /projections` |
+| `maxRequestBodySize` | `TAMARACKDB_MAX_REQUEST_BODY_SIZE` | `8388608` (8 MiB) | The largest request body, in bytes |
+| `maxQueuedWrites` | `TAMARACKDB_MAX_QUEUED_WRITES` | `100` | The most writes waiting for their turn at once |
+| `readPoolSize` | `TAMARACKDB_READ_POOL_SIZE` | `8` | How many reads run at once |
+| `txIdleTimeout` | `TAMARACKDB_TX_IDLE_TIMEOUT` | `60` | How long, in seconds, a transaction lives without a call |
 
 ## Listening
 
-- By default, the server listens on the unix socket at `socketPath`. Setting `bindAddress` or `port` switches it to TCP.
-  `socketPath` wins whenever it's set, even alongside them.
-- The default socket's directory, `/run/tamarackdb`, MUST exist and be writable by the server's user. Under systemd,
-  `RuntimeDirectory=tamarackdb` creates it (see [Install](/docs/operations/install/#production)); elsewhere, create it
-  yourself, or set a path the server's user owns.
-- At startup, the server removes a socket left at that path by an earlier run, and refuses to start if the path holds
-  anything other than a socket.
-- The server speaks plain HTTP either way. Why the socket is the recommended setup, and how to reach the server from
-  another host, is in [Security](/docs/operations/security/).
-
-## Data directory
-
-- `dataDir` holds the database file, `tamarackdb.sqlite`. Only the directory is configurable: the file name is fixed.
-- Its layout is managed by TamarackDB and may change between versions: don't rely on it, and don't edit its contents by
-  hand.
-- Its permissions are in [Security](/docs/operations/security/#files).
+- By default, the server listens on the unix socket at `socketPath`. Setting `bindAddress` or `port` switches it to
+  TCP. A `socketPath` that is set wins over both.
+- The socket's directory must exist and be writable by the server's user. Under systemd, `RuntimeDirectory` creates it
+  (see [Install](/docs/operations/install/#systemd)).
+- The server speaks plain HTTP. Reaching it from another host is in [Security](/docs/operations/security/).
 
 ## Limits
 
-- The size and count limits (`maxEventSize`, `maxProjectionSize`, `maxEventsPerTx`, `maxReadsPerTx`,
-  `maxProjectionsPerTx`, `maxProjectionsPerWrite`, `maxRequestBodySize`) are a cautious starting point. Find the real
-  limits in development, with the application's data, then set the same values in production. Every error from a limit
-  names the setting to raise (see [Transactions](/docs/http-api/transactions/#limits) and
-  [Projections](/docs/http-api/projections/#limits)).
-- `maxRequestBodySize` isn't checked against the other limits. It bounds one request, not a transaction, which is
-  built over many requests: the transaction limits bound how long its commit holds the turn.
-- `defaultEventsPerPage` and `maxEventsPerPage` are settings, not constants, because how fast a projector processes a
-  batch varies between applications, and between projectors of one application. The defaults keep a default page easy to
-  buffer, and a maximum page done in seconds.
-- `txIdleTimeout` only frees the memory of transactions an application forgot. A transaction that keeps making calls
-  lives as long as it needs.
-- Every limit MUST be positive, and `defaultEventsPerPage` MUST NOT exceed `maxEventsPerPage`: the server refuses to
+- The size and count limits are a cautious starting point. Find the right values in development, with the
+  application's data, and use the same ones in production. Every error from a limit names the setting to raise.
+- Every limit must be positive, and `defaultEventsPerPage` can't exceed `maxEventsPerPage`. The server refuses to
   start otherwise.
+- `txIdleTimeout` only ends transactions the application forgot. A transaction that keeps making calls lives as long
+  as it needs.
 
-## Sizing the write queue
+## Write queue
 
-`maxQueuedWrites` bounds how many requests wait for their turn at once: a transaction's commit, `POST /projections`,
-the bulk deletes of projections, `POST /pause`, `POST /resume`, `POST /optimize`, and `POST /reset`.
-They're served one at a time, in the order they arrive. One more gets `503 WriteQueueFull` instead of joining.
+Writes are served one at a time, in the order they arrive: transaction commits, `POST /projections`, bulk deletes of
+projections, `POST /pause`, `POST /resume`, `POST /optimize`, and `POST /reset`. Reads never wait.
 
-- A write holds the turn only while its own SQLite transaction runs, usually a few milliseconds, so the queue is usually
-  empty or short. Reads never wait in it.
-- A large write holds the turn longer: a projection rebuild sent in one write holds it for as long as its inserts take,
-  and the writes behind it wait that long.
-- Size `maxQueuedWrites` against how many writes the application sends at once. There's no "no limit" value: every
-  deployment gets a bound.
-- The server doesn't cap how long a request waits. A request whose client stops waiting keeps its place, and counts
-  toward `maxQueuedWrites`, until its turn (see
-  [The client leaving](/docs/http-api/conventions/#the-client-leaving)).
+- A write usually holds its turn a few milliseconds, so the queue stays short.
+- A large write, such as a projection rebuild in one request, makes the others wait that long.
+- `maxQueuedWrites` bounds how many writes wait at once. One more gets `503 WriteQueueFull`. Set it from how many
+  writes the application sends at once.

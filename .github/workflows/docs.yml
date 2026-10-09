@@ -26,20 +26,15 @@ jobs:
 
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-go@v5
         with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: docs/package-lock.json
-
-      - name: Install dependencies
-        run: npm ci
-        working-directory: ./docs
+          go-version: stable
+          cache: false
 
       - name: Build
         env:
           HUGO_ENVIRONMENT: production
-        run: npm run build -- --baseURL "https://tamarackdb.github.io/"
+        run: hugo --minify --gc --baseURL "https://tamarackdb.github.io/"
         working-directory: ./docs
 
       - name: Publish to tamarackdb/tamarackdb.github.io

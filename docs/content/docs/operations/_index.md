@@ -1,8 +1,7 @@
 ---
 title: "Operations"
-description: "Running a TamarackDB instance: installing, configuring, and securing it, checking its health, watching it, backing it up, importing a history, maintaining it."
-weight: 50
+description: "Running a TamarackDB instance: installing, configuring, and securing it, backing it up, importing a dump, monitoring it, and maintaining it."
+weight: 10
 ---
 
-Running an instance: installing it, configuring it, securing it, watching it, backing it up, importing a history, and
-maintaining it.
+Running an instance: installing it, configuring it, securing it, backing it up, monitoring it, and maintaining it.
