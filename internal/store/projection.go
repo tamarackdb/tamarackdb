@@ -67,38 +67,63 @@ type Versions struct {
 // delete needs the stored version to be the one given. The first write
 // that doesn't hold returns a *ProjectionConflictError; the caller's
 // transaction is then expected to roll back.
+//
+// Each list runs one statement, prepared once: a rebuild writes hundreds
+// of projections per call, in the FIFO's turn, and parsing the SQL again
+// for each one cost more than the write itself.
 func writeProjections(ctx context.Context, tx *sql.Tx, w projection.Writes) (Versions, error) {
 	versions := Versions{Create: make([]string, len(w.Create)), Replace: make([]string, len(w.Replace))}
-	for i, c := range w.Create {
-		version := uuid.NewString()
-		res, err := tx.ExecContext(ctx, `
+	err := execEach(ctx, tx, `
 INSERT INTO projections (type, id, version, payload) VALUES (?, ?, ?, ?)
-ON CONFLICT (type, id) DO NOTHING`,
-			c.Type, c.ID, version, *c.Payload)
-		if err := checkWritten(res, err, "create", i); err != nil {
-			return Versions{}, err
-		}
-		versions.Create[i] = version
+ON CONFLICT (type, id) DO NOTHING`, "create", len(w.Create), func(i int) []any {
+		versions.Create[i] = uuid.NewString()
+		c := w.Create[i]
+		return []any{c.Type, c.ID, versions.Create[i], *c.Payload}
+	})
+	if err != nil {
+		return Versions{}, err
 	}
-	for i, r := range w.Replace {
-		version := uuid.NewString()
-		res, err := tx.ExecContext(ctx,
-			"UPDATE projections SET version = ?, payload = ? WHERE type = ? AND id = ? AND version = ?",
-			version, *r.Payload, r.Type, r.ID, r.Version)
-		if err := checkWritten(res, err, "replace", i); err != nil {
-			return Versions{}, err
-		}
-		versions.Replace[i] = version
+	err = execEach(ctx, tx,
+		"UPDATE projections SET version = ?, payload = ? WHERE type = ? AND id = ? AND version = ?",
+		"replace", len(w.Replace), func(i int) []any {
+			versions.Replace[i] = uuid.NewString()
+			r := w.Replace[i]
+			return []any{versions.Replace[i], *r.Payload, r.Type, r.ID, r.Version}
+		})
+	if err != nil {
+		return Versions{}, err
 	}
-	for i, d := range w.Delete {
-		res, err := tx.ExecContext(ctx,
-			"DELETE FROM projections WHERE type = ? AND id = ? AND version = ?",
-			d.Type, d.ID, d.Version)
-		if err := checkWritten(res, err, "delete", i); err != nil {
-			return Versions{}, err
-		}
+	err = execEach(ctx, tx,
+		"DELETE FROM projections WHERE type = ? AND id = ? AND version = ?",
+		"delete", len(w.Delete), func(i int) []any {
+			d := w.Delete[i]
+			return []any{d.Type, d.ID, d.Version}
+		})
+	if err != nil {
+		return Versions{}, err
 	}
 	return versions, nil
+}
+
+// execEach prepares query once, then runs it n times, with the arguments
+// args(i) returns for the i-th projection of the op list. Each run must
+// touch a row (see checkWritten). It prepares nothing for an empty list.
+func execEach(ctx context.Context, tx *sql.Tx, query, op string, n int, args func(i int) []any) error {
+	if n == 0 {
+		return nil
+	}
+	stmt, err := tx.PrepareContext(ctx, query)
+	if err != nil {
+		return wrapf("prepare "+op+" projection", err)
+	}
+	defer stmt.Close()
+	for i := range n {
+		res, err := stmt.ExecContext(ctx, args(i)...)
+		if err := checkWritten(res, err, op, i); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // checkWritten turns the outcome of one conditional projection write into
