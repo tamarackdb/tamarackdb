@@ -9,7 +9,6 @@ import (
 	"github.com/tamarackdb/tamarackdb/internal/dcb"
 	"github.com/tamarackdb/tamarackdb/internal/ndjson"
 	"github.com/tamarackdb/tamarackdb/internal/projection"
-	"github.com/tamarackdb/tamarackdb/internal/store"
 	"github.com/tamarackdb/tamarackdb/internal/tx"
 )
 
@@ -139,13 +138,7 @@ func streamTxEvents(w http.ResponseWriter, read tx.Read, beforeWrite func()) err
 
 	nw := ndjson.NewWriter(w)
 	if it := read.Committed; it != nil {
-		for it.Next() {
-			beforeWrite()
-			if err := nw.WriteValue(toReadEventWire(it.Event())); err != nil {
-				return err
-			}
-		}
-		if err := it.Err(); err != nil {
+		if err := writeReadEvents(nw, it, beforeWrite); err != nil {
 			return err
 		}
 	}
@@ -292,18 +285,6 @@ func (s *Server) handleTxAbandon(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
-}
-
-// toReadEventWire is one committed event as a read returns it.
-func toReadEventWire(ev store.ReadEvent) readEventWire {
-	return readEventWire{
-		Sequence:    ev.Sequence,
-		Time:        ev.Time,
-		Type:        ev.Type,
-		Identifiers: ev.Identifiers,
-		Metadata:    ev.Metadata,
-		Payload:     ev.Payload,
-	}
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

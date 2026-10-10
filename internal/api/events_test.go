@@ -170,3 +170,42 @@ func TestReadNone(t *testing.T) {
 		t.Errorf("events = %+v, hasMore = %v, want none and false", events, trailer.HasMore)
 	}
 }
+
+// TestReadLinesMatchEncodingJSON checks that each line of a read, built by
+// hand, holds the bytes json.Marshal gives for the same dcb.Event, with
+// strings that need escaping in every field.
+func TestReadLinesMatchEncodingJSON(t *testing.T) {
+	srv, _, st := newTestServer(t)
+	tricky := "quote \" backslash \\ html <a>&amp; tab \t newline \n nul \x00 é 漢 🌲   invalid \xff"
+	now := dcb.Now()
+	events := []dcb.Event{
+		{Sequence: 1, Time: now, EventData: dcb.EventData{Type: "plain", Payload: `{"a":1}`}},
+		{Sequence: 2, Time: now, EventData: dcb.EventData{
+			Type:        "type " + tricky,
+			Identifiers: dcb.IdentifierSet{{Name: "id " + tricky, Value: tricky}, {Name: "id " + tricky, Value: "second"}},
+			Metadata:    dcb.MetadataSet{{Name: "md", Value: tricky}},
+			Payload:     tricky,
+		}},
+	}
+	if err := st.Import(context.Background(), events); err != nil {
+		t.Fatalf("Import() error = %v", err)
+	}
+
+	rec := doRequest(t, srv, "QUERY", "/events", `{"query":"all"}`)
+	if rec.Code != 200 {
+		t.Fatalf("QUERY /events = %d %s", rec.Code, rec.Body.String())
+	}
+	lines := strings.Split(strings.TrimSuffix(rec.Body.String(), "\n"), "\n")
+	if len(lines) != len(events)+1 {
+		t.Fatalf("lines = %d, want %d events and the trailer", len(lines), len(events))
+	}
+	for i, ev := range events {
+		want, err := json.Marshal(ev)
+		if err != nil {
+			t.Fatalf("json.Marshal() error = %v", err)
+		}
+		if lines[i] != string(want) {
+			t.Errorf("line %d = %s, want %s", i, lines[i], want)
+		}
+	}
+}

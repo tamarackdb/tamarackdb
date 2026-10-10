@@ -1,9 +1,9 @@
 package api
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/tamarackdb/tamarackdb/internal/dcb"
@@ -31,19 +31,42 @@ type readTrailer struct {
 	HasMore bool `json:"hasMore"`
 }
 
-// readEventWire is the exact wire shape of one NDJSON body line, mirroring
-// dcb.Event.MarshalJSON's field names/order. Identifiers and Metadata are
-// json.RawMessage, not dcb.IdentifierSet/MetadataSet: store.ReadEvent already
-// carries them as the raw bytes stored in the events table, in the same
-// compact shape this struct emits, so this passes them straight through
-// instead of decoding and re-encoding data that never needs to change shape.
-type readEventWire struct {
-	Sequence    int64           `json:"sequence"`
-	Time        string          `json:"time"`
-	Type        string          `json:"type"`
-	Identifiers json.RawMessage `json:"identifiers"`
-	Metadata    json.RawMessage `json:"metadata"`
-	Payload     string          `json:"payload"`
+// appendReadEvent appends one committed event as a read returns it: the
+// bytes json.Marshal gives for the same dcb.Event, built by hand. A page
+// holds up to maxEventsPerPage events, and encoding/json's reflection, with
+// its check of every json.RawMessage, cost about as much as reading the
+// page from SQLite. Identifiers and Metadata are copied as stored: the
+// store wrote them with json.Marshal, in the shape a read returns (see
+// store.ReadEvent).
+func appendReadEvent(dst []byte, ev store.ReadEvent) []byte {
+	dst = append(dst, `{"sequence":`...)
+	dst = strconv.AppendInt(dst, ev.Sequence, 10)
+	dst = append(dst, `,"time":`...)
+	dst = ndjson.AppendString(dst, ev.Time)
+	dst = append(dst, `,"type":`...)
+	dst = ndjson.AppendString(dst, ev.Type)
+	dst = append(dst, `,"identifiers":`...)
+	dst = append(dst, ev.Identifiers...)
+	dst = append(dst, `,"metadata":`...)
+	dst = append(dst, ev.Metadata...)
+	dst = append(dst, `,"payload":`...)
+	dst = ndjson.AppendString(dst, ev.Payload)
+	return append(dst, '}')
+}
+
+// writeReadEvents writes the events of it, one line each, with beforeWrite
+// run before each line. It doesn't close it.
+func writeReadEvents(nw *ndjson.Writer, it *store.EventIterator, beforeWrite func()) error {
+	for it.Next() {
+		beforeWrite()
+		ev := it.Event()
+		if err := nw.WriteAppend(func(dst []byte) []byte { return appendReadEvent(dst, ev) }); err != nil {
+			// The client is almost certainly gone (a broken pipe from a
+			// dropped connection): nothing left to write to.
+			return err
+		}
+	}
+	return it.Err()
 }
 
 // handleReadEvents implements QUERY /events: the read runs on the read pool
@@ -144,15 +167,7 @@ func streamEvents(w http.ResponseWriter, it *store.EventIterator, beforeWrite fu
 	w.WriteHeader(http.StatusOK)
 
 	nw := ndjson.NewWriter(w)
-	for it.Next() {
-		beforeWrite()
-		if err := nw.WriteValue(toReadEventWire(it.Event())); err != nil {
-			// The client is almost certainly gone (a broken pipe from a
-			// dropped connection): nothing left to write to.
-			return err
-		}
-	}
-	if err := it.Err(); err != nil {
+	if err := writeReadEvents(nw, it, beforeWrite); err != nil {
 		return err // no trailer: signals a cut-short page, see readTrailer
 	}
 	beforeWrite()
