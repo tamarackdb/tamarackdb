@@ -245,10 +245,10 @@ func TestRunInTurnFinishesWhenTheClientLeavesDuringFn(t *testing.T) {
 	}
 }
 
-// TestResetWaitsForItsTurn checks that Reset queues like a write: the
-// write ahead of it goes through, then Reset deletes it, and the next
-// write starts again at sequence 1.
-func TestResetWaitsForItsTurn(t *testing.T) {
+// TestDeleteAllEventsWaitsForItsTurn checks that DeleteAllEvents queues
+// like a write: the write ahead of it goes through, then DeleteAllEvents
+// deletes it, and the next write continues the positions.
+func TestDeleteAllEventsWaitsForItsTurn(t *testing.T) {
 	env := newTestEnv(t)
 	release := holdTurn(t, env.m)
 
@@ -258,23 +258,23 @@ func TestResetWaitsForItsTurn(t *testing.T) {
 		written <- err
 	}()
 	waitQueued(t, env.m, 1)
-	reset := make(chan error, 1)
-	go func() { reset <- env.m.RunInTurn(context.Background(), env.st.Reset) }()
+	deleted := make(chan error, 1)
+	go func() { deleted <- env.m.RunInTurn(context.Background(), env.st.DeleteAllEvents) }()
 	waitQueued(t, env.m, 2)
 
 	release()
 	if err := <-written; err != nil {
-		t.Fatalf("write error = %v, want it to go through before the reset", err)
+		t.Fatalf("write error = %v, want it to go through before DeleteAllEvents", err)
 	}
-	if err := <-reset; err != nil {
-		t.Fatalf("Reset() error = %v", err)
+	if err := <-deleted; err != nil {
+		t.Fatalf("DeleteAllEvents() error = %v", err)
 	}
 	if n := committedEvents(t, env.st); n != 0 {
 		t.Errorf("committed events = %d, want 0", n)
 	}
 	result, err := env.m.WritePending(context.Background(), dcb.NewPendingEvents([]dcb.EventData{{Type: "b"}}, dcb.Now()), nil, projection.Writes{})
-	if err != nil || result.Events[0].Sequence != 1 {
-		t.Errorf("first write after Reset() = %+v, %v, want sequence 1", result, err)
+	if err != nil || result.Events[0].Sequence != 2 {
+		t.Errorf("first write after DeleteAllEvents() = %+v, %v, want sequence 2", result, err)
 	}
 }
 

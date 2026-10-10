@@ -68,11 +68,11 @@ curl -X POST http://127.0.0.1:8085/resume
 
 `devMode` turns on two things, for a local instance or a short troubleshooting session. Leave it off in production.
 
-- `POST /reset`: during a pause, deletes every event and projection.
+- `DELETE /events`: deletes every event.
 - `/debug/pprof/*`: Go's profiling endpoints. To profile a request, start a CPU profile, then send the request:
 
   ```sh
   go tool pprof -http=:0 "http://127.0.0.1:8085/debug/pprof/profile?seconds=30"
   ```
 
-With `devMode` off, both answer `404`.
+With `devMode` off, `DELETE /events` answers `405`, and `/debug/pprof/*` answers `404`.

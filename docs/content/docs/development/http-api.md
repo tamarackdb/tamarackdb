@@ -19,7 +19,7 @@ server on `127.0.0.1:8085`, with authentication off.
 | [`DELETE /projections/{type}`, `DELETE /projections`](#bulk-delete) | Delete every projection of a type, or every projection |
 | [`POST /pause`, `POST /resume`](#pause-and-resume) | Stop transactions from beginning, and let them begin again |
 | [`POST /optimize`](#optimize) | Refresh SQLite's query statistics |
-| [`POST /reset`](#reset) | Empty the store (development mode only) |
+| [`DELETE /events`](#delete-events) | Delete every event (development mode only) |
 | `GET /health`, `GET /stats` | See [Monitoring](/docs/operations/monitoring/) |
 
 ## Conventions
@@ -29,7 +29,7 @@ server on `127.0.0.1:8085`, with authentication off.
 - A request body is JSON, decoded strictly: an unknown key, at any level, gets `400`.
 - A body is at most `maxRequestBodySize` bytes, or gets `413`.
 - Writes are served one at a time, in the order they arrive: commits, `POST /projections`, bulk deletes, `/pause`,
-  `/resume`, `/optimize`, and `/reset`. They can get `503 WriteQueueFull` when too many wait, or `503 ShuttingDown`.
+  `/resume`, and `/optimize`. They can get `503 WriteQueueFull` when too many wait, or `503 ShuttingDown`.
   Nothing is written then.
 - A write that joined the queue runs, even if its client leaves. Its client then handles a lost response.
 
@@ -394,18 +394,22 @@ curl -X POST http://127.0.0.1:8085/optimize
 Refreshes the statistics SQLite plans queries with. `204 No Content`. Call it once a day (see
 [Maintenance](/docs/operations/maintenance/#query-statistics)).
 
-## Reset
+## Delete events
 
-Empties the store, for tests: every event and projection is deleted, and the next event gets sequence 1. It exists
-only in development mode, and runs only during a pause:
+Deletes every event, for tests. It exists only in development mode. To empty the store between two tests, delete the
+events, then the projections:
 
 ```sh
-curl -X POST http://127.0.0.1:8085/pause
-curl -X POST http://127.0.0.1:8085/reset
-curl -X POST http://127.0.0.1:8085/resume
+curl -X DELETE http://127.0.0.1:8085/events
+curl -X DELETE http://127.0.0.1:8085/projections
 ```
 
-Outside a pause in place, it gets `409 NotPaused`.
+- `204 No Content`.
+- Projections stay. Delete them with [`DELETE /projections`](#bulk-delete).
+- Sequence Positions go on: the next event doesn't get sequence 1.
+- It doesn't wait for open transactions, and runs during a pause too. An open transaction goes on, and its commit
+  writes into the emptied log.
+- With development mode off, it gets `405`.
 
 ## Errors
 
@@ -426,7 +430,6 @@ behind a limit.
 | `404` | `TransactionNotFound` | A transaction unknown, expired, or over |
 | `409` | `ConcurrencyException` | A commit or `POST /projections` conflict. Nothing was written |
 | `409` | `TransactionBusy` | A call while another one runs on the same transaction. The transaction goes on |
-| `409` | `NotPaused` | `POST /reset` outside a pause |
 | `413` | `PayloadTooLarge` | An event, a projection, or a body over its size limit |
 | `500` | `InternalError` | A failure on the server |
 | `503` | `Paused` | `POST /tx` during a pause |

@@ -89,21 +89,3 @@ func TestPauseRequestedOverHTTP(t *testing.T) {
 		t.Error("GET /health paused = false once the pause is in place")
 	}
 }
-
-// TestResetNeedsAPause checks that POST /reset gets 409 NotPaused
-// outside a pause, and leaves a pause in place.
-func TestResetNeedsAPause(t *testing.T) {
-	srv, _, _ := newTestServerWith(t, testOptions{devMode: true})
-	if rec := doRequest(t, srv, "POST", "/reset", ""); rec.Code != 409 || errorCode(t, rec) != "NotPaused" {
-		t.Fatalf("POST /reset without a pause = %d %s, want 409 NotPaused", rec.Code, rec.Body.String())
-	}
-	if rec := doRequest(t, srv, "POST", "/pause", ""); rec.Code != 200 {
-		t.Fatalf("POST /pause = %d", rec.Code)
-	}
-	if rec := doRequest(t, srv, "POST", "/reset", ""); rec.Code != 204 {
-		t.Fatalf("POST /reset = %d", rec.Code)
-	}
-	if !healthPaused(t, srv) {
-		t.Error("GET /health paused = false after the reset")
-	}
-}

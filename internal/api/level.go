@@ -65,7 +65,6 @@ var codeLevel = map[string]level{
 	"TooManyTransactions":  levelWarning, // 503, real capacity signal, or a client that never ends its transactions
 	"ShuttingDown":         levelInfo,    // 503, the operator stopped the server
 	"Paused":               levelInfo,    // 503, the operator paused transactions
-	"NotPaused":            levelInfo,    // 409, a reset outside a pause
 	"TransactionBusy":      levelInfo,    // 409, a call while another one uses the transaction
 	"InternalError":        levelError,   // 500, real failure
 	"Unavailable":          levelError,   // 503, storage unreachable

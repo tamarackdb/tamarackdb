@@ -40,7 +40,7 @@ tamarackdb-backup --default-config >> config.toml
 | `authToken` | `TAMARACKDB_AUTH_TOKEN` | none | The Bearer token |
 | `dataDir` | `TAMARACKDB_DATA_DIR` | `data` | The directory holding the database file, `tamarackdb.sqlite` |
 | `logLevel` | `TAMARACKDB_LOG_LEVEL` | `warning` | The lowest level logged: `debug`, `info`, `warning`, or `error` |
-| `devMode` | `TAMARACKDB_DEV_MODE` | `false` | Turns on `POST /reset` and the profiling endpoints |
+| `devMode` | `TAMARACKDB_DEV_MODE` | `false` | Turns on `DELETE /events` and the profiling endpoints |
 | `defaultEventsPerPage` | `TAMARACKDB_DEFAULT_EVENTS_PER_PAGE` | `1000` | The `limit` of a `QUERY /events` that leaves it out |
 | `maxEventsPerPage` | `TAMARACKDB_MAX_EVENTS_PER_PAGE` | `10000` | The highest `limit` a `QUERY /events` may ask for |
 | `maxEventSize` | `TAMARACKDB_MAX_EVENT_SIZE` | `65536` (64 KiB) | The largest event, in bytes |
@@ -77,7 +77,7 @@ tamarackdb-backup --default-config >> config.toml
 ## Write queue
 
 Writes are served one at a time, in the order they arrive: transaction commits, `POST /projections`, bulk deletes of
-projections, `POST /pause`, `POST /resume`, `POST /optimize`, and `POST /reset`. Reads never wait.
+events and projections, `POST /pause`, `POST /resume`, and `POST /optimize`. Reads never wait.
 
 - A write usually holds its turn a few milliseconds, so the queue stays short.
 - A large write, such as a projection rebuild in one request, makes the others wait that long.

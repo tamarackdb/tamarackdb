@@ -3,8 +3,8 @@
 // FIFO, runs alone on the write connection, in a SQLite transaction of
 // its own, then gives the turn to the next request. Everything that
 // touches the write connection goes through a Writer: the commit of a
-// transaction, POST /projections, the bulk deletes of projections, a
-// reset, and PRAGMA optimize.
+// transaction, POST /projections, the bulk deletes of events and
+// projections, and PRAGMA optimize.
 //
 // # A write that has started goes to the end
 //

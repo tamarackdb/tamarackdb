@@ -71,7 +71,8 @@
 //
 //   - Open reads the highest sequence in events and starts the counter
 //     after it. An empty table starts at 1.
-//   - Reset sets the counter back, so the next event gets 1.
+//   - DeleteAllEvents leaves the counter as it is: the next event
+//     continues the positions.
 //   - Append reserves its positions only once every condition holds and
 //     every projection is written. A projection conflict then ends the
 //     write before any position is taken.
@@ -114,8 +115,8 @@
 // next to the Sequence Position counter. It MUST survive a restart: an operation that
 // relies on it, a rebuild for example, would otherwise see commands start
 // again because the server restarted. SetPause and ClearPause write it on
-// the write connection, in their caller's turn in the FIFO. Reset leaves
-// it as it is. What a pause blocks, and how it begins and ends, is package tx's.
+// the write connection, in their caller's turn in the FIFO. DeleteAllEvents
+// leaves it as it is. What a pause blocks, and how it begins and ends, is package tx's.
 //
 // # Schema version
 //

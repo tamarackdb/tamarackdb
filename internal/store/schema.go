@@ -69,8 +69,7 @@ CREATE TABLE projections (
 -- A single row holding the state of the store: the CHECK keeps a second
 -- row out. It's written with the rest of the schema, in the same
 -- transaction. paused_at is NULL outside a pause, and the time the pause
--- began, in dcb.TimeLayout, during one: the pause survives a restart and
--- a reset.
+-- began, in dcb.TimeLayout, during one: the pause survives a restart.
 CREATE TABLE store (
     singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
     paused_at TEXT

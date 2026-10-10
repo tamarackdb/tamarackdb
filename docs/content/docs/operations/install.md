@@ -17,7 +17,7 @@ docker run -d --rm --name tamarackdb -p 127.0.0.1:8085:8085 \
 ```
 
 - The API is at `http://127.0.0.1:8085`, reachable from your machine only.
-- `TAMARACKDB_DEV_MODE=true` turns on `POST /reset`, to start each test run from an empty store (see
+- `TAMARACKDB_DEV_MODE=true` turns on `DELETE /events`, to start each test run from an empty store (see
   [Development mode](/docs/operations/maintenance/#development-mode)).
 - `TAMARACKDB_LOG_LEVEL=debug` logs every request. Read them with `docker logs -f tamarackdb`.
 - `--rm` deletes the data when the container stops. Mount a volume on `/data` to keep it (see [Docker](#docker)).

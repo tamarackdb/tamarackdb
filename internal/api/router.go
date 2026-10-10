@@ -56,8 +56,8 @@ type Options struct {
 	// write, the others are per-item rules.
 	MaxRequestBodySize int
 
-	// DevMode, when true, registers POST /reset, which deletes every event
-	// and projection, and the /debug/pprof/ profiling endpoints. Never
+	// DevMode, when true, registers DELETE /events, which deletes every
+	// event, and the /debug/pprof/ profiling endpoints. Never
 	// enable this in production.
 	DevMode bool
 
@@ -159,9 +159,9 @@ func New(wr *writer.Writer, txs *tx.Registry, st *store.Store, opts Options) *Se
 	// matches). An unknown path gets the stdlib's plain-text 404; a known
 	// path with the wrong method correctly gets 405 + Allow.
 	if opts.DevMode {
-		// Deletes every event and projection, in its turn in the FIFO,
-		// see tx.Registry.Reset.
-		mux.HandleFunc("POST /reset", s.handleReset)
+		// Deletes every event, in its turn in the FIFO. Without
+		// DevMode, the path answers 405, since QUERY /events exists.
+		mux.HandleFunc("DELETE /events", s.handleDeleteEvents)
 
 		// Standard net/http/pprof registration, mounted on our own mux
 		// instead of relying on the package's http.DefaultServeMux side
@@ -169,7 +169,7 @@ func New(wr *writer.Writer, txs *tx.Registry, st *store.Store, opts Options) *Se
 		// /debug/pprof/symbol for large symbol lookups, hence the
 		// second registration for that one path.
 		//
-		// DevMode-gated like POST /reset above: CPU/heap profiles and
+		// DevMode-gated like DELETE /events above: CPU/heap profiles and
 		// goroutine dumps can leak information about running queries
 		// and are never meant for a production deployment.
 		mux.HandleFunc("GET /debug/pprof/", pprof.Index)

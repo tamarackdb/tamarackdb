@@ -151,6 +151,7 @@ func (s *Server) handleDeleteProjectionsByType(w http.ResponseWriter, r *http.Re
 		s.handleErr(w, r, err)
 		return
 	}
+	logAt(w, levelInfo)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -163,5 +164,6 @@ func (s *Server) handleDeleteAllProjections(w http.ResponseWriter, r *http.Reque
 		s.handleErr(w, r, err)
 		return
 	}
+	logAt(w, levelInfo)
 	w.WriteHeader(http.StatusNoContent)
 }

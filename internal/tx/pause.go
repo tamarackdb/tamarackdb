@@ -9,9 +9,6 @@ import (
 // ErrPaused is what Begin returns while a pause is requested or in place.
 var ErrPaused = errors.New("tx: paused")
 
-// ErrNotPaused is what Reset returns outside a pause in place.
-var ErrNotPaused = errors.New("tx: not paused")
-
 // PauseState is where the pause stands.
 type PauseState int
 
@@ -112,23 +109,6 @@ func (r *Registry) Resume(ctx context.Context) error {
 			r.pause, r.pauseSince = Running, time.Now()
 		}
 		return nil
-	})
-}
-
-// Reset empties the store (see store.Store.Reset), in its turn in the
-// FIFO. It's accepted only while the pause is in place, and leaves it in
-// place: then no transaction exists, so none can see the reset.
-// While paused, only Resume changes the state, and it runs in its own
-// turn: the state can't change during st.Reset.
-func (r *Registry) Reset(ctx context.Context) error {
-	return r.wr.RunInTurn(ctx, func(ctx context.Context) error {
-		r.lock()
-		paused := r.pause == Paused
-		r.mu.Unlock()
-		if !paused {
-			return ErrNotPaused
-		}
-		return r.st.Reset(ctx)
 	})
 }
 

@@ -71,4 +71,4 @@ Anyone who can read the database file reads every event and projection, whatever
 - An existing directory or file keeps its permissions: the server never changes them. Give a directory you create
   yourself `0700`.
 - A `config.toml` that holds `authToken` must be readable by the server's user only: `chmod 600 config.toml`.
-- `devMode` stays off in production: it exposes `POST /reset`, which deletes every event.
+- `devMode` stays off in production: it exposes `DELETE /events`, which deletes every event.

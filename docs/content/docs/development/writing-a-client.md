@@ -39,7 +39,7 @@ What a client of the protocol has to do, whatever its language. The calls themse
 
 ## Testing
 
-- In development mode, empty the store between tests with `POST /pause`, `POST /reset`, then `POST /resume`.
+- In development mode, empty the store between tests with `DELETE /events`, then `DELETE /projections`.
 - [`testdata/query-cases.json`](https://github.com/tamarackdb/tamarackdb/blob/main/testdata/query-cases.json) lists
   queries, events, and whether each query selects each event.
 

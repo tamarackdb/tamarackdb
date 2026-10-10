@@ -140,6 +140,23 @@ func TestAccessLogLevelPerOutcome(t *testing.T) {
 	}
 }
 
+// TestAccessLogBulkDeletesAtInfo checks that the bulk deletes leave an
+// INFO line, so they show without the DEBUG level.
+func TestAccessLogBulkDeletesAtInfo(t *testing.T) {
+	for _, path := range []string{"/events", "/projections", "/projections/p"} {
+		t.Run(path, func(t *testing.T) {
+			srv, _, _ := newTestServerWith(t, testOptions{devMode: true, logLevel: "info"})
+			buf := captureLog(t)
+			if rec := doRequest(t, srv, "DELETE", path, ""); rec.Code != 204 {
+				t.Fatalf("DELETE %s status = %d, want 204", path, rec.Code)
+			}
+			if out := buf.String(); !strings.Contains(out, "[INFO] ") || !strings.Contains(out, " 204 ") {
+				t.Errorf("log output = %q, want an [INFO] line with status 204", out)
+			}
+		})
+	}
+}
+
 func TestAccessLogBelowThresholdIsSuppressed(t *testing.T) {
 	srv, _, _ := newTestServerWith(t, testOptions{logLevel: "error"})
 	buf := captureLog(t)
@@ -163,7 +180,7 @@ func TestAccessLogAtOrAboveThresholdIsLogged(t *testing.T) {
 
 	doRequest(t, srv, "POST", "/projections", `{"create":[{"type":"p","id":"1","payload":""}]}`) // 503 WriteQueueFull, WARNING
 	release()
-	<-queued                // 204, DEBUG
+	<-queued                // 204, INFO
 	provokeConflict(t, srv) // 200 then 409, DEBUG
 
 	out := buf.String()

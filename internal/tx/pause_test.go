@@ -161,31 +161,3 @@ func TestPauseSurvivesANewRegistry(t *testing.T) {
 		t.Errorf("Begin() error = %v, want ErrPaused", err)
 	}
 }
-
-// TestResetNeedsAPause checks that Reset is refused outside a pause in
-// place, a requested one included, and leaves the pause in place.
-func TestResetNeedsAPause(t *testing.T) {
-	env := newTestEnv(t, time.Minute)
-	if err := env.r.Reset(bg); !errors.Is(err, ErrNotPaused) {
-		t.Fatalf("Reset() without a pause error = %v, want ErrNotPaused", err)
-	}
-
-	id := begin(t, env.r)
-	pause(t, env.r)
-	if err := env.r.Reset(bg); !errors.Is(err, ErrNotPaused) {
-		t.Fatalf("Reset() during a requested pause error = %v, want ErrNotPaused", err)
-	}
-	env.r.Abandon(id)
-	pause(t, env.r)
-
-	if err := env.r.Reset(bg); err != nil {
-		t.Fatalf("Reset() during the pause error = %v", err)
-	}
-	if info := env.r.PauseInfo(); info.State != Paused {
-		t.Errorf("PauseInfo().State = %v after Reset, want paused", info.State)
-	}
-	if err := env.r.Resume(bg); err != nil {
-		t.Fatalf("Resume() error = %v", err)
-	}
-	begin(t, env.r)
-}

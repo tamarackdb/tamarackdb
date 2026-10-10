@@ -73,8 +73,8 @@ type Config struct {
 	// within it is fixed.
 	DataDir string `toml:"dataDir"` // default: data
 
-	// DevMode, when true, registers POST /reset, which deletes every event
-	// and projection, and the /debug/pprof/ profiling endpoints. Never
+	// DevMode, when true, registers DELETE /events, which deletes every
+	// event, and the /debug/pprof/ profiling endpoints. Never
 	// enable this in production.
 	DevMode bool `toml:"devMode"`
 
@@ -117,8 +117,8 @@ type Config struct {
 	MaxRequestBodySize int `toml:"maxRequestBodySize"` // default: 8388608 (8 MiB)
 
 	// MaxQueuedWrites caps how many requests may wait in the FIFO at once:
-	// a transaction's commit, POST /projections, the bulk deletes of
-	// projections, and POST /reset. One more gets 503 WriteQueueFull
+	// a transaction's commit, POST /projections, and the bulk deletes of
+	// events and projections. One more gets 503 WriteQueueFull
 	// instead of joining.
 	// Optional; defaulted by Load when omitted. It isn't "0 means no
 	// limit": a FIFO with no bound would let a burst, or a broken client,

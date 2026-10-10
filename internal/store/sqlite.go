@@ -193,15 +193,13 @@ func (s *Store) ReadPoolStats() PoolStats {
 	return PoolStats{InUse: stats.InUse, Max: stats.MaxOpenConnections}
 }
 
-// Reset deletes every event and every projection, sets the Sequence
-// Position counter back to zero (the next event appended gets sequence 1).
-// It leaves the pause as it is. The schema stays in place. It's meant for
-// dev mode only. Since the write pool holds a single connection, Reset waits
-// for a write in progress to end.
-func (s *Store) Reset(ctx context.Context) error {
+// DeleteAllEvents deletes every event. The Sequence Position counter,
+// the projections, the pause, and the schema stay as they are: the next
+// event appended continues the positions. It's meant for dev mode only.
+func (s *Store) DeleteAllEvents(ctx context.Context) error {
 	tx, err := s.writeDB.BeginTx(ctx, nil)
 	if err != nil {
-		return wrapf("begin reset", err)
+		return wrapf("begin delete all events", err)
 	}
 	defer tx.Rollback() // no-op after Commit
 
@@ -209,21 +207,10 @@ func (s *Store) Reset(ctx context.Context) error {
 		"DELETE FROM identifiers",
 		"DELETE FROM metadata",
 		"DELETE FROM events",
-		"DELETE FROM projections",
 	} {
 		if _, err := tx.ExecContext(ctx, stmt); err != nil {
-			return wrapf("reset", err)
+			return wrapf("delete all events", err)
 		}
 	}
-	// The counter's mutex is held across the commit: the commit frees the
-	// write connection, and an Append waiting for it reads the counter right
-	// after. Holding the mutex makes that Append read 1, not the value from
-	// before the reset.
-	s.seqMu.Lock()
-	defer s.seqMu.Unlock()
-	if err := tx.Commit(); err != nil {
-		return wrapf("commit reset", err)
-	}
-	s.nextSeq = 1
-	return nil
+	return wrapf("commit delete all events", tx.Commit())
 }
