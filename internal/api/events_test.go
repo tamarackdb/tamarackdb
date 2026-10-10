@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -172,11 +173,12 @@ func TestReadNone(t *testing.T) {
 }
 
 // TestReadLinesMatchEncodingJSON checks that each line of a read, built by
-// hand, holds the bytes json.Marshal gives for the same dcb.Event, with
-// strings that need escaping in every field.
+// hand, decodes to the same value as json.Marshal of the same dcb.Event,
+// with strings that need escaping in every field. It doesn't compare
+// bytes: encoding/json's own bytes change between Go versions.
 func TestReadLinesMatchEncodingJSON(t *testing.T) {
 	srv, _, st := newTestServer(t)
-	tricky := "quote \" backslash \\ html <a>&amp; tab \t newline \n nul \x00 é 漢 🌲   invalid \xff"
+	tricky := "quote \" backslash \\ html <a>&amp; tab \t newline \n nul \x00 \u00e9 \u6f22 \U0001f332 \u2028 invalid \xff"
 	now := dcb.Now()
 	events := []dcb.Event{
 		{Sequence: 1, Time: now, EventData: dcb.EventData{Type: "plain", Payload: `{"a":1}`}},
@@ -200,12 +202,19 @@ func TestReadLinesMatchEncodingJSON(t *testing.T) {
 		t.Fatalf("lines = %d, want %d events and the trailer", len(lines), len(events))
 	}
 	for i, ev := range events {
-		want, err := json.Marshal(ev)
+		marshaled, err := json.Marshal(ev)
 		if err != nil {
 			t.Fatalf("json.Marshal() error = %v", err)
 		}
-		if lines[i] != string(want) {
-			t.Errorf("line %d = %s, want %s", i, lines[i], want)
+		var got, want any
+		if err := json.Unmarshal([]byte(lines[i]), &got); err != nil {
+			t.Fatalf("line %d = %s, not JSON: %v", i, lines[i], err)
+		}
+		if err := json.Unmarshal(marshaled, &want); err != nil {
+			t.Fatalf("json.Unmarshal(%s) error = %v", marshaled, err)
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("line %d = %s, want %s", i, lines[i], marshaled)
 		}
 	}
 }

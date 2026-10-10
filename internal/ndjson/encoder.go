@@ -48,11 +48,12 @@ func (w *Writer) WriteAppend(appendLine func(dst []byte) []byte) error {
 	return err
 }
 
-// AppendString appends s to dst as a JSON string, escaped byte for byte as
-// encoding/json.Marshal escapes a string: '"' and '\\', the control
-// characters, '<', '>' and '&', U+2028 and U+2029, and invalid UTF-8 as
-// �. A line built with it is then identical to one built with
-// WriteValue.
+// AppendString appends s to dst as a JSON string, with the escapes of
+// encoding/json.Marshal in the Go version go.mod names: '"' and '\\', the
+// control characters, '<', '>' and '&', U+2028 and U+2029, and each byte
+// of invalid UTF-8 as \ufffd. Its output always decodes to the same string
+// as json.Marshal's. The bytes differ only where encoding/json's own output
+// changed between Go versions: Go 1.27 writes invalid UTF-8 as a raw U+FFFD.
 func AppendString(dst []byte, s string) []byte {
 	const hex = "0123456789abcdef"
 	dst = append(dst, '"')
@@ -88,8 +89,8 @@ func AppendString(dst []byte, s string) []byte {
 		switch {
 		case c == utf8.RuneError && size == 1:
 			dst = append(dst, s[start:i]...)
-			dst = append(dst, `�`...)
-		case c == ' ' || c == ' ':
+			dst = append(dst, "\\ufffd"...)
+		case c == '\u2028' || c == '\u2029':
 			dst = append(dst, s[start:i]...)
 			dst = append(dst, '\\', 'u', '2', '0', '2', hex[c&0xF])
 		default:

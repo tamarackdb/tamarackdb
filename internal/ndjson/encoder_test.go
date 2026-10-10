@@ -96,42 +96,52 @@ func TestWriteAppendWritesOneLineInOneWrite(t *testing.T) {
 }
 
 // appendStringCases holds a string of each kind AppendString escapes
-// differently.
-var appendStringCases = []string{
-	"",
-	"plain ascii",
-	`quote " and backslash \`,
-	"control \b \f \n \r \t \x00 \x1f \x7f",
-	"html < > &",
-	"accents é à ç, and 漢字, and 🌲",
-	"separators \u2028 and \u2029",
-	"invalid \xff utf-8 \xe2\x82 cut",
-	`{"json":"payload","n":[1,2]}`,
+// differently, with the bytes it gives, the ones json.Marshal gives in the
+// Go version go.mod names.
+var appendStringCases = []struct{ in, want string }{
+	{"", `""`},
+	{"plain ascii", `"plain ascii"`},
+	{`quote " and backslash \`, `"quote \" and backslash \\"`},
+	{"control \b \f \n \r \t \x00 \x1f \x7f", "\"control \\b \\f \\n \\r \\t \\u0000 \\u001f \x7f\""},
+	{"html < > &", `"html \u003c \u003e \u0026"`},
+	{"accents \u00e9 \u6f22 \U0001f332", "\"accents \u00e9 \u6f22 \U0001f332\""},
+	{"separators \u2028 \u2029", `"separators \u2028 \u2029"`},
+	{"invalid \xff utf-8 \xe2\x82 cut", `"invalid \ufffd utf-8 \ufffd\ufffd cut"`},
+	{`{"json":"payload","n":[1,2]}`, `"{\"json\":\"payload\",\"n\":[1,2]}"`},
 }
 
-func TestAppendStringMatchesEncodingJSON(t *testing.T) {
-	for _, s := range appendStringCases {
-		want, err := json.Marshal(s)
-		if err != nil {
-			t.Fatalf("json.Marshal(%q) error = %v", s, err)
-		}
-		if got := AppendString(nil, s); !bytes.Equal(got, want) {
-			t.Errorf("AppendString(%q) = %s, want %s", s, got, want)
+func TestAppendString(t *testing.T) {
+	for _, c := range appendStringCases {
+		if got := string(AppendString(nil, c.in)); got != c.want {
+			t.Errorf("AppendString(%q) = %s, want %s", c.in, got, c.want)
 		}
 	}
 }
 
-func FuzzAppendStringMatchesEncodingJSON(f *testing.F) {
-	for _, s := range appendStringCases {
-		f.Add(s)
+// FuzzAppendStringDecodesLikeEncodingJSON checks that AppendString's
+// output is valid JSON, and decodes to the same string as json.Marshal's.
+// It doesn't compare bytes: encoding/json's own bytes change between Go
+// versions.
+func FuzzAppendStringDecodesLikeEncodingJSON(f *testing.F) {
+	for _, c := range appendStringCases {
+		f.Add(c.in)
 	}
 	f.Fuzz(func(t *testing.T, s string) {
-		want, err := json.Marshal(s)
+		got := AppendString(nil, s)
+		var decoded string
+		if err := json.Unmarshal(got, &decoded); err != nil {
+			t.Fatalf("AppendString(%q) = %s, not a JSON string: %v", s, got, err)
+		}
+		marshaled, err := json.Marshal(s)
 		if err != nil {
 			t.Fatalf("json.Marshal(%q) error = %v", s, err)
 		}
-		if got := AppendString(nil, s); !bytes.Equal(got, want) {
-			t.Errorf("AppendString(%q) = %s, want %s", s, got, want)
+		var want string
+		if err := json.Unmarshal(marshaled, &want); err != nil {
+			t.Fatalf("json.Unmarshal(%s) error = %v", marshaled, err)
+		}
+		if decoded != want {
+			t.Errorf("AppendString(%q) decodes to %q, want %q", s, decoded, want)
 		}
 	})
 }
