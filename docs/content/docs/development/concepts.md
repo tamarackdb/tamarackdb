@@ -26,6 +26,8 @@ An event is a fact the application recorded. Once written, it never changes and 
 - `identifiers` and `metadata` are separate: a query for a `userId` identifier doesn't match a `userId` metadata entry.
 - An event carries at most 20 identifiers and 20 metadata entries, with no duplicate. An empty array as a value is
   refused: leave the key out instead.
+- A `type` and a tag name are names: 1 to 128 bytes, only ASCII letters, digits, and `-` `_` `.` `:` `@` `/`.
+- A tag value is 1 to 255 bytes of text, with no control character such as a newline or a tab.
 - `payload` can be empty (`""`), but never missing or `null`. Its format is up to the application.
 - `sequence` starts at 1 and grows by one with each event, with no gap. It's the only order to rely on.
 - `time` is in UTC, with six digits after the second: `2026-09-01T14:23:05.123456Z`. Every event of one write shares
@@ -99,6 +101,7 @@ everything at commit, or nothing.
 A projection is state the application computes from events, stored next to them. Using projections is optional.
 
 - A projection is a string payload, identified by `type` and `id`. It has no history: only its current state is kept.
+- Its `type` follows the same rule as an event type. Its `id` follows the same rule as a tag value.
 - It's read by `type` and `id`. There is no query over projections.
 - Every write gives a projection a new version. A write changes a projection with `create` (it must not exist),
   `replace`, or `delete` (it must still be at the version read). Otherwise the write gets `409`.

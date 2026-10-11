@@ -142,6 +142,8 @@ func TestRefusedRequestsEndTheTransaction(t *testing.T) {
 		{"missing events key", "POST", "/events", `{}`, 400, true},
 		{"null events", "POST", "/events", `{"events":null}`, 400, true},
 		{"event without payload", "POST", "/events", `{"events":[{"type":"t"}]}`, 400, true},
+		{"event with an invalid type", "POST", "/events", `{"events":[{"type":"t u","payload":""}]}`, 400, true},
+		{"event with an invalid tag value", "POST", "/events", `{"events":[{"type":"t","identifiers":{"userId":""},"payload":""}]}`, 400, true},
 		{"event too large", "POST", "/events", `{"events":[{"type":"t","payload":"` + big + `"}]}`, 413, true},
 		{"create without payload", "POST", "/projections", `{"create":[{"type":"p","id":"1"}]}`, 400, false},
 		{"replace without payload", "POST", "/projections", `{"replace":[{"type":"p","id":"1"}]}`, 400, false},

@@ -1,6 +1,11 @@
 package projection
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+
+	"github.com/tamarackdb/tamarackdb/internal/names"
+)
 
 // Writes is the body of a POST /projections request, and what the store
 // writes: projections to create, to replace, and to delete. The same
@@ -58,7 +63,8 @@ type Delete struct {
 	Version string `json:"version"`
 }
 
-// Validate checks that c has a type, an id, and a payload.
+// Validate checks that c has a valid type and id (see package names), and
+// a payload.
 func (c Create) Validate() error {
 	if err := validateKey(c.Type, c.ID); err != nil {
 		return err
@@ -66,7 +72,8 @@ func (c Create) Validate() error {
 	return validatePayload(c.Payload)
 }
 
-// Validate checks that r has a type, an id, a version, and a payload.
+// Validate checks that r has a valid type and id, a version, and a
+// payload.
 func (r Replace) Validate() error {
 	if err := validateKey(r.Type, r.ID); err != nil {
 		return err
@@ -77,7 +84,7 @@ func (r Replace) Validate() error {
 	return validatePayload(r.Payload)
 }
 
-// Validate checks that d has a type, an id, and a version.
+// Validate checks that d has a valid type and id, and a version.
 func (d Delete) Validate() error {
 	if err := validateKey(d.Type, d.ID); err != nil {
 		return err
@@ -91,6 +98,14 @@ func validateKey(typ, id string) error {
 	}
 	if id == "" {
 		return &ValidationError{Err: ErrMissingID, Message: "projection is missing its id"}
+	}
+	if !names.ValidName(typ) {
+		return &ValidationError{Err: ErrInvalidType, Message: fmt.Sprintf(
+			"projection type %q is invalid: a name is %s", typ, names.NameRule)}
+	}
+	if !names.ValidValue(id) {
+		return &ValidationError{Err: ErrInvalidID, Message: fmt.Sprintf(
+			"projection id %q is invalid: an id is %s", id, names.ValueRule)}
 	}
 	return nil
 }
@@ -124,6 +139,8 @@ func (e *ValidationError) Unwrap() error { return e.Err }
 var (
 	ErrMissingType    = errors.New("projection is missing its type")
 	ErrMissingID      = errors.New("projection is missing its id")
+	ErrInvalidType    = errors.New("invalid projection type")
+	ErrInvalidID      = errors.New("invalid projection id")
 	ErrMissingPayload = errors.New("projection is missing its payload")
 	ErrMissingVersion = errors.New("projection is missing its version")
 )

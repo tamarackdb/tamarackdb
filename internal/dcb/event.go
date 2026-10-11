@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"sort"
 	"time"
+
+	"github.com/tamarackdb/tamarackdb/internal/names"
 )
 
 // Fixed DCB-domain constants, not configuration.
@@ -170,12 +172,27 @@ func (e EventData) Size() int {
 }
 
 // Validate checks the domain rules that apply to a single event
-// regardless of the rest of the append request: a non-empty Type, at most
-// MaxIdentifiers/MaxMetadata entries, and no duplicate {name,value} pair
-// within either set.
+// regardless of the rest of the append request: a non-empty Type, a Type
+// and tag names that are valid names and tag values that are valid values
+// (see package names), at most MaxIdentifiers/MaxMetadata entries, and no
+// duplicate {name,value} pair within either set.
 func (e EventData) Validate() error {
 	if e.Type == "" {
 		return &ValidationError{Err: ErrMissingType, Message: "event is missing its type"}
+	}
+	if !names.ValidName(e.Type) {
+		return &ValidationError{Err: ErrInvalidType, Message: fmt.Sprintf(
+			"event type %q is invalid: a name is %s", e.Type, names.NameRule)}
+	}
+	for _, id := range e.Identifiers {
+		if err := validateTag("identifier", id.Name, id.Value); err != nil {
+			return err
+		}
+	}
+	for _, md := range e.Metadata {
+		if err := validateTag("metadata", md.Name, md.Value); err != nil {
+			return err
+		}
 	}
 	if len(e.Identifiers) > MaxIdentifiers {
 		return &ValidationError{Err: ErrTooManyIdentifiers, Message: fmt.Sprintf(
@@ -224,6 +241,20 @@ func (e EventInput) Validate() error {
 	}
 	if e.Payload == nil {
 		return &ValidationError{Err: ErrMissingPayload, Message: "event is missing its payload"}
+	}
+	return nil
+}
+
+// validateTag checks a tag's name and value; kind names its set in the
+// message.
+func validateTag(kind, name, value string) error {
+	if !names.ValidName(name) {
+		return &ValidationError{Err: ErrInvalidTagName, Message: fmt.Sprintf(
+			"%s name %q is invalid: a name is %s", kind, name, names.NameRule)}
+	}
+	if !names.ValidValue(value) {
+		return &ValidationError{Err: ErrInvalidTagValue, Message: fmt.Sprintf(
+			"%s %q has an invalid value %q: a value is %s", kind, name, value, names.ValueRule)}
 	}
 	return nil
 }
@@ -339,6 +370,9 @@ func (e *ValidationError) Unwrap() error { return e.Err }
 
 var (
 	ErrMissingType         = errors.New("event is missing its type")
+	ErrInvalidType         = errors.New("invalid event type")
+	ErrInvalidTagName      = errors.New("invalid tag name")
+	ErrInvalidTagValue     = errors.New("invalid tag value")
 	ErrMissingPayload      = errors.New("event is missing its payload")
 	ErrTooManyIdentifiers  = errors.New("too many identifiers")
 	ErrTooManyMetadata     = errors.New("too many metadata entries")

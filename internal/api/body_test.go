@@ -59,8 +59,8 @@ func TestSlowWriteBodyDoesNotHoldTheTurn(t *testing.T) {
 
 func TestProjectionTypeAndIDCountTowardItsSize(t *testing.T) {
 	srv, _, _ := newTestServer(t)
-	id := strings.Repeat("i", srv.opts.MaxProjectionSize) // the payload alone is empty
-	body := `{"create":[{"type":"t","id":"` + id + `","payload":""}]}`
+	payload := strings.Repeat("p", srv.opts.MaxProjectionSize-2) // fits alone, not with the type and id
+	body := `{"create":[{"type":"t","id":"ii","payload":"` + payload + `"}]}`
 	if rec := doRequest(t, srv, "POST", "/projections", body); rec.Code != 413 || errorCode(t, rec) != "PayloadTooLarge" {
 		t.Fatalf("status = %d, body = %.200s, want 413 PayloadTooLarge", rec.Code, rec.Body.String())
 	}

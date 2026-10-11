@@ -150,6 +150,22 @@ func TestEventDataValidate(t *testing.T) {
 	}{
 		{"valid minimal event", EventData{Type: "user-created"}, nil},
 		{"missing type", EventData{}, ErrMissingType},
+		{"invalid type", EventData{Type: "user created"}, ErrInvalidType},
+		{"invalid identifier name", EventData{Type: "t", Identifiers: IdentifierSet{
+			{Name: "user id", Value: "123"},
+		}}, ErrInvalidTagName},
+		{"invalid identifier value", EventData{Type: "t", Identifiers: IdentifierSet{
+			{Name: "userId", Value: "1\n2"},
+		}}, ErrInvalidTagValue},
+		{"empty identifier value", EventData{Type: "t", Identifiers: IdentifierSet{
+			{Name: "userId", Value: ""},
+		}}, ErrInvalidTagValue},
+		{"invalid metadata name", EventData{Type: "t", Metadata: MetadataSet{
+			{Name: "", Value: "acme"},
+		}}, ErrInvalidTagName},
+		{"invalid metadata value", EventData{Type: "t", Metadata: MetadataSet{
+			{Name: "tenantId", Value: "a\tb"},
+		}}, ErrInvalidTagValue},
 		{"exactly 20 identifiers", EventData{Type: "t", Identifiers: makeIdentifiers(20)}, nil},
 		{"21 identifiers", EventData{Type: "t", Identifiers: makeIdentifiers(21)}, ErrTooManyIdentifiers},
 		{"exactly 20 metadata", EventData{Type: "t", Metadata: makeMetadata(20)}, nil},

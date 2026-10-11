@@ -112,7 +112,8 @@ tamarackdb-init: created /path/to/data/tamarackdb.sqlite, imported 1000000 event
 - The import always creates a new database. It never adds to an existing one.
 - Each event keeps its `sequence` and its `time`. The first `sequence` can be 1 or more, and each next one is the one
   before plus 1.
-- A line that isn't exactly an event stops the import, with its line number.
+- A line that isn't exactly an event stops the import, with its line number. So does an event whose type or tags break
+  the [rules for names and values](/docs/development/concepts/#events).
 - The import is all or nothing: when it stops, no database is left.
 - `maxEventSize` doesn't apply.
 - Compare the count and the first and last `sequence` with the source before starting the server. Then rebuild every

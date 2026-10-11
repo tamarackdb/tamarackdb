@@ -347,7 +347,7 @@ X-Tamarackdb-Version: 9f3c2a1e-7b4d-4c8e-a5f6-0d1e2f3a4b5c
 
 - The body is the payload as written. The version is in `X-Tamarackdb-Version`.
 - `404 ProjectionNotFound` when it doesn't exist.
-- `type` and `id` are percent-encoded in the path: an `id` of `a/b` is `a%2Fb`.
+- `type` and `id` are percent-encoded in the path: a `type` of `billing/invoice` is `billing%2Finvoice`.
 
 ### Bulk delete
 

@@ -83,6 +83,8 @@ func TestParseLineRefuses(t *testing.T) {
 		"time without zone":    line(`.000001Z`, `.000001`),
 		"time in another zone": line(`09:12:44.000001Z`, `05:12:44.000001-04:00`),
 		"empty type":           line(`"type":"order-placed"`, `"type":""`),
+		"invalid type":         line(`"type":"order-placed"`, `"type":"order placed"`),
+		"invalid tag value":    line(`"tenantId":"acme"`, `"tenantId":""`),
 		"identifiers array":    line(`{"orderId":"o-1","sku":["a","b"]}`, `[]`),
 		"21 identifiers":       line(`{"orderId":"o-1","sku":["a","b"]}`, "{"+strings.Join(many, ",")+"}"),
 		"duplicate identifier": line(`["a","b"]`, `["a","a"]`),

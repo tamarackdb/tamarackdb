@@ -204,6 +204,8 @@ func TestWriteProjectionsRejectsInvalidRequests(t *testing.T) {
 			"request carries 501 projections, more than maxProjectionsPerWrite (500)"},
 		{"missing type", `{"create":[{"id":"1","payload":"x"}]}`, 400, "InvalidRequest", "create[0]: "},
 		{"missing id", `{"create":[{"type":"p","payload":"x"}]}`, 400, "InvalidRequest", "create[0]: "},
+		{"invalid type", `{"create":[{"type":"p q","id":"1","payload":"x"}]}`, 400, "InvalidRequest", `create[0]: projection type "p q" is invalid`},
+		{"invalid id", `{"create":[{"type":"p","id":"1\n2","payload":"x"}]}`, 400, "InvalidRequest", "create[0]: projection id"},
 		{"unknown key", `{"delete":[{"type":"p","id":"1","verison":"v"}]}`, 400, "InvalidRequest", "verison"},
 		{"create missing payload", `{"create":[{"type":"p","id":"1"}]}`, 400, "InvalidRequest", "create[0]: "},
 		{"create null payload", `{"create":[{"type":"p","id":"1","payload":null}]}`, 400, "InvalidRequest", "create[0]: "},
