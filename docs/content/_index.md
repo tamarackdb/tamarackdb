@@ -4,6 +4,8 @@ description: "An open source event store in Go, compliant with the DCB specifica
 layout: hextra-home
 ---
 
+{{< version-badge >}}
+
 {{< hextra/hero-headline >}}
   An event store for&nbsp;<br class="hx:sm:block hx:hidden" />Dynamic Consistency Boundaries
 {{< /hextra/hero-headline >}}

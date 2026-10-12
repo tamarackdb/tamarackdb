@@ -25,6 +25,8 @@ jobs:
           sudo dpkg -i ${{ runner.temp }}/hugo.deb
 
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-go@v7
         with:
@@ -34,7 +36,9 @@ jobs:
       - name: Build
         env:
           HUGO_ENVIRONMENT: production
-        run: hugo --minify --gc --baseURL "https://tamarackdb.github.io/"
+        run: |
+          export HUGO_PARAMS_VERSION=$(git describe --tags --abbrev=0)
+          hugo --minify --gc --baseURL "https://tamarackdb.github.io/"
         working-directory: ./docs
 
       - name: Publish to tamarackdb/tamarackdb.github.io
