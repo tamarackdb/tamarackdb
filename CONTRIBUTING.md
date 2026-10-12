@@ -107,6 +107,11 @@ interleaving it excludes: the test holds the turn of the FIFO
 on `time.Sleep`. Check that the test fails without the fix: a test of
 concurrent code can pass without testing anything.
 
+A test that writes or reads a large volume, without starting any
+goroutine, skips itself under `-race` (`if raceEnabled { t.Skip(...) }`
+in `store`). The race detector finds nothing there, and it makes SQLite
+run for minutes.
+
 ### Demo dataset
 
 `cmd/tamarackdb-demo` fills a data directory with a large set of

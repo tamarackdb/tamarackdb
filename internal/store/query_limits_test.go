@@ -31,6 +31,9 @@ func largestQuery(t *testing.T) dcb.Query {
 }
 
 func TestLargestValidQueryRuns(t *testing.T) {
+	if raceEnabled {
+		t.Skip("volume test, no concurrency")
+	}
 	s := openTestStore(t)
 	mustAppend(t, s, []dcb.EventData{eventWithIdentifier("t", "n0", "0")}, nil)
 	q := largestQuery(t)

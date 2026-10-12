@@ -42,6 +42,9 @@ func TestImportRoundTrip(t *testing.T) {
 }
 
 func TestImportLargeBatchSplitsAcrossStatements(t *testing.T) {
+	if raceEnabled {
+		t.Skip("volume test, no concurrency")
+	}
 	s := openTestStore(t)
 
 	const n = 10000 // 4 vars/event exceeds maxBatchVariables in one INSERT

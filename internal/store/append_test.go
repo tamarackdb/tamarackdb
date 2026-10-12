@@ -220,6 +220,9 @@ func TestAppendFailedConditionLeavesNoGapInSequence(t *testing.T) {
 // the multi-row INSERT batching in Append must never emit more bound
 // parameters than that limit allows, whatever maxEventsPerTx is set to.
 func TestAppendLargeBatchWithinSQLiteVariableLimit(t *testing.T) {
+	if raceEnabled {
+		t.Skip("volume test, no concurrency")
+	}
 	s := openTestStore(t)
 	events := make([]dcb.EventData, 1000)
 	for i := range events {
