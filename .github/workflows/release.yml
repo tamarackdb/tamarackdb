@@ -33,6 +33,7 @@ jobs:
           go build -ldflags "$LDFLAGS" -o "$out/tamarackdb-server" ./cmd/tamarackdb-server
           go build -ldflags "$LDFLAGS" -o "$out/tamarackdb-init" ./cmd/tamarackdb-init
           go build -ldflags "$LDFLAGS" -o "$out/tamarackdb-backup" ./cmd/tamarackdb-backup
+          go build -ldflags "$LDFLAGS" -o "$out/tamarackdb-migrate" ./cmd/tamarackdb-migrate
           zip -r "$out.zip" "$out"
 
       - uses: softprops/action-gh-release@v3

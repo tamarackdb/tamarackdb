@@ -17,7 +17,8 @@ ARG TARGETARCH
 
 RUN export CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH && \
     go build -ldflags "-X github.com/tamarackdb/tamarackdb/internal/buildinfo.Version=$VERSION" -o /out/tamarackdb-server ./cmd/tamarackdb-server && \
-    go build -ldflags "-X github.com/tamarackdb/tamarackdb/internal/buildinfo.Version=$VERSION" -o /out/tamarackdb-init ./cmd/tamarackdb-init
+    go build -ldflags "-X github.com/tamarackdb/tamarackdb/internal/buildinfo.Version=$VERSION" -o /out/tamarackdb-init ./cmd/tamarackdb-init && \
+    go build -ldflags "-X github.com/tamarackdb/tamarackdb/internal/buildinfo.Version=$VERSION" -o /out/tamarackdb-migrate ./cmd/tamarackdb-migrate
 
 FROM alpine:3.20
 
@@ -26,7 +27,7 @@ FROM alpine:3.20
 RUN addgroup -S -g 10001 tamarackdb && adduser -S -u 10001 -G tamarackdb tamarackdb
 WORKDIR /app
 
-COPY --from=builder /out/tamarackdb-server /out/tamarackdb-init ./
+COPY --from=builder /out/tamarackdb-server /out/tamarackdb-init /out/tamarackdb-migrate ./
 COPY --chmod=755 docker-entrypoint.sh ./
 
 RUN mkdir -p /data && chown -R tamarackdb:tamarackdb /data && chmod 700 /data

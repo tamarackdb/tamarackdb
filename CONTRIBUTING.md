@@ -75,13 +75,14 @@ to run TamarackDB, see the documentation at <https://tamarackdb.github.io/>.
 make build
 ```
 
-This builds three binaries under `bin/`:
+This builds four binaries under `bin/`:
 
 | Binary | Purpose |
 |---|---|
 | `tamarackdb-server` | The HTTP server |
 | `tamarackdb-init` | Creates a new database, which the server needs to start, empty or from a dump of events |
 | `tamarackdb-backup` | Copies new events from a remote instance into a local backup file |
+| `tamarackdb-migrate` | Brings a database from the previous major version to this one |
 
 Each binary also has its own target with the same name, so
 `make tamarackdb-init` builds only that one.

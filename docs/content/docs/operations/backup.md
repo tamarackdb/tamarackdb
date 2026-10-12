@@ -93,8 +93,9 @@ Serve the backup file as the new instance.
    sudo install -o tamarackdb -g tamarackdb -m 600 /path/to/backup/tamarackdb-backup.sqlite /path/to/new-data/tamarackdb.sqlite
    ```
 
-3. Start `tamarackdb-server` with `dataDir` set to that directory.
-4. With the application stopped, restart every projector from the beginning. Start the application once the
+3. If the backup was made with an older major version, migrate it (see [Upgrade](/docs/operations/upgrade/#restoring-a-backup)).
+4. Start `tamarackdb-server` with `dataDir` set to that directory.
+5. With the application stopped, restart every projector from the beginning. Start the application once the
    projections are rebuilt.
 
 ## Import

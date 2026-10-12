@@ -24,13 +24,14 @@ docker run -d --rm --name tamarackdb -p 127.0.0.1:8085:8085 \
 
 ## Binaries
 
-Each release publishes three binaries for Linux, on amd64 and arm64:
+Each release publishes four binaries for Linux, on amd64 and arm64:
 
 | Binary | What it does |
 |---|---|
 | `tamarackdb-server` | The HTTP server |
 | `tamarackdb-init` | Creates a new database, empty or from a dump of events. The server needs one to start |
 | `tamarackdb-backup` | Copies new events from an instance into a backup file |
+| `tamarackdb-migrate` | Brings a database to a new major version (see [Upgrade](/docs/operations/upgrade/)) |
 
 Download a release and install its binaries (see the
 [releases](https://github.com/tamarackdb/tamarackdb/releases) for the latest version):

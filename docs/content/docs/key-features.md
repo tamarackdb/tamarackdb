@@ -33,6 +33,8 @@ TamarackDB is an open source event store written in Go. It follows the
   instance. See [Backup and Import](/docs/operations/backup/).
 - **Import.** `tamarackdb-init --import` builds a new database from a dump of another event store's history. Each
   event keeps its sequence and its time. See [Backup and Import](/docs/operations/backup/).
+- **Upgrades.** `tamarackdb-migrate` brings a database to a new major version, in one transaction. See
+  [Upgrade](/docs/operations/upgrade/).
 - **Security.** The server listens on a unix socket by default. A Bearer token is optional, and a reverse proxy adds
   TLS. See [Security](/docs/operations/security/).
 - **Monitoring.** `GET /health` for a supervisor or a load balancer, `GET /stats` for counters, and an access log. See

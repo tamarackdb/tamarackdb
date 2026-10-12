@@ -2,9 +2,9 @@ BINDIR := bin
 VERSION := $(shell git describe --tags --always --dirty)
 LDFLAGS := -X github.com/tamarackdb/tamarackdb/internal/buildinfo.Version=$(VERSION)
 
-.PHONY: build tamarackdb-server tamarackdb-init tamarackdb-backup tamarackdb-demo test test-race run clean fmt vet tidy
+.PHONY: build tamarackdb-server tamarackdb-init tamarackdb-backup tamarackdb-migrate tamarackdb-demo test test-race run clean fmt vet tidy
 
-build: tamarackdb-server tamarackdb-init tamarackdb-backup
+build: tamarackdb-server tamarackdb-init tamarackdb-backup tamarackdb-migrate
 
 tamarackdb-server:
 	go build -ldflags "$(LDFLAGS)" -o $(BINDIR)/tamarackdb-server ./cmd/tamarackdb-server
@@ -14,6 +14,9 @@ tamarackdb-init:
 
 tamarackdb-backup:
 	go build -ldflags "$(LDFLAGS)" -o $(BINDIR)/tamarackdb-backup ./cmd/tamarackdb-backup
+
+tamarackdb-migrate:
+	go build -ldflags "$(LDFLAGS)" -o $(BINDIR)/tamarackdb-migrate ./cmd/tamarackdb-migrate
 
 tamarackdb-demo:
 	go build -ldflags "$(LDFLAGS)" -o $(BINDIR)/tamarackdb-demo ./cmd/tamarackdb-demo

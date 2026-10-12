@@ -123,6 +123,16 @@
 // The schema version is PRAGMA user_version, built into the binary (see
 // schema.go). It is the major version of TamarackDB. Open gives a file
 // with no table the current schema and version. A file at any other
-// version, older or newer, fails Open with a *SchemaVersionError. The
-// store never changes its own schema.
+// version, older or newer, fails Open with a *SchemaVersionError. Open
+// never changes the schema of an existing file.
+//
+// Migrate, run by tamarackdb-migrate while the server is stopped, is the
+// only way to change it (see migrate.go). It carries one migration, from
+// the previous major version to this one, and MUST NOT migrate from any
+// other version: an operator who skips major versions runs each
+// tamarackdb-migrate in turn. The migration and the new user_version MUST
+// be committed in one transaction, so a failure leaves the file at the
+// previous version. Migrate MUST take the lock Open takes: a server
+// already running checks the version only at startup, and would go on
+// writing with the old schema.
 package store

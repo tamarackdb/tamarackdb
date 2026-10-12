@@ -67,6 +67,8 @@ Pages, relative to `docs/content/docs/`, in sidebar order:
     restoring, scheduling) and importing a dump.
   - `monitoring.md`: health check, `GET /stats`, logs.
   - `maintenance.md`: maintenance and development mode.
+  - `upgrade.md`: a new release, and `tamarackdb-migrate` for a new
+    major version.
 - `development/`: building an application on TamarackDB.
   - `client-libraries.md`: first in the section; the available client
     libraries, with a link to each one's repository.
