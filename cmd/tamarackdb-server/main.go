@@ -60,6 +60,7 @@ func main() {
 	fmt.Printf("bindAddress: %s\n", cfg.BindAddress)
 	fmt.Printf("port: %d\n", cfg.Port)
 	fmt.Printf("enableAuth: %t\n", cfg.EnableAuth)
+	fmt.Printf("allowNoAuth: %t\n", cfg.AllowNoAuth)
 	fmt.Printf("dataDir: %s\n", cfg.DataDir)
 	fmt.Printf("devMode: %t\n", cfg.DevMode)
 	fmt.Printf("logLevel: %s\n", cfg.LogLevel)
@@ -258,6 +259,7 @@ const defaultConfigTemplate = `[server]
 # port = %d
 # enableAuth = false
 # authToken = "changeme"
+# allowNoAuth = false
 # dataDir = "%s"
 # devMode = false
 # logLevel = "%s"

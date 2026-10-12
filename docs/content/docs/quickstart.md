@@ -12,11 +12,13 @@ and commit. Every step uses `curl`. The responses assume a store that already ho
 
 ```sh
 docker run -d --rm --name tamarackdb -p 127.0.0.1:8085:8085 \
+  -e TAMARACKDB_DEV_MODE=true \
   ghcr.io/tamarackdb/tamarackdb:latest
 ```
 
-The API is at `http://127.0.0.1:8085`. `docker stop tamarackdb` stops the server and deletes its data. To keep the
-data, or to run the server another way, see [Install](/docs/operations/install/).
+The API is at `http://127.0.0.1:8085`, without a token: `TAMARACKDB_DEV_MODE=true` is for a local instance only.
+`docker stop tamarackdb` stops the server and deletes its data. To keep the data, or to run the server another way,
+see [Install](/docs/operations/install/).
 
 ## Read events
 

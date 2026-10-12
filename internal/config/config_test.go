@@ -67,7 +67,7 @@ func TestDatabasePath(t *testing.T) {
 
 func TestLoadIgnoresBackupSection(t *testing.T) {
 	path := writeConfigFile(t, `[server]
-		bindAddress = "0.0.0.0"
+		bindAddress = "127.0.0.1"
 		port = 8443
 		authToken = "secret"
 		dataDir = "data"
@@ -88,7 +88,7 @@ func TestLoadIgnoresBackupSection(t *testing.T) {
 
 func TestLoadAppliesDefaults(t *testing.T) {
 	path := writeConfigFile(t, `[server]
-		bindAddress = "0.0.0.0"
+		bindAddress = "127.0.0.1"
 		port = 8443
 		authToken = "secret"
 		dataDir = "data"
@@ -144,7 +144,7 @@ func TestLoadMissingRequiredFields(t *testing.T) {
 	// when omitted (see TestLoadAppliesDefaults). authToken is required
 	// only because enableAuth is on.
 	path := writeConfigFile(t, `[server]
-		bindAddress = "0.0.0.0"
+		bindAddress = "127.0.0.1"
 		enableAuth = true
 	`)
 	if _, err := Load(path); err == nil {
@@ -166,7 +166,7 @@ func TestLoadInvalidPort(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			path := writeConfigFile(t, `[server]
-				bindAddress = "0.0.0.0"
+				bindAddress = "127.0.0.1"
 				port = `+tt.port+`
 				authToken = "secret"
 				dataDir = "data"
@@ -180,7 +180,7 @@ func TestLoadInvalidPort(t *testing.T) {
 
 func TestLoadDefaultEventsPerPageExceedsMaxEventsPerPage(t *testing.T) {
 	path := writeConfigFile(t, `[server]
-		bindAddress = "0.0.0.0"
+		bindAddress = "127.0.0.1"
 		port = 8443
 		authToken = "secret"
 		dataDir = "data"
@@ -194,7 +194,7 @@ func TestLoadDefaultEventsPerPageExceedsMaxEventsPerPage(t *testing.T) {
 
 func TestLoadDevModeFromFile(t *testing.T) {
 	path := writeConfigFile(t, `[server]
-		bindAddress = "0.0.0.0"
+		bindAddress = "127.0.0.1"
 		port = 8443
 		authToken = "secret"
 		dataDir = "data"
@@ -211,7 +211,7 @@ func TestLoadDevModeFromFile(t *testing.T) {
 
 func TestLoadDevModeDefaultsFalse(t *testing.T) {
 	path := writeConfigFile(t, `[server]
-		bindAddress = "0.0.0.0"
+		bindAddress = "127.0.0.1"
 		port = 8443
 		authToken = "secret"
 		dataDir = "data"
@@ -228,7 +228,7 @@ func TestLoadDevModeDefaultsFalse(t *testing.T) {
 func TestLoadDevModeFromEnv(t *testing.T) {
 	setEnv(t, map[string]string{"TAMARACKDB_DEV_MODE": "true"})
 	path := writeConfigFile(t, `[server]
-		bindAddress = "0.0.0.0"
+		bindAddress = "127.0.0.1"
 		port = 8443
 		authToken = "secret"
 		dataDir = "data"
@@ -248,7 +248,7 @@ func TestLoadFileFalseBeatsEnvTrue(t *testing.T) {
 		"TAMARACKDB_ENABLE_AUTH": "true",
 	})
 	path := writeConfigFile(t, `[server]
-		bindAddress = "0.0.0.0"
+		bindAddress = "127.0.0.1"
 		port = 8443
 		dataDir = "data"
 		devMode = false
@@ -266,7 +266,7 @@ func TestLoadFileFalseBeatsEnvTrue(t *testing.T) {
 func TestLoadDevModeInvalidEnvValue(t *testing.T) {
 	setEnv(t, map[string]string{"TAMARACKDB_DEV_MODE": "not-a-bool"})
 	path := writeConfigFile(t, `[server]
-		bindAddress = "0.0.0.0"
+		bindAddress = "127.0.0.1"
 		port = 8443
 		authToken = "secret"
 		dataDir = "data"
@@ -323,7 +323,7 @@ func TestLoadBindAddressPicksTCPOverSocketDefault(t *testing.T) {
 	// into TCP: port still gets its own default, and socketPath is left
 	// empty rather than defaulted.
 	path := writeConfigFile(t, `[server]
-		bindAddress = "0.0.0.0"
+		bindAddress = "127.0.0.1"
 		authToken = "secret"
 		dataDir = "data"
 	`)
@@ -342,7 +342,7 @@ func TestLoadBindAddressPicksTCPOverSocketDefault(t *testing.T) {
 func TestLoadSocketPathWinsOverBindAddressAndPort(t *testing.T) {
 	path := writeConfigFile(t, `[server]
 		socketPath = "/tmp/tamarackdb.sock"
-		bindAddress = "0.0.0.0"
+		bindAddress = "127.0.0.1"
 		port = 8443
 		authToken = "secret"
 		dataDir = "data"
@@ -354,7 +354,7 @@ func TestLoadSocketPathWinsOverBindAddressAndPort(t *testing.T) {
 	if cfg.SocketPath != "/tmp/tamarackdb.sock" {
 		t.Errorf("SocketPath = %q, want %q", cfg.SocketPath, "/tmp/tamarackdb.sock")
 	}
-	if cfg.BindAddress != "0.0.0.0" || cfg.Port != 8443 {
+	if cfg.BindAddress != "127.0.0.1" || cfg.Port != 8443 {
 		t.Errorf("BindAddress/Port = %q/%d, want them kept as set (unused, but not cleared)", cfg.BindAddress, cfg.Port)
 	}
 }
@@ -383,7 +383,7 @@ func setEnv(t *testing.T, vars map[string]string) {
 
 func TestLoadFromEnvWithoutFile(t *testing.T) {
 	setEnv(t, map[string]string{
-		"TAMARACKDB_BIND_ADDRESS": "0.0.0.0",
+		"TAMARACKDB_BIND_ADDRESS": "127.0.0.1",
 		"TAMARACKDB_PORT":         "8443",
 		"TAMARACKDB_AUTH_TOKEN":   "secret",
 		"TAMARACKDB_DATA_DIR":     "data",
@@ -394,7 +394,7 @@ func TestLoadFromEnvWithoutFile(t *testing.T) {
 		t.Fatalf("Load() error = %v", err)
 	}
 	want := Config{
-		BindAddress: "0.0.0.0", Port: 8443,
+		BindAddress: "127.0.0.1", Port: 8443,
 		AuthToken: "secret", DataDir: "data", LogLevel: DefaultLogLevel,
 		DefaultEventsPerPage: DefaultEventsPerPage, MaxEventsPerPage: DefaultMaxEventsPerPage, MaxEventSize: DefaultEventSize,
 		MaxProjectionSize: DefaultProjectionSize,
@@ -413,7 +413,7 @@ func TestLoadEnvFillsOmittedFields(t *testing.T) {
 		"TAMARACKDB_DEFAULT_EVENTS_PER_PAGE": "250",
 	})
 	path := writeConfigFile(t, `[server]
-		bindAddress = "0.0.0.0"
+		bindAddress = "127.0.0.1"
 		port = 8443
 		dataDir = "data"
 	`)
@@ -439,7 +439,7 @@ func TestLoadFileTakesPrecedenceOverEnv(t *testing.T) {
 		"TAMARACKDB_AUTH_TOKEN": "from-env",
 	})
 	path := writeConfigFile(t, `[server]
-		bindAddress = "0.0.0.0"
+		bindAddress = "127.0.0.1"
 		port = 8443
 		authToken = "from-file"
 		dataDir = "data"
@@ -460,7 +460,7 @@ func TestLoadFileTakesPrecedenceOverEnv(t *testing.T) {
 func TestLoadInvalidEnvValue(t *testing.T) {
 	setEnv(t, map[string]string{"TAMARACKDB_PORT": "not-a-number"})
 	path := writeConfigFile(t, `[server]
-		bindAddress = "0.0.0.0"
+		bindAddress = "127.0.0.1"
 		authToken = "secret"
 		dataDir = "data"
 	`)
@@ -478,7 +478,7 @@ func TestLoadMalformedTOML(t *testing.T) {
 
 func TestLoadMaxQueuedWritesFromFile(t *testing.T) {
 	path := writeConfigFile(t, `[server]
-		bindAddress = "0.0.0.0"
+		bindAddress = "127.0.0.1"
 		port = 8443
 		authToken = "secret"
 		dataDir = "data"
@@ -496,7 +496,7 @@ func TestLoadMaxQueuedWritesFromFile(t *testing.T) {
 func TestLoadMaxQueuedWritesFromEnv(t *testing.T) {
 	setEnv(t, map[string]string{"TAMARACKDB_MAX_QUEUED_WRITES": "25"})
 	path := writeConfigFile(t, `[server]
-		bindAddress = "0.0.0.0"
+		bindAddress = "127.0.0.1"
 		port = 8443
 		authToken = "secret"
 		dataDir = "data"
@@ -513,7 +513,7 @@ func TestLoadMaxQueuedWritesFromEnv(t *testing.T) {
 func TestLoadMaxQueuedWritesFileTakesPrecedenceOverEnv(t *testing.T) {
 	setEnv(t, map[string]string{"TAMARACKDB_MAX_QUEUED_WRITES": "25"})
 	path := writeConfigFile(t, `[server]
-		bindAddress = "0.0.0.0"
+		bindAddress = "127.0.0.1"
 		port = 8443
 		authToken = "secret"
 		dataDir = "data"
@@ -530,7 +530,7 @@ func TestLoadMaxQueuedWritesFileTakesPrecedenceOverEnv(t *testing.T) {
 
 func TestLoadReadPoolSizeFromFile(t *testing.T) {
 	path := writeConfigFile(t, `[server]
-		bindAddress = "0.0.0.0"
+		bindAddress = "127.0.0.1"
 		port = 8443
 		authToken = "secret"
 		dataDir = "data"
@@ -548,7 +548,7 @@ func TestLoadReadPoolSizeFromFile(t *testing.T) {
 func TestLoadReadPoolSizeFromEnv(t *testing.T) {
 	setEnv(t, map[string]string{"TAMARACKDB_READ_POOL_SIZE": "25"})
 	path := writeConfigFile(t, `[server]
-		bindAddress = "0.0.0.0"
+		bindAddress = "127.0.0.1"
 		port = 8443
 		authToken = "secret"
 		dataDir = "data"
@@ -565,7 +565,7 @@ func TestLoadReadPoolSizeFromEnv(t *testing.T) {
 func TestLoadReadPoolSizeFileTakesPrecedenceOverEnv(t *testing.T) {
 	setEnv(t, map[string]string{"TAMARACKDB_READ_POOL_SIZE": "25"})
 	path := writeConfigFile(t, `[server]
-		bindAddress = "0.0.0.0"
+		bindAddress = "127.0.0.1"
 		port = 8443
 		authToken = "secret"
 		dataDir = "data"
@@ -582,7 +582,7 @@ func TestLoadReadPoolSizeFileTakesPrecedenceOverEnv(t *testing.T) {
 
 func TestLoadDataDirFromFile(t *testing.T) {
 	path := writeConfigFile(t, `[server]
-		bindAddress = "0.0.0.0"
+		bindAddress = "127.0.0.1"
 		port = 8443
 		authToken = "secret"
 		dataDir = "/custom/data"
@@ -599,7 +599,7 @@ func TestLoadDataDirFromFile(t *testing.T) {
 func TestLoadDataDirFromEnv(t *testing.T) {
 	setEnv(t, map[string]string{"TAMARACKDB_DATA_DIR": "/from-env/data"})
 	path := writeConfigFile(t, `[server]
-		bindAddress = "0.0.0.0"
+		bindAddress = "127.0.0.1"
 		port = 8443
 		authToken = "secret"
 	`)
@@ -615,7 +615,7 @@ func TestLoadDataDirFromEnv(t *testing.T) {
 func TestLoadDataDirFileTakesPrecedenceOverEnv(t *testing.T) {
 	setEnv(t, map[string]string{"TAMARACKDB_DATA_DIR": "/from-env/data"})
 	path := writeConfigFile(t, `[server]
-		bindAddress = "0.0.0.0"
+		bindAddress = "127.0.0.1"
 		port = 8443
 		authToken = "secret"
 		dataDir = "/from-file/data"
@@ -631,7 +631,7 @@ func TestLoadDataDirFileTakesPrecedenceOverEnv(t *testing.T) {
 
 func TestLoadMaxProjectionSizeFromFile(t *testing.T) {
 	path := writeConfigFile(t, `[server]
-		bindAddress = "0.0.0.0"
+		bindAddress = "127.0.0.1"
 		port = 8443
 		authToken = "secret"
 		dataDir = "data"
@@ -649,7 +649,7 @@ func TestLoadMaxProjectionSizeFromFile(t *testing.T) {
 func TestLoadMaxProjectionSizeFromEnv(t *testing.T) {
 	setEnv(t, map[string]string{"TAMARACKDB_MAX_PROJECTION_SIZE": "16384"})
 	path := writeConfigFile(t, `[server]
-		bindAddress = "0.0.0.0"
+		bindAddress = "127.0.0.1"
 		port = 8443
 		authToken = "secret"
 		dataDir = "data"
@@ -672,7 +672,7 @@ func TestLoadWriteLimitsFromEnv(t *testing.T) {
 		"TAMARACKDB_MAX_REQUEST_BODY_SIZE":     "4096",
 	})
 	path := writeConfigFile(t, `[server]
-		bindAddress = "0.0.0.0"
+		bindAddress = "127.0.0.1"
 		port = 8443
 		authToken = "secret"
 		dataDir = "data"
@@ -690,7 +690,7 @@ func TestLoadWriteLimitsFromEnv(t *testing.T) {
 
 func TestLoadLogLevelFromFile(t *testing.T) {
 	path := writeConfigFile(t, `[server]
-		bindAddress = "0.0.0.0"
+		bindAddress = "127.0.0.1"
 		port = 8443
 		authToken = "secret"
 		dataDir = "data"
@@ -708,7 +708,7 @@ func TestLoadLogLevelFromFile(t *testing.T) {
 func TestLoadLogLevelFromEnv(t *testing.T) {
 	setEnv(t, map[string]string{"TAMARACKDB_LOG_LEVEL": "Error"})
 	path := writeConfigFile(t, `[server]
-		bindAddress = "0.0.0.0"
+		bindAddress = "127.0.0.1"
 		port = 8443
 		authToken = "secret"
 		dataDir = "data"
@@ -724,7 +724,7 @@ func TestLoadLogLevelFromEnv(t *testing.T) {
 
 func TestLoadLogLevelDefault(t *testing.T) {
 	path := writeConfigFile(t, `[server]
-		bindAddress = "0.0.0.0"
+		bindAddress = "127.0.0.1"
 		port = 8443
 		authToken = "secret"
 		dataDir = "data"
@@ -742,7 +742,7 @@ func TestValidateLogLevelValues(t *testing.T) {
 	for _, lvl := range []string{"debug", "info", "warning", "error"} {
 		t.Run(lvl, func(t *testing.T) {
 			cfg := Config{
-				BindAddress: "0.0.0.0", Port: 8443,
+				BindAddress: "127.0.0.1", Port: 8443,
 				AuthToken: "secret", DataDir: "data", LogLevel: lvl,
 				DefaultEventsPerPage: 1000, MaxEventsPerPage: 10000, MaxEventSize: 65536,
 				MaxProjectionSize: 65536,
@@ -758,7 +758,7 @@ func TestValidateLogLevelValues(t *testing.T) {
 
 func TestValidateInvalidLogLevel(t *testing.T) {
 	cfg := Config{
-		BindAddress: "0.0.0.0", Port: 8443,
+		BindAddress: "127.0.0.1", Port: 8443,
 		AuthToken: "secret", DataDir: "data", LogLevel: "verbose",
 		DefaultEventsPerPage: 1000, MaxEventsPerPage: 10000, MaxEventSize: 65536,
 		MaxProjectionSize: 65536,
@@ -772,7 +772,7 @@ func TestValidateInvalidLogLevel(t *testing.T) {
 
 func TestValidateNonPositiveMaxProjectionSize(t *testing.T) {
 	cfg := Config{
-		BindAddress: "0.0.0.0", Port: 8443,
+		BindAddress: "127.0.0.1", Port: 8443,
 		AuthToken: "secret", DataDir: "data", LogLevel: "warning",
 		DefaultEventsPerPage: 1000, MaxEventsPerPage: 10000, MaxEventSize: 65536,
 		MaxProjectionSize: 0,
@@ -794,7 +794,7 @@ func TestValidateNonPositiveWriteLimits(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			cfg := Config{
-				BindAddress: "0.0.0.0", Port: 8443,
+				BindAddress: "127.0.0.1", Port: 8443,
 				AuthToken: "secret", DataDir: "data", LogLevel: "warning",
 				DefaultEventsPerPage: 1000, MaxEventsPerPage: 10000, MaxEventSize: 65536,
 				MaxProjectionSize: 65536,
@@ -811,7 +811,7 @@ func TestValidateNonPositiveWriteLimits(t *testing.T) {
 
 func TestValidateEmptyDataDir(t *testing.T) {
 	cfg := Config{
-		BindAddress: "0.0.0.0", Port: 8443,
+		BindAddress: "127.0.0.1", Port: 8443,
 		AuthToken: "secret", DataDir: "", LogLevel: "warning",
 		DefaultEventsPerPage: 1000, MaxEventsPerPage: 10000, MaxEventSize: 65536,
 		MaxProjectionSize: 65536,
@@ -825,7 +825,7 @@ func TestValidateEmptyDataDir(t *testing.T) {
 
 func TestValidateDirectly(t *testing.T) {
 	cfg := Config{
-		BindAddress: "0.0.0.0", Port: 8443,
+		BindAddress: "127.0.0.1", Port: 8443,
 		EnableAuth: true, AuthToken: "secret", DataDir: "data", LogLevel: "warning",
 		DefaultEventsPerPage: 1000, MaxEventsPerPage: 10000, MaxEventSize: 65536,
 		MaxProjectionSize: 65536, MaxQueuedWrites: 100,
@@ -853,7 +853,7 @@ func TestValidateNonPositiveMaxQueuedWrites(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := Config{
-				BindAddress: "0.0.0.0", Port: 8443,
+				BindAddress: "127.0.0.1", Port: 8443,
 				AuthToken: "secret", DataDir: "data", LogLevel: "warning",
 				DefaultEventsPerPage: 1000, MaxEventsPerPage: 10000, MaxEventSize: 65536,
 				MaxProjectionSize: 65536,
@@ -878,7 +878,7 @@ func TestValidateNonPositiveReadPoolSize(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := Config{
-				BindAddress: "0.0.0.0", Port: 8443,
+				BindAddress: "127.0.0.1", Port: 8443,
 				AuthToken: "secret", DataDir: "data", LogLevel: "warning",
 				DefaultEventsPerPage: 1000, MaxEventsPerPage: 10000, MaxEventSize: 65536,
 				MaxProjectionSize: 65536,
@@ -921,6 +921,71 @@ func TestLoadRejectsUnknownKeyInBackupSection(t *testing.T) {
 	`)
 	if _, err := Load(path); err == nil {
 		t.Fatal("Load() error = nil, want error for a misspelled [backup] key")
+	}
+}
+
+func TestValidateAuthOutsideLoopback(t *testing.T) {
+	base := Config{
+		Port: 8085, DataDir: "data", LogLevel: DefaultLogLevel,
+		DefaultEventsPerPage: DefaultEventsPerPage, MaxEventsPerPage: DefaultMaxEventsPerPage, MaxEventSize: DefaultEventSize,
+		MaxProjectionSize: DefaultProjectionSize,
+		MaxEventsPerTx:    DefaultMaxEventsPerTx, MaxReadsPerTx: DefaultMaxReadsPerTx, MaxProjectionsPerTx: DefaultMaxProjectionsPerTx, MaxProjectionsPerWrite: DefaultMaxProjectionsPerWrite, MaxRequestBodySize: DefaultMaxRequestBodySize,
+		MaxQueuedWrites: DefaultMaxQueuedWrites, ReadPoolSize: DefaultReadPoolSize, TxIdleTimeout: DefaultTxIdleTimeout, MaxOpenTx: DefaultMaxOpenTx,
+	}
+	tests := []struct {
+		name    string
+		edit    func(*Config)
+		wantErr bool
+	}{
+		{"0.0.0.0 without auth", func(c *Config) { c.BindAddress = "0.0.0.0" }, true},
+		{"a LAN address without auth", func(c *Config) { c.BindAddress = "192.168.1.10" }, true},
+		{"a hostname without auth", func(c *Config) { c.BindAddress = "db.internal" }, true},
+		{"0.0.0.0 with auth", func(c *Config) { c.BindAddress = "0.0.0.0"; c.EnableAuth = true; c.AuthToken = "secret" }, false},
+		{"0.0.0.0 with allowNoAuth", func(c *Config) { c.BindAddress = "0.0.0.0"; c.AllowNoAuth = true }, false},
+		{"0.0.0.0 in devMode", func(c *Config) { c.BindAddress = "0.0.0.0"; c.DevMode = true }, false},
+		{"127.0.0.1", func(c *Config) { c.BindAddress = "127.0.0.1" }, false},
+		{"127.0.0.2", func(c *Config) { c.BindAddress = "127.0.0.2" }, false},
+		{"::1", func(c *Config) { c.BindAddress = "::1" }, false},
+		{"localhost", func(c *Config) { c.BindAddress = "localhost" }, false},
+		{"a unix socket", func(c *Config) { c.SocketPath = "/tmp/t.sock"; c.SocketMode = "0600"; c.BindAddress = "0.0.0.0" }, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := base
+			tt.edit(&cfg)
+			err := cfg.Validate()
+			if tt.wantErr && (err == nil || !strings.Contains(err.Error(), "allowNoAuth")) {
+				t.Errorf("Validate() error = %v, want one naming allowNoAuth", err)
+			}
+			if !tt.wantErr && err != nil {
+				t.Errorf("Validate() error = %v, want nil", err)
+			}
+		})
+	}
+}
+
+func TestLoadAllowNoAuthFromEnv(t *testing.T) {
+	setEnv(t, map[string]string{
+		"TAMARACKDB_BIND_ADDRESS":  "0.0.0.0",
+		"TAMARACKDB_ALLOW_NO_AUTH": "true",
+	})
+	cfg, err := Load(filepath.Join(t.TempDir(), "missing.toml"))
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if !cfg.AllowNoAuth {
+		t.Error("AllowNoAuth = false, want true (from env)")
+	}
+}
+
+func TestLoadAllowNoAuthFileTakesPrecedenceOverEnv(t *testing.T) {
+	setEnv(t, map[string]string{"TAMARACKDB_ALLOW_NO_AUTH": "true"})
+	path := writeConfigFile(t, `[server]
+		bindAddress = "0.0.0.0"
+		allowNoAuth = false
+	`)
+	if _, err := Load(path); err == nil {
+		t.Fatal("Load() error = nil, want error: the file's allowNoAuth = false wins over the environment")
 	}
 }
 
@@ -1027,7 +1092,7 @@ func TestLoadTxIdleTimeoutFromEnv(t *testing.T) {
 func TestValidateNonPositiveTxIdleTimeout(t *testing.T) {
 	for _, timeout := range []int{-1, 0} {
 		cfg := Config{
-			BindAddress: "0.0.0.0", Port: 8443,
+			BindAddress: "127.0.0.1", Port: 8443,
 			AuthToken: "secret", DataDir: "data", LogLevel: "warning",
 			DefaultEventsPerPage: 1000, MaxEventsPerPage: 10000, MaxEventSize: 65536,
 			MaxProjectionSize: 65536,
@@ -1054,7 +1119,7 @@ func TestLoadMaxOpenTxFromEnv(t *testing.T) {
 func TestValidateNonPositiveMaxOpenTx(t *testing.T) {
 	for _, max := range []int{-1, 0} {
 		cfg := Config{
-			BindAddress: "0.0.0.0", Port: 8443,
+			BindAddress: "127.0.0.1", Port: 8443,
 			AuthToken: "secret", DataDir: "data", LogLevel: "warning",
 			DefaultEventsPerPage: 1000, MaxEventsPerPage: 10000, MaxEventSize: 65536,
 			MaxProjectionSize: 65536,

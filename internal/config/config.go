@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -67,6 +68,14 @@ type Config struct {
 
 	EnableAuth bool   `toml:"enableAuth"`
 	AuthToken  string `toml:"authToken"`
+
+	// AllowNoAuth lets the server listen over TCP on an address other
+	// than loopback with EnableAuth off. Without it, Validate refuses
+	// that setup: anyone who can reach the address would get the whole
+	// API, and in a container the server can't tell whether its port is
+	// published on the host's loopback or on every interface. DevMode
+	// implies it, so a local container needs one setting less.
+	AllowNoAuth bool `toml:"allowNoAuth"`
 
 	// DataDir is the directory holding the SQLite database file
 	// (DatabasePath). Only the directory is configurable; the filename
@@ -246,8 +255,9 @@ func Load(path string) (*Config, error) {
 // value, false, is also a value the file can set on purpose, so it can't
 // tell "left out" apart from "set to false" the way the other fields do.
 type fileBools struct {
-	EnableAuth *bool `toml:"enableAuth"`
-	DevMode    *bool `toml:"devMode"`
+	EnableAuth  *bool `toml:"enableAuth"`
+	AllowNoAuth *bool `toml:"allowNoAuth"`
+	DevMode     *bool `toml:"devMode"`
 }
 
 // applyEnv fills in any field of cfg still at its zero value from the
@@ -264,6 +274,7 @@ func applyEnv(cfg *Config, inFile fileBools) error {
 	return errors.Join(
 		envInt(&cfg.Port, "TAMARACKDB_PORT"),
 		envBool(&cfg.EnableAuth, inFile.EnableAuth != nil, "TAMARACKDB_ENABLE_AUTH"),
+		envBool(&cfg.AllowNoAuth, inFile.AllowNoAuth != nil, "TAMARACKDB_ALLOW_NO_AUTH"),
 		envBool(&cfg.DevMode, inFile.DevMode != nil, "TAMARACKDB_DEV_MODE"),
 		envInt(&cfg.DefaultEventsPerPage, "TAMARACKDB_DEFAULT_EVENTS_PER_PAGE"),
 		envInt(&cfg.MaxEventsPerPage, "TAMARACKDB_MAX_EVENTS_PER_PAGE"),
@@ -343,6 +354,8 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("port must be between 1 and 65535, got %d", c.Port)
 	case c.EnableAuth && c.AuthToken == "":
 		return fmt.Errorf("authToken must not be empty when enableAuth is true")
+	case c.SocketPath == "" && !c.EnableAuth && !c.AllowNoAuth && !c.DevMode && !isLoopback(c.BindAddress):
+		return fmt.Errorf("bindAddress %s is reachable from other hosts, and enableAuth is off: turn enableAuth on, or set allowNoAuth to true to serve without a token", c.BindAddress)
 	case c.DataDir == "":
 		return fmt.Errorf("dataDir must not be empty")
 	case c.LogLevel != "debug" && c.LogLevel != "info" && c.LogLevel != "warning" && c.LogLevel != "error":
@@ -377,6 +390,17 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("maxOpenTx must be positive, got %d", c.MaxOpenTx)
 	}
 	return nil
+}
+
+// isLoopback reports whether addr, a bindAddress, only accepts
+// connections from the same host: "localhost", or a loopback IP. A
+// hostname resolving to a loopback address isn't recognized.
+func isLoopback(addr string) bool {
+	if addr == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(addr)
+	return ip != nil && ip.IsLoopback()
 }
 
 // validSocketMode reports whether s is an octal permission from 0 to 0777.

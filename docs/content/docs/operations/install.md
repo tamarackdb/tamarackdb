@@ -18,7 +18,7 @@ docker run -d --rm --name tamarackdb -p 127.0.0.1:8085:8085 \
 
 - The API is at `http://127.0.0.1:8085`, reachable from your machine only.
 - `TAMARACKDB_DEV_MODE=true` turns on `DELETE /events`, to start each test run from an empty store (see
-  [Development mode](/docs/operations/maintenance/#development-mode)).
+  [Development mode](/docs/operations/maintenance/#development-mode)). It also lets the server run without a token.
 - `TAMARACKDB_LOG_LEVEL=debug` logs every request. Read them with `docker logs -f tamarackdb`.
 - `--rm` deletes the data when the container stops. Mount a volume on `/data` to keep it (see [Docker](#docker)).
 
@@ -138,14 +138,18 @@ Each release publishes an image for `linux/amd64` and `linux/arm64`. Pin a versi
 `ghcr.io/tamarackdb/tamarackdb:v<version>` (see the [releases](https://github.com/tamarackdb/tamarackdb/releases)).
 
 ```sh
-docker run -d -p 127.0.0.1:8085:8085 -v tamarackdb-data:/data ghcr.io/tamarackdb/tamarackdb:latest
+docker run -d -p 127.0.0.1:8085:8085 -v tamarackdb-data:/data \
+  -e TAMARACKDB_ALLOW_NO_AUTH=true \
+  ghcr.io/tamarackdb/tamarackdb:latest
 ```
 
 - The image is set up with `TAMARACKDB_*` environment variables only (see
   [Configuration](/docs/operations/configuration/)).
 - It listens over TCP on port `8085`, and keeps the database in `/data`.
-- Publish the port on `127.0.0.1` only. A plain `-p 8085:8085` opens the API to anyone who can reach the host. To
-  expose it, turn `enableAuth` on and put a reverse proxy in front for TLS (see
+- The server refuses to start until it's given `TAMARACKDB_ENABLE_AUTH=true` and a token, or
+  `TAMARACKDB_ALLOW_NO_AUTH=true`. It can't see whether its port is private.
+- Without a token, publish the port on `127.0.0.1` only. A plain `-p 8085:8085` opens the API to anyone who can reach
+  the host. To expose it, turn `enableAuth` on and put a reverse proxy in front for TLS (see
   [Security](/docs/operations/security/#another-host)).
 - The server runs as UID and GID `10001`. To mount a host directory instead of a named volume, give it to that user
   first: `sudo install -d -o 10001 -g 10001 -m 700 /srv/tamarackdb`.
@@ -161,6 +165,8 @@ application reaches TamarackDB by its service name:
 services:
   tamarackdb:
     image: ghcr.io/tamarackdb/tamarackdb:latest
+    environment:
+      TAMARACKDB_ALLOW_NO_AUTH: "true"
     volumes:
       - tamarackdb-data:/data
   app:
@@ -172,4 +178,5 @@ volumes:
   tamarackdb-data:
 ```
 
-Every container on that network can reach the API. If some of them aren't trusted, turn `enableAuth` on.
+Every container on that network can reach the API. If some of them aren't trusted, turn `enableAuth` on instead of
+`TAMARACKDB_ALLOW_NO_AUTH`.

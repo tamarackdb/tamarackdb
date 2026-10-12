@@ -62,6 +62,10 @@ server {
 - A request without the right token gets `401 Unauthorized`.
 - There is one token, `authToken`. Changing it means changing the configuration and restarting the server.
 - With `enableAuth` off, the default, no request is checked.
+- The server refuses to start with `enableAuth` off when it listens over TCP on an address other than loopback, such
+  as `0.0.0.0`. Set `allowNoAuth` to `true` to start it anyway, when something else keeps the port private. `devMode`
+  implies it.
+- On the unix socket, `allowNoAuth` has no effect: `socketMode` decides who can connect.
 
 ## Files
 
