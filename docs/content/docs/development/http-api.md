@@ -340,12 +340,12 @@ curl -i http://127.0.0.1:8085/projections/user-profile/123
 ```
 HTTP/1.1 200 OK
 Content-Type: text/plain; charset=utf-8
-X-Tamarackdb-Version: 9f3c2a1e-7b4d-4c8e-a5f6-0d1e2f3a4b5c
+X-Tamarackdb-Projection-Version: 9f3c2a1e-7b4d-4c8e-a5f6-0d1e2f3a4b5c
 
 {"name":"Ada Lovelace"}
 ```
 
-- The body is the payload as written. The version is in `X-Tamarackdb-Version`.
+- The body is the payload as written. The version is in `X-Tamarackdb-Projection-Version`.
 - `404 ProjectionNotFound` when it doesn't exist.
 - `type` and `id` are percent-encoded in the path: a `type` of `billing/invoice` is `billing%2Finvoice`.
 

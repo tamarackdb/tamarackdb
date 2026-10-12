@@ -32,7 +32,7 @@ func getProjection(t *testing.T, srv *Server, typ, id string, wantCode int) (ver
 	if rec.Code != wantCode {
 		t.Fatalf("GET status = %d, want %d, body = %s", rec.Code, wantCode, rec.Body.String())
 	}
-	return rec.Header().Get(VersionHeader), rec.Body.String()
+	return rec.Header().Get(ProjectionVersionHeader), rec.Body.String()
 }
 
 func TestGetProjectionNotFound(t *testing.T) {

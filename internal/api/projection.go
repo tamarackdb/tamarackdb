@@ -11,9 +11,9 @@ import (
 	"github.com/tamarackdb/tamarackdb/internal/store"
 )
 
-// VersionHeader carries a projection's version in a
+// ProjectionVersionHeader carries a projection's version in a
 // GET /projections/{type}/{id} response.
-const VersionHeader = "X-Tamarackdb-Version"
+const ProjectionVersionHeader = "X-Tamarackdb-Projection-Version"
 
 // projectionsResponse is a POST /projections response: the new version
 // of every created and replaced projection, in request order.
@@ -36,8 +36,8 @@ func toProjectionVersions(versions []string) []projectionVersion {
 
 // handleGetProjection implements GET /projections/{type}/{id}: 404 when no
 // projection exists, or 200 with the payload as the response body and the
-// version in the X-Tamarackdb-Version header. It sees committed projections
-// only.
+// version in the X-Tamarackdb-Projection-Version header. It sees committed
+// projections only.
 // The payload is returned as-is: its own format (JSON, XML, plain text) is
 // up to the writing application, the store never parses it.
 func (s *Server) handleGetProjection(w http.ResponseWriter, r *http.Request) {
@@ -52,7 +52,7 @@ func (s *Server) handleGetProjection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	w.Header().Set(VersionHeader, p.Version)
+	w.Header().Set(ProjectionVersionHeader, p.Version)
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte(p.Payload))
 }

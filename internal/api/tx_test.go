@@ -95,8 +95,8 @@ func TestTransactionOverHTTP(t *testing.T) {
 	txRequest(t, srv, "POST", tx+"/projections", `{"create":[{"type":"user-profile","id":"1","payload":"a"}]}`, 200)
 	txRequest(t, srv, "POST", tx+"/projections", `{"replace":[{"type":"user-profile","id":"1","payload":"b"}]}`, 200)
 	rec = txRequest(t, srv, "GET", tx+"/projections/user-profile/1", "", 200)
-	if rec.Body.String() != "b" || rec.Header().Get(VersionHeader) != "" {
-		t.Errorf("projection = %q, version header %q, want b and no version", rec.Body.String(), rec.Header().Get(VersionHeader))
+	if rec.Body.String() != "b" || rec.Header().Get(ProjectionVersionHeader) != "" {
+		t.Errorf("projection = %q, version header %q, want b and no version", rec.Body.String(), rec.Header().Get(ProjectionVersionHeader))
 	}
 
 	rec = txRequest(t, srv, "POST", tx+"/commit", "", 204)
