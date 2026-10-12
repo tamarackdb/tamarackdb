@@ -6,7 +6,9 @@ import (
 	"fmt"
 )
 
-const schemaVersion = 1
+// schemaVersion is the major version of TamarackDB: 0 for every 0.x
+// release. A schema change after 1.0 MUST come with a new major version.
+const schemaVersion = 0
 
 // schemaDDL creates the schema of a new database file. Comments in it are
 // SQLite comments, kept in the file with the schema.
@@ -87,18 +89,23 @@ func (e *SchemaVersionError) Error() string {
 }
 
 func ensureSchema(ctx context.Context, db *sql.DB) error {
+	// A brand-new file has no table. Its user_version is SQLite's default,
+	// 0, which can't tell it apart from a file at schema version 0.
+	var objects int
+	if err := db.QueryRowContext(ctx, "SELECT count(*) FROM sqlite_schema").Scan(&objects); err != nil {
+		return wrapf("read schema", err)
+	}
+	if objects == 0 {
+		return createSchema(ctx, db)
+	}
 	var version int
 	if err := db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		return wrapf("read schema version", err)
 	}
-	switch version {
-	case schemaVersion:
-		return nil
-	case 0: // brand-new file: SQLite's own default for user_version
-		return createSchema(ctx, db)
-	default:
+	if version != schemaVersion {
 		return &SchemaVersionError{Found: version, Want: schemaVersion}
 	}
+	return nil
 }
 
 func createSchema(ctx context.Context, db *sql.DB) error {

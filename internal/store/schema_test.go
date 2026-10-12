@@ -5,6 +5,8 @@ import (
 	"errors"
 	"path/filepath"
 	"testing"
+
+	"github.com/tamarackdb/tamarackdb/internal/dcb"
 )
 
 func TestOpenCreatesSchemaOnFreshFile(t *testing.T) {
@@ -89,6 +91,25 @@ func TestOpenCreatesSchemaOnFreshFile(t *testing.T) {
 		if !found {
 			t.Errorf("projections column %q not found", name)
 		}
+	}
+}
+
+func TestOpenKeepsExistingSchema(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "existing.db")
+	s, err := Open(context.Background(), path, 0)
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	mustAppend(t, s, []dcb.EventData{{Type: "a"}}, nil)
+	s.Close()
+
+	s, err = Open(context.Background(), path, 0)
+	if err != nil {
+		t.Fatalf("second Open() error = %v", err)
+	}
+	defer s.Close()
+	if got := s.LastSequence(); got != 1 {
+		t.Errorf("LastSequence() = %d, want 1", got)
 	}
 }
 

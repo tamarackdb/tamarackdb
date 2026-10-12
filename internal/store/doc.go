@@ -121,7 +121,8 @@
 // # Schema version
 //
 // The schema version is PRAGMA user_version, built into the binary (see
-// schema.go). Open creates a new file with the current schema and
-// version. A file at any other version, older or newer, fails Open with a
-// *SchemaVersionError. The store never changes its own schema.
+// schema.go). It is the major version of TamarackDB. Open gives a file
+// with no table the current schema and version. A file at any other
+// version, older or newer, fails Open with a *SchemaVersionError. The
+// store never changes its own schema.
 package store
