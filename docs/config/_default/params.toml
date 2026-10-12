@@ -1,16 +1,12 @@
 description = "Event store in pure Go, compliant with the DCB specification, accessible via HTTP, using SQLite as the storage engine."
 
 [navbar]
-  displayTitle = false
-  displayLogo = true
-  [navbar.logo]
-    path = "tamarackdb-logo.png"
-    link = "/"
-    width = 128
-    height = 24
+  displayTitle = true
+  displayLogo = false
+  width = "wide"
 
 [page]
-  width = "wide"
+  width = "normal"
 
 [theme]
   default = "system"

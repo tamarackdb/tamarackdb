@@ -4,6 +4,8 @@ description: "An open source event store in Go, compliant with the DCB specifica
 layout: hextra-home
 ---
 
+{{< hextra/hero-container image="/tamarackdb-icon.svg" imageWidth="280" imageHeight="280" imageTitle="TamarackDB logo" imageClass="hx:hidden hx:sm:block" >}}
+
 {{< version-badge >}}
 
 {{< hextra/hero-headline >}}
@@ -17,6 +19,8 @@ layout: hextra-home
 <div class="hx:mt-6 hx:mb-6">
 {{< hextra/hero-button text="Get Started" link="/docs/quickstart/" >}}
 </div>
+
+{{< /hextra/hero-container >}}
 
 {{< hextra/feature-grid >}}
   {{< hextra/feature-card title="DCB compliant" subtitle="Follows the DCB specification, with optimistic concurrency on writes." link="/docs/development/concepts/" >}}
