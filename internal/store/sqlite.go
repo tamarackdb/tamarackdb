@@ -73,7 +73,7 @@ func uriPath(path string) string { return uriPathEscaper.Replace(path) }
 // Open first takes an exclusive lock on path+".lock" (see lock.go) and
 // fails with ErrDatabaseLocked if another tamarackdb process already holds
 // it: two processes are never meant to share one database file.
-func Open(ctx context.Context, path string, readPoolSize int) (*Store, error) {
+func Open(ctx context.Context, path string, readPoolSize int) (_ *Store, err error) {
 	if readPoolSize <= 0 {
 		readPoolSize = fallbackReadPoolSize
 	}
@@ -82,44 +82,45 @@ func Open(ctx context.Context, path string, readPoolSize int) (*Store, error) {
 	if err != nil {
 		return nil, err // ErrDatabaseLocked, or already wrapped
 	}
-	if err := createPrivate(path); err != nil {
+	// Any failure from here on gives back what was opened so far.
+	var writeDB, readDB *sql.DB
+	defer func() {
+		if err == nil {
+			return
+		}
+		if readDB != nil {
+			readDB.Close()
+		}
+		if writeDB != nil {
+			writeDB.Close()
+		}
 		releaseLock(lock)
+	}()
+	if err := createPrivate(path); err != nil {
 		return nil, err
 	}
 
-	writeDB, err := sql.Open("sqlite", dsn(path, "&_txlock=immediate"))
+	writeDB, err = sql.Open("sqlite", dsn(path, "&_txlock=immediate"))
 	if err != nil {
-		releaseLock(lock)
 		return nil, wrapf("open write pool", err)
 	}
 	writeDB.SetMaxOpenConns(1)
 	writeDB.SetMaxIdleConns(1)
 
-	readDB, err := sql.Open("sqlite", dsn(path, "&_query_only=1"))
+	readDB, err = sql.Open("sqlite", dsn(path, "&_query_only=1"))
 	if err != nil {
-		writeDB.Close()
-		releaseLock(lock)
 		return nil, wrapf("open read pool", err)
 	}
 	readDB.SetMaxOpenConns(readPoolSize)
 	readDB.SetMaxIdleConns(readPoolSize)
 
 	if err := writeDB.PingContext(ctx); err != nil {
-		writeDB.Close()
-		readDB.Close()
-		releaseLock(lock)
 		return nil, wrapf("open database file", err)
 	}
 	if err := readDB.PingContext(ctx); err != nil {
-		writeDB.Close()
-		readDB.Close()
-		releaseLock(lock)
 		return nil, wrapf("open database file", err)
 	}
 	if err := ensureSchema(ctx, writeDB); err != nil {
-		writeDB.Close()
-		readDB.Close()
-		releaseLock(lock)
 		return nil, err // already wrapped, or *SchemaVersionError
 	}
 
@@ -130,16 +131,10 @@ func Open(ctx context.Context, path string, readPoolSize int) (*Store, error) {
 	// event gets sequence 1.
 	var maxSeq int64
 	if err := writeDB.QueryRowContext(ctx, "SELECT COALESCE(MAX(sequence), 0) FROM events").Scan(&maxSeq); err != nil {
-		writeDB.Close()
-		readDB.Close()
-		releaseLock(lock)
 		return nil, wrapf("read max sequence", err)
 	}
 	pausedAt, err := readPausedAt(ctx, writeDB)
 	if err != nil {
-		writeDB.Close()
-		readDB.Close()
-		releaseLock(lock)
 		return nil, err
 	}
 

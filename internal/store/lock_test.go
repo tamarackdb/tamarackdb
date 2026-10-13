@@ -60,3 +60,15 @@ func TestOpenPathWithURICharacters(t *testing.T) {
 		t.Errorf("database file at %s: %v, want the schema in it", path, err)
 	}
 }
+
+func TestFailedOpenReleasesTheLock(t *testing.T) {
+	path := newFileAtVersion(t, 99)
+
+	for range 2 {
+		_, err := Open(context.Background(), path, 0)
+		var sve *SchemaVersionError
+		if !errors.As(err, &sve) {
+			t.Fatalf("Open() error = %v, want *SchemaVersionError, not ErrDatabaseLocked", err)
+		}
+	}
+}
