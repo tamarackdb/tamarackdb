@@ -64,8 +64,9 @@ type Config struct {
 	// IdleTimeout is how long a transaction lives without a call.
 	IdleTimeout time.Duration
 
-	// Now returns the current time, for IdleTimeout. nil means time.Now;
-	// a test sets it to move time forward without sleeping.
+	// Now returns the current time, for IdleTimeout and the time a pause
+	// began. nil means time.Now; a test sets it to move time forward
+	// without sleeping.
 	Now func() time.Time
 
 	// MaxEventsPerTx caps the events a transaction writes, across all its
@@ -122,7 +123,7 @@ func New(st *store.Store, wr *writer.Writer, cfg Config) *Registry {
 		wr:         wr,
 		cfg:        cfg,
 		txs:        map[string]*transaction{},
-		pauseSince: time.Now(),
+		pauseSince: cfg.Now(),
 	}
 	if at, paused := st.PausedAt(); paused {
 		r.pause, r.pauseSince = Paused, at

@@ -67,12 +67,12 @@ func (r *Registry) Pause(ctx context.Context) (PauseResult, error) {
 			result.LastSequence = r.st.LastSequence()
 		case len(r.txs) > 0:
 			if r.pause == Running {
-				r.pause, r.pauseSince = PauseRequested, time.Now()
+				r.pause, r.pauseSince = PauseRequested, r.cfg.Now()
 			}
 			result.Open = len(r.txs)
 			return nil
 		default:
-			now := time.Now()
+			now := r.cfg.Now()
 			last, err := r.st.SetPause(ctx, now)
 			if err != nil {
 				return err
@@ -106,7 +106,7 @@ func (r *Registry) Resume(ctx context.Context) error {
 			}
 		}
 		if r.pause != Running {
-			r.pause, r.pauseSince = Running, time.Now()
+			r.pause, r.pauseSince = Running, r.cfg.Now()
 		}
 		return nil
 	})

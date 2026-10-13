@@ -161,3 +161,34 @@ func TestPauseSurvivesANewRegistry(t *testing.T) {
 		t.Errorf("Begin() error = %v, want ErrPaused", err)
 	}
 }
+
+// TestPauseTimesComeFromTheClock checks that each change of the pause
+// state takes its time from Config.Now.
+func TestPauseTimesComeFromTheClock(t *testing.T) {
+	env := newTestEnv(t, time.Hour)
+	if got := env.r.PauseInfo().Since; !got.Equal(env.clock.Now()) {
+		t.Errorf("Since at start = %v, want %v", got, env.clock.Now())
+	}
+
+	id := begin(t, env.r)
+	env.clock.advance(time.Minute)
+	pause(t, env.r)
+	if got := env.r.PauseInfo(); got.State != PauseRequested || !got.Since.Equal(env.clock.Now()) {
+		t.Errorf("requested pause = %+v, want PauseRequested since %v", got, env.clock.Now())
+	}
+
+	env.r.Abandon(id)
+	env.clock.advance(time.Minute)
+	pause(t, env.r)
+	if got := env.r.PauseInfo(); got.State != Paused || !got.Since.Equal(env.clock.Now()) {
+		t.Errorf("pause = %+v, want Paused since %v", got, env.clock.Now())
+	}
+
+	env.clock.advance(time.Minute)
+	if err := env.r.Resume(bg); err != nil {
+		t.Fatalf("Resume() error = %v", err)
+	}
+	if got := env.r.PauseInfo(); got.State != Running || !got.Since.Equal(env.clock.Now()) {
+		t.Errorf("after Resume = %+v, want Running since %v", got, env.clock.Now())
+	}
+}
