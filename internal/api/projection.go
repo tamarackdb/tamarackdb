@@ -107,6 +107,18 @@ func (s *Server) validateWriteProjections(req projection.Writes) error {
 	return validateProjections(req, s.opts.MaxProjectionSize)
 }
 
+// projectionSize is the size checked against maxProjectionSize. It's
+// measured like an event: every string the projection carries counts, not
+// just its payload, so type and id are bounded too. A deletion has no
+// payload.
+func projectionSize(typ, id string, payload *string) int {
+	size := len(typ) + len(id)
+	if payload != nil {
+		size += len(*payload)
+	}
+	return size
+}
+
 // validateProjections checks each projection: its own Validate(), then
 // maxProjectionSize, rejecting a type+id pair that appears more than once
 // across the three lists. A message names the projection as op[i].
@@ -123,13 +135,7 @@ func validateProjections(w projection.Writes, maxProjectionSize int) error {
 				"%s has the same type and id as %s", at, first)}
 		}
 		seen[key] = at
-		// Measured like an event: every string the projection carries
-		// counts, not just its payload, so type and id are bounded too.
-		size := len(typ) + len(id)
-		if payload != nil {
-			size += len(*payload)
-		}
-		if size > maxProjectionSize {
+		if size := projectionSize(typ, id, payload); size > maxProjectionSize {
 			return &oversizeError{at: at, setting: "maxProjectionSize", size: size, max: maxProjectionSize}
 		}
 		return nil

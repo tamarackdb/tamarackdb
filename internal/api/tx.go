@@ -260,17 +260,13 @@ func (s *Server) validateTxProjections(req txProjectionsRequest) error {
 		ps   []projection.Create
 	}{{"create", req.Create}, {"replace", req.Replace}} {
 		for i, p := range list.ps {
-			size := len(p.Type) + len(p.ID)
-			if p.Payload != nil {
-				size += len(*p.Payload)
-			}
-			if err := check(fmt.Sprintf("%s[%d]", list.name, i), p.Validate, size); err != nil {
+			if err := check(fmt.Sprintf("%s[%d]", list.name, i), p.Validate, projectionSize(p.Type, p.ID, p.Payload)); err != nil {
 				return err
 			}
 		}
 	}
 	for i, k := range req.Delete {
-		if err := check(fmt.Sprintf("delete[%d]", i), k.Validate, len(k.Type)+len(k.ID)); err != nil {
+		if err := check(fmt.Sprintf("delete[%d]", i), k.Validate, projectionSize(k.Type, k.ID, nil)); err != nil {
 			return err
 		}
 	}
