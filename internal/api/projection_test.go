@@ -28,18 +28,41 @@ func waitQueued(t *testing.T, wr *writer.Writer, n int) {
 // header and the body.
 func getProjection(t *testing.T, srv *Server, typ, id string, wantCode int) (version, body string) {
 	t.Helper()
-	rec := doRequest(t, srv, "GET", "/projections/"+typ+"/"+id, "")
+	rec := doRequest(t, srv, "QUERY", "/projections", fmt.Sprintf(`{"type":%q,"id":%q}`, typ, id))
 	if rec.Code != wantCode {
-		t.Fatalf("GET status = %d, want %d, body = %s", rec.Code, wantCode, rec.Body.String())
+		t.Fatalf("QUERY status = %d, want %d, body = %s", rec.Code, wantCode, rec.Body.String())
 	}
 	return rec.Header().Get(ProjectionVersionHeader), rec.Body.String()
 }
 
 func TestGetProjectionNotFound(t *testing.T) {
 	srv, _, _ := newTestServer(t)
-	rec := doRequest(t, srv, "GET", "/projections/user-profile/123", "")
+	rec := doRequest(t, srv, "QUERY", "/projections", `{"type":"user-profile","id":"123"}`)
 	if rec.Code != 404 || errorCode(t, rec) != "ProjectionNotFound" {
 		t.Fatalf("status = %d, body = %s, want 404 ProjectionNotFound", rec.Code, rec.Body.String())
+	}
+}
+
+func TestGetProjectionRejectsInvalidRequests(t *testing.T) {
+	tests := []struct{ name, body, wantInMsg string }{
+		{"malformed json", `{"type":`, "not valid JSON"},
+		{"missing type", `{"id":"1"}`, "missing its type"},
+		{"missing id", `{"type":"p"}`, "missing its id"},
+		{"invalid type", `{"type":"p q","id":"1"}`, `projection type "p q" is invalid`},
+		{"invalid id", `{"type":"p","id":"1\n2"}`, "projection id"},
+		{"unknown key", `{"type":"p","id":"1","version":"v"}`, "version"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv, _, _ := newTestServer(t)
+			rec := doRequest(t, srv, "QUERY", "/projections", tt.body)
+			if rec.Code != 400 || errorCode(t, rec) != "InvalidRequest" {
+				t.Fatalf("status = %d, body = %s, want 400 InvalidRequest", rec.Code, rec.Body.String())
+			}
+			if msg := errorMessage(t, rec); !strings.Contains(msg, tt.wantInMsg) {
+				t.Errorf("message = %q, want it to contain %q", msg, tt.wantInMsg)
+			}
+		})
 	}
 }
 
@@ -351,7 +374,7 @@ func TestRebuild(t *testing.T) {
 	writeProjectionsCommitted(t, srv, fmt.Sprintf(
 		`{"replace":[{"type":"user-profile","id":"1","version":%q,"payload":"rebuilt again"}]}`, v1))
 	if _, body := getProjection(t, srv, "user-profile", "1", 200); body != "rebuilt again" {
-		t.Errorf("GET /projections/user-profile/1 = %q, want rebuilt again", body)
+		t.Errorf("projection user-profile/1 = %q, want rebuilt again", body)
 	}
 
 	if rec := doRequest(t, srv, "DELETE", "/projections", ""); rec.Code != 204 {

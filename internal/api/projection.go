@@ -12,7 +12,7 @@ import (
 )
 
 // ProjectionVersionHeader carries a projection's version in a
-// GET /projections/{type}/{id} response.
+// QUERY /projections response.
 const ProjectionVersionHeader = "X-Tamarackdb-Projection-Version"
 
 // projectionsResponse is a POST /projections response: the new version
@@ -34,15 +34,25 @@ func toProjectionVersions(versions []string) []projectionVersion {
 	return out
 }
 
-// handleGetProjection implements GET /projections/{type}/{id}: 404 when no
-// projection exists, or 200 with the payload as the response body and the
-// version in the X-Tamarackdb-Projection-Version header. It sees committed
-// projections only.
+// handleGetProjection implements QUERY /projections: the body names the
+// projection by type and id, so that an id, which can hold personal data,
+// never appears in a URL or an access log. 404 when no projection exists,
+// or 200 with the payload as the response body and the version in the
+// X-Tamarackdb-Projection-Version header. It sees committed projections
+// only.
 // The payload is returned as-is: its own format (JSON, XML, plain text) is
 // up to the writing application, the store never parses it.
 func (s *Server) handleGetProjection(w http.ResponseWriter, r *http.Request) {
-	typ, id := r.PathValue("type"), r.PathValue("id")
-	p, err := s.st.GetProjection(r.Context(), typ, id)
+	var key projection.Key
+	err := decodeJSONStrict(r, &key)
+	if err == nil {
+		err = key.Validate()
+	}
+	if err != nil {
+		s.handleErr(w, r, err)
+		return
+	}
+	p, err := s.st.GetProjection(r.Context(), key.Type, key.ID)
 	if err != nil {
 		s.handleErr(w, r, err)
 		return

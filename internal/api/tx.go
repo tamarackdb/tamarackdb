@@ -182,11 +182,21 @@ func (s *Server) handleTxWriteEvents(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, txWriteResponse{Time: t.Format(dcb.TimeLayout)})
 }
 
-// handleTxGetProjection implements GET /tx/{txId}/projections/{type}/{id}:
-// the projection as the transaction sees it, with no version header.
+// handleTxGetProjection implements QUERY /tx/{txId}/projections: the
+// projection named in the body, as the transaction sees it, with no
+// version header.
 func (s *Server) handleTxGetProjection(w http.ResponseWriter, r *http.Request) {
-	key := tx.Key{Type: r.PathValue("type"), ID: r.PathValue("id")}
-	payload, found, err := s.txs.GetProjection(r.Context(), r.PathValue("txId"), key)
+	id := r.PathValue("txId")
+	var key projection.Key
+	err := decodeJSONStrict(r, &key)
+	if err == nil {
+		err = key.Validate()
+	}
+	if err != nil {
+		s.txFail(w, r, id, err)
+		return
+	}
+	payload, found, err := s.txs.GetProjection(r.Context(), id, tx.Key{Type: key.Type, ID: key.ID})
 	if err != nil {
 		s.handleErr(w, r, err)
 		return

@@ -94,7 +94,7 @@ func TestTransactionOverHTTP(t *testing.T) {
 
 	txRequest(t, srv, "POST", tx+"/projections", `{"create":[{"type":"user-profile","id":"1","payload":"a"}]}`, 200)
 	txRequest(t, srv, "POST", tx+"/projections", `{"replace":[{"type":"user-profile","id":"1","payload":"b"}]}`, 200)
-	rec = txRequest(t, srv, "GET", tx+"/projections/user-profile/1", "", 200)
+	rec = txRequest(t, srv, "QUERY", tx+"/projections", `{"type":"user-profile","id":"1"}`, 200)
 	if rec.Body.String() != "b" || rec.Header().Get(ProjectionVersionHeader) != "" {
 		t.Errorf("projection = %q, version header %q, want b and no version", rec.Body.String(), rec.Header().Get(ProjectionVersionHeader))
 	}
@@ -152,6 +152,8 @@ func TestRefusedRequestsEndTheTransaction(t *testing.T) {
 		{"version in a replace", "POST", "/projections", `{"replace":[{"type":"p","id":"1","version":"v","payload":""}]}`, 400, false},
 		{"version in a delete", "POST", "/projections", `{"delete":[{"type":"p","id":"1","version":"v"}]}`, 400, false},
 		{"upsert", "POST", "/projections", `{"upsert":[{"type":"p","id":"1","payload":""}]}`, 400, false},
+		{"projection read without id", "QUERY", "/projections", `{"type":"p"}`, 400, false},
+		{"projection read with an unknown key", "QUERY", "/projections", `{"type":"p","id":"1","version":"v"}`, 400, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

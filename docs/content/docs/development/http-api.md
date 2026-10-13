@@ -15,7 +15,7 @@ server on `127.0.0.1:8085`, with authentication off.
 | [`QUERY /events`](#reading-events) | Read committed events |
 | [`POST /tx`](#transactions) and `/tx/{txId}/...` | Begin a transaction, read and write in it, commit or abandon it |
 | [`POST /projections`](#writing-projections) | Create, replace, and delete projections outside a transaction |
-| [`GET /projections/{type}/{id}`](#reading-a-projection) | Read one projection |
+| [`QUERY /projections`](#reading-a-projection) | Read one projection |
 | [`DELETE /projections/{type}`, `DELETE /projections`](#bulk-delete) | Delete every projection of a type, or every projection |
 | [`POST /pause`, `POST /resume`](#pause-and-resume) | Stop transactions from beginning, and let them begin again |
 | [`POST /optimize`](#optimize) | Refresh SQLite's query statistics |
@@ -113,7 +113,7 @@ curl -X QUERY http://127.0.0.1:8085/events \
 | `POST /tx` | none | `200 {"txId": "..."}` |
 | `QUERY /tx/{txId}/events` | `{"query": ...}` | `200`, NDJSON |
 | `POST /tx/{txId}/events` | `{"events": [...]}` | `200 {"time": "..."}` |
-| `GET /tx/{txId}/projections/{type}/{id}` | none | `200`, the payload |
+| `QUERY /tx/{txId}/projections` | `{"type": ..., "id": ...}` | `200`, the payload |
 | `POST /tx/{txId}/projections` | `{"create": [...], "replace": [...], "delete": [...]}` | `200 {"time": "..."}` |
 | `POST /tx/{txId}/commit` | none | `204` |
 | `DELETE /tx/{txId}` | none | `204` |
@@ -191,7 +191,12 @@ curl -X POST http://127.0.0.1:8085/tx/<txId>/events \
 ### Read a projection
 
 ```sh
-curl http://127.0.0.1:8085/tx/<txId>/projections/show-seats/s1
+curl -X QUERY http://127.0.0.1:8085/tx/<txId>/projections \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "show-seats",
+    "id": "s1"
+  }'
 ```
 
 - `200 OK`: the payload, as written.
@@ -334,7 +339,12 @@ curl -X POST http://127.0.0.1:8085/projections \
 ### Reading a projection
 
 ```sh
-curl -i http://127.0.0.1:8085/projections/user-profile/123
+curl -i -X QUERY http://127.0.0.1:8085/projections \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "user-profile",
+    "id": "123"
+  }'
 ```
 
 ```
@@ -347,7 +357,7 @@ X-Tamarackdb-Projection-Version: 9f3c2a1e-7b4d-4c8e-a5f6-0d1e2f3a4b5c
 
 - The body is the payload as written. The version is in `X-Tamarackdb-Projection-Version`.
 - `404 ProjectionNotFound` when it doesn't exist.
-- `type` and `id` are percent-encoded in the path: a `type` of `billing/invoice` is `billing%2Finvoice`.
+- `type` and `id` are in the body, so an `id` holding personal data never appears in a URL or a log.
 
 ### Bulk delete
 
@@ -357,6 +367,7 @@ curl -X DELETE http://127.0.0.1:8085/projections
 ```
 
 - Deletes every projection of one type, or every projection. `204 No Content`.
+- `type` is percent-encoded in the path: a `type` of `billing/invoice` is `billing%2Finvoice`.
 - No version, no conflict. A later `replace` or `delete` of a deleted projection gets `409`.
 
 ## Pause and resume

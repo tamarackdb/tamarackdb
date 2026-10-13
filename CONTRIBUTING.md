@@ -121,7 +121,7 @@ metadata tag, and filler text as payload. Projections get a random
 type, a numeric id, and longer filler text as payload. The tool writes
 straight to the store, not through the HTTP server, so it can seed a
 large database fast. Use it to try `QUERY /events` and
-`GET /projections/{type}/{id}` at scale, or to test a client library
+`QUERY /projections` at scale, or to test a client library
 against realistic volume.
 
 ```sh

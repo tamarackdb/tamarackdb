@@ -67,7 +67,7 @@ func TestAccessLogLevelPerOutcome(t *testing.T) {
 		}},
 		{"ProjectionNotFound", "DEBUG", func(t *testing.T) *httptest.ResponseRecorder {
 			srv, _, _ := newTestServer(t)
-			return doRequest(t, srv, "GET", "/projections/user-profile/123", "")
+			return doRequest(t, srv, "QUERY", "/projections", `{"type":"user-profile","id":"123"}`)
 		}},
 		{"ConcurrencyException", "DEBUG", func(t *testing.T) *httptest.ResponseRecorder {
 			srv, _, _ := newTestServer(t)
