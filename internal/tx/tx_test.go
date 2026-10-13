@@ -143,7 +143,7 @@ func committedEvents(t *testing.T, st *store.Store) []store.ReadEvent {
 	return out
 }
 
-func projectionPayload(t *testing.T, st *store.Store, key Key) (string, bool) {
+func projectionPayload(t *testing.T, st *store.Store, key projection.Key) (string, bool) {
 	t.Helper()
 	p, err := st.GetProjection(bg, key.Type, key.ID)
 	if err != nil {
@@ -152,7 +152,7 @@ func projectionPayload(t *testing.T, st *store.Store, key Key) (string, bool) {
 	return p.Payload, p.Found
 }
 
-func getProjection(t *testing.T, r *Registry, id string, key Key) (string, bool) {
+func getProjection(t *testing.T, r *Registry, id string, key projection.Key) (string, bool) {
 	t.Helper()
 	payload, found, err := r.GetProjection(bg, id, key)
 	if err != nil {
@@ -169,7 +169,7 @@ func writeProjections(t *testing.T, r *Registry, id string, w Writes) {
 }
 
 // seedProjection commits a projection outside any transaction.
-func seedProjection(t *testing.T, wr *writer.Writer, key Key, payload string) {
+func seedProjection(t *testing.T, wr *writer.Writer, key projection.Key, payload string) {
 	t.Helper()
 	if _, err := wr.WriteProjections(bg, projection.Writes{
 		Create: []projection.Create{{Type: key.Type, ID: key.ID, Payload: &payload}},
@@ -184,7 +184,7 @@ func TestCommitWritesEverythingTogether(t *testing.T) {
 
 	read(t, env.r, id, dcb.QueryNone())
 	written := write(t, env.r, id, "a", "b")
-	key := Key{"summary", "1"}
+	key := projection.Key{Type: "summary", ID: "1"}
 	writeProjections(t, env.r, id, Writes{Create: []Projection{{key, "x"}}})
 
 	if got := committedEvents(t, env.st); len(got) != 0 {
@@ -230,7 +230,7 @@ func TestReadMergesPendingEvents(t *testing.T) {
 }
 
 func TestRulesEndTheTransaction(t *testing.T) {
-	key := Key{"summary", "1"}
+	key := projection.Key{Type: "summary", ID: "1"}
 	tests := []struct {
 		name string
 		run  func(r *Registry, id string) error
@@ -265,7 +265,7 @@ func TestRulesEndTheTransaction(t *testing.T) {
 			return err
 		}},
 		{"projection deleted without being read", func(r *Registry, id string) error {
-			_, err := r.WriteProjections(id, Writes{Delete: []Key{key}})
+			_, err := r.WriteProjections(id, Writes{Delete: []projection.Key{key}})
 			return err
 		}},
 		{"projection replaced while absent", func(r *Registry, id string) error {
@@ -287,7 +287,7 @@ func TestRulesEndTheTransaction(t *testing.T) {
 			return err
 		}},
 		{"projection twice in one write", func(r *Registry, id string) error {
-			_, err := r.WriteProjections(id, Writes{Create: []Projection{{key, "x"}}, Delete: []Key{key}})
+			_, err := r.WriteProjections(id, Writes{Create: []Projection{{key, "x"}}, Delete: []projection.Key{key}})
 			return err
 		}},
 		{"commit while a condition is open", func(r *Registry, id string) error {
@@ -369,23 +369,23 @@ func TestEmptyWriteProtectsTheDecision(t *testing.T) {
 
 func TestNetProjections(t *testing.T) {
 	env := newTestEnv(t, time.Minute)
-	replaced, deleted, readOnly := Key{"p", "replaced"}, Key{"p", "deleted"}, Key{"p", "read-only"}
-	created, gone, absent := Key{"p", "created"}, Key{"p", "created-then-deleted"}, Key{"p", "absent"}
-	recreated, readCreated := Key{"p", "deleted-then-created"}, Key{"p", "read-then-created"}
-	for _, k := range []Key{replaced, deleted, readOnly, recreated} {
+	replaced, deleted, readOnly := projection.Key{Type: "p", ID: "replaced"}, projection.Key{Type: "p", ID: "deleted"}, projection.Key{Type: "p", ID: "read-only"}
+	created, gone, absent := projection.Key{Type: "p", ID: "created"}, projection.Key{Type: "p", ID: "created-then-deleted"}, projection.Key{Type: "p", ID: "absent"}
+	recreated, readCreated := projection.Key{Type: "p", ID: "deleted-then-created"}, projection.Key{Type: "p", ID: "read-then-created"}
+	for _, k := range []projection.Key{replaced, deleted, readOnly, recreated} {
 		seedProjection(t, env.wr, k, "old")
 	}
 
 	id := begin(t, env.r)
-	for _, k := range []Key{replaced, deleted, readOnly, absent, recreated, readCreated} {
+	for _, k := range []projection.Key{replaced, deleted, readOnly, absent, recreated, readCreated} {
 		getProjection(t, env.r, id, k)
 	}
 	writeProjections(t, env.r, id, Writes{
 		Create:  []Projection{{created, "new"}, {gone, "new"}, {readCreated, "new"}},
 		Replace: []Projection{{replaced, "new"}},
-		Delete:  []Key{deleted, absent, recreated},
+		Delete:  []projection.Key{deleted, absent, recreated},
 	})
-	writeProjections(t, env.r, id, Writes{Create: []Projection{{recreated, "new"}}, Delete: []Key{gone}})
+	writeProjections(t, env.r, id, Writes{Create: []Projection{{recreated, "new"}}, Delete: []projection.Key{gone}})
 
 	// The transaction reads its own pending state.
 	if payload, found := getProjection(t, env.r, id, replaced); !found || payload != "new" {
@@ -398,12 +398,12 @@ func TestNetProjections(t *testing.T) {
 	before, _ := env.st.GetProjection(bg, readOnly.Type, readOnly.ID)
 	commit(t, env.r, id)
 
-	for k, want := range map[Key]string{replaced: "new", created: "new", readOnly: "old", recreated: "new", readCreated: "new"} {
+	for k, want := range map[projection.Key]string{replaced: "new", created: "new", readOnly: "old", recreated: "new", readCreated: "new"} {
 		if payload, found := projectionPayload(t, env.st, k); !found || payload != want {
 			t.Errorf("%s = %q, %v, want %q", k, payload, found, want)
 		}
 	}
-	for _, k := range []Key{deleted, gone, absent} {
+	for _, k := range []projection.Key{deleted, gone, absent} {
 		if _, found := projectionPayload(t, env.st, k); found {
 			t.Errorf("%s found, want deleted or never created", k)
 		}
@@ -419,13 +419,13 @@ func TestNetProjections(t *testing.T) {
 // transaction created, and that the transaction goes on to its commit.
 func TestProjectionReadWhileAConditionIsOpen(t *testing.T) {
 	env := newTestEnv(t, time.Minute)
-	committed, created := Key{"activity", "committed"}, Key{"activity", "created"}
+	committed, created := projection.Key{Type: "activity", ID: "committed"}, projection.Key{Type: "activity", ID: "created"}
 	seedProjection(t, env.wr, committed, "2026")
 
 	id := begin(t, env.r)
 	writeProjections(t, env.r, id, Writes{Create: []Projection{{created, "2027"}}})
 	read(t, env.r, id, types("a"))
-	for k, want := range map[Key]string{committed: "2026", created: "2027"} {
+	for k, want := range map[projection.Key]string{committed: "2026", created: "2027"} {
 		if payload, found := getProjection(t, env.r, id, k); !found || payload != want {
 			t.Errorf("%s while a condition is open = %q, %v, want %q", k, payload, found, want)
 		}
@@ -440,7 +440,7 @@ func TestProjectionReadWhileAConditionIsOpen(t *testing.T) {
 
 func TestProjectionConflictNamesTheProjection(t *testing.T) {
 	env := newTestEnv(t, time.Minute)
-	key := Key{"summary", "1"}
+	key := projection.Key{Type: "summary", ID: "1"}
 	seedProjection(t, env.wr, key, "old")
 
 	id := begin(t, env.r)
@@ -466,7 +466,7 @@ func TestProjectionConflictNamesTheProjection(t *testing.T) {
 // doesn't speak of a read.
 func TestCreateWithoutReadConflicts(t *testing.T) {
 	env := newTestEnv(t, time.Minute)
-	key := Key{"summary", "1"}
+	key := projection.Key{Type: "summary", ID: "1"}
 	id := begin(t, env.r)
 	writeProjections(t, env.r, id, Writes{Create: []Projection{{key, "mine"}}})
 	if payload, found := getProjection(t, env.r, id, key); !found || payload != "mine" {
@@ -598,7 +598,7 @@ func TestSecondCallIsRefused(t *testing.T) {
 		t.Fatalf("acquire() error = %v", err)
 	}
 
-	key := Key{Type: "p", ID: "1"}
+	key := projection.Key{Type: "p", ID: "1"}
 	calls := map[string]func() error{
 		"ReadEvents": func() error {
 			_, err := env.r.ReadEvents(bg, id, dcb.QueryNone())
@@ -613,7 +613,7 @@ func TestSecondCallIsRefused(t *testing.T) {
 			return err
 		},
 		"WriteProjections": func() error {
-			_, err := env.r.WriteProjections(id, Writes{Delete: []Key{key}})
+			_, err := env.r.WriteProjections(id, Writes{Delete: []projection.Key{key}})
 			return err
 		},
 		"Commit":  func() error { return env.r.Commit(bg, id) },
@@ -679,7 +679,7 @@ func TestCommitWithNothingToWriteTakesNoTurn(t *testing.T) {
 
 	id := begin(t, env.r)
 	decide(t, env.r, id, types("a"))
-	getProjection(t, env.r, id, Key{"p", "1"})
+	getProjection(t, env.r, id, projection.Key{Type: "p", ID: "1"})
 	done := make(chan error, 1)
 	go func() { done <- env.r.Commit(bg, id) }()
 	select {
@@ -743,9 +743,9 @@ func TestTooManyReads(t *testing.T) {
 func TestTooManyProjections(t *testing.T) {
 	env := newTestEnv(t, time.Minute)
 	id := begin(t, env.r)
-	keys := make([]Key, 11)
+	keys := make([]projection.Key, 11)
 	for i := range keys {
-		keys[i] = Key{Type: "p", ID: fmt.Sprint(i)}
+		keys[i] = projection.Key{Type: "p", ID: fmt.Sprint(i)}
 		getProjection(t, env.r, id, keys[i])
 	}
 	var create []Projection
@@ -798,7 +798,7 @@ func TestAbandonAndReject(t *testing.T) {
 // work.
 func TestReadsIgnoreTheClientLeaving(t *testing.T) {
 	env := newTestEnv(t, time.Minute)
-	key := Key{Type: "p", ID: "1"}
+	key := projection.Key{Type: "p", ID: "1"}
 	seedProjection(t, env.wr, key, "seeded")
 	gone, cancel := context.WithCancel(bg)
 	cancel()

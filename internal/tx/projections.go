@@ -10,18 +10,10 @@ import (
 	"github.com/tamarackdb/tamarackdb/internal/store"
 )
 
-// Key names one projection.
-type Key struct {
-	Type string
-	ID   string
-}
-
-func (k Key) String() string { return k.Type + "/" + k.ID }
-
 // Projection is one create or replace: the whole new payload of a
 // projection.
 type Projection struct {
-	Key
+	projection.Key
 	Payload string
 }
 
@@ -31,7 +23,7 @@ type Projection struct {
 type Writes struct {
 	Create  []Projection
 	Replace []Projection
-	Delete  []Key
+	Delete  []projection.Key
 }
 
 // Len returns the number of projections across the three lists.
@@ -62,7 +54,7 @@ type projectionState struct {
 // A client can then read projections after a decision and before its
 // write, to add metadata to its events for example. When the read ran
 // changes nothing at commit: a projection only read is never checked.
-func (r *Registry) GetProjection(ctx context.Context, id string, key Key) (payload string, found bool, err error) {
+func (r *Registry) GetProjection(ctx context.Context, id string, key projection.Key) (payload string, found bool, err error) {
 	ctx = context.WithoutCancel(ctx)
 	err = r.do(id, func(t *transaction) error {
 		p, ok := t.projections[key]
@@ -102,15 +94,15 @@ func (r *Registry) WriteProjections(id string, w Writes) (time.Time, error) {
 		if w.Len() == 0 {
 			return designError("a write of projections must create, replace, or delete at least one projection")
 		}
-		seen := make(map[Key]bool, w.Len())
-		once := func(k Key) error {
+		seen := make(map[projection.Key]bool, w.Len())
+		once := func(k projection.Key) error {
 			if seen[k] {
 				return designError(fmt.Sprintf("projection %s appears twice in one write", k))
 			}
 			seen[k] = true
 			return nil
 		}
-		readFirst := func(k Key) error {
+		readFirst := func(k projection.Key) error {
 			if t.projections[k] == nil {
 				return designError(fmt.Sprintf("projection %s replaced or deleted without being read in this transaction: read it first", k))
 			}
@@ -211,7 +203,7 @@ func (t *transaction) netProjections() (projection.Writes, opKeys) {
 // projection, to name it in a conflict. unread says, for each create,
 // whether its projection was created without a read.
 type opKeys struct {
-	create, replace, delete []Key
+	create, replace, delete []projection.Key
 	unread                  []bool
 }
 

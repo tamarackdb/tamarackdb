@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/tamarackdb/tamarackdb/internal/dcb"
+	"github.com/tamarackdb/tamarackdb/internal/projection"
 	"github.com/tamarackdb/tamarackdb/internal/store"
 	"github.com/tamarackdb/tamarackdb/internal/writer"
 )
@@ -163,9 +164,9 @@ type transaction struct {
 	open        *openCondition // the condition the last read opened, until its write
 	conditions  []dcb.AppendCondition
 	events      []dcb.PendingEvent
-	projections map[Key]*projectionState
-	touched     []Key // the keys of projections, in the order first read or created
-	written     int   // how many projections the transaction wrote
+	projections map[projection.Key]*projectionState
+	touched     []projection.Key // the keys of projections, in the order first read or created
+	written     int              // how many projections the transaction wrote
 }
 
 // openCondition is what a read of events opened: the query, and the
@@ -183,7 +184,7 @@ type openCondition struct {
 func (r *Registry) Begin() (string, error) {
 	t := &transaction{
 		id:          uuid.NewString(),
-		projections: map[Key]*projectionState{},
+		projections: map[projection.Key]*projectionState{},
 	}
 	r.lock()
 	defer r.mu.Unlock()

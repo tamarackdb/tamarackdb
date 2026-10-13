@@ -196,7 +196,7 @@ func (s *Server) handleTxGetProjection(w http.ResponseWriter, r *http.Request) {
 		s.txFail(w, r, id, err)
 		return
 	}
-	payload, found, err := s.txs.GetProjection(r.Context(), id, tx.Key{Type: key.Type, ID: key.ID})
+	payload, found, err := s.txs.GetProjection(r.Context(), id, key)
 	if err != nil {
 		s.handleErr(w, r, err)
 		return
@@ -226,14 +226,11 @@ func (s *Server) handleTxWriteProjections(w http.ResponseWriter, r *http.Request
 	toTx := func(ps []projection.Create) []tx.Projection {
 		out := make([]tx.Projection, len(ps))
 		for i, p := range ps {
-			out[i] = tx.Projection{Key: tx.Key{Type: p.Type, ID: p.ID}, Payload: *p.Payload}
+			out[i] = tx.Projection{Key: projection.Key{Type: p.Type, ID: p.ID}, Payload: *p.Payload}
 		}
 		return out
 	}
-	writes := tx.Writes{Create: toTx(req.Create), Replace: toTx(req.Replace), Delete: make([]tx.Key, len(req.Delete))}
-	for i, k := range req.Delete {
-		writes.Delete[i] = tx.Key{Type: k.Type, ID: k.ID}
-	}
+	writes := tx.Writes{Create: toTx(req.Create), Replace: toTx(req.Replace), Delete: req.Delete}
 	t, err := s.txs.WriteProjections(id, writes)
 	if err != nil {
 		s.handleErr(w, r, err)
