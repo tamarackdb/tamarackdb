@@ -37,7 +37,7 @@ Download a release and install its binaries (see the
 [releases](https://github.com/tamarackdb/tamarackdb/releases) for the latest version):
 
 ```sh
-VERSION=v0.32.0 ARCH=amd64
+VERSION=v1.0.0 ARCH=amd64
 curl -fLO https://github.com/tamarackdb/tamarackdb/releases/download/$VERSION/tamarackdb-$VERSION-linux-$ARCH.zip
 curl -fLO https://github.com/tamarackdb/tamarackdb/releases/download/$VERSION/SHA256SUMS
 sha256sum -c SHA256SUMS --ignore-missing
