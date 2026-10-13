@@ -32,7 +32,7 @@ func newFileAtVersion(t *testing.T, version int) string {
 // store table has a column named column.
 func fileState(t *testing.T, path, column string) (version int, hasColumn bool) {
 	t.Helper()
-	db, err := sql.Open("sqlite", "file:"+path+"?mode=ro")
+	db, err := sql.Open("sqlite", "file:"+uriPath(path)+"?mode=ro")
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
@@ -60,6 +60,31 @@ func TestMigrateFromPreviousVersion(t *testing.T) {
 	version, hasColumn := fileState(t, path, "migrated")
 	if version != 2 || !hasColumn {
 		t.Errorf("after migrate: user_version = %d, column = %v, want 2, true", version, hasColumn)
+	}
+}
+
+func TestMigratePathWithURICharacters(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "a?b#c%25d")
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "test.db")
+	s, err := Open(context.Background(), path, 0)
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	if _, err := s.writeDB.ExecContext(context.Background(), "PRAGMA user_version = 1"); err != nil {
+		t.Fatalf("set user_version: %v", err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+
+	if _, _, err := migrate(context.Background(), path, 2, ""); err != nil {
+		t.Fatalf("migrate() error = %v", err)
+	}
+	if version, _ := fileState(t, path, "migrated"); version != 2 {
+		t.Errorf("user_version = %d, want 2", version)
 	}
 }
 

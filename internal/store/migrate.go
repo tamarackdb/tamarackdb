@@ -47,7 +47,7 @@ func migrate(ctx context.Context, path string, want int, migration string) (from
 
 	db, err := sql.Open("sqlite", fmt.Sprintf(
 		"file:%s?mode=rw&_foreign_keys=0&_journal_mode=WAL&_synchronous=FULL&_busy_timeout=%d&_txlock=immediate",
-		path, busyTimeoutMillis,
+		uriPath(path), busyTimeoutMillis,
 	))
 	if err != nil {
 		return 0, 0, wrapf("open database file", err)

@@ -20,7 +20,7 @@ RUN export CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH && \
     go build -ldflags "-X github.com/tamarackdb/tamarackdb/internal/buildinfo.Version=$VERSION" -o /out/tamarackdb-init ./cmd/tamarackdb-init && \
     go build -ldflags "-X github.com/tamarackdb/tamarackdb/internal/buildinfo.Version=$VERSION" -o /out/tamarackdb-migrate ./cmd/tamarackdb-migrate
 
-FROM alpine:3.20
+FROM alpine:3.24
 
 # A fixed UID and GID, so a host directory mounted on /data, or a socket
 # shared with another container, can be given to them ahead of time.

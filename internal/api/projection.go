@@ -62,6 +62,7 @@ func (s *Server) handleGetProjection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set(ProjectionVersionHeader, p.Version)
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte(p.Payload))

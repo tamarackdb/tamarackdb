@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -44,9 +45,20 @@ type Store struct {
 func dsn(path string, extra string) string {
 	return fmt.Sprintf(
 		"file:%s?_foreign_keys=1&_journal_mode=WAL&_synchronous=FULL&_busy_timeout=%d%s",
-		path, busyTimeoutMillis, extra,
+		uriPath(path), busyTimeoutMillis, extra,
 	)
 }
+
+// uriPathEscaper escapes the characters that end or alter the path of a
+// SQLite URI filename: "?" starts the parameters, "#" the fragment, and
+// "%" an escape. Any other character is kept as is, so a relative path
+// stays relative.
+var uriPathEscaper = strings.NewReplacer("%", "%25", "?", "%3f", "#", "%23")
+
+// uriPath returns path ready to follow "file:" in a DSN. A data directory
+// can hold "?", "#", or "%": without escaping, SQLite would open another
+// file.
+func uriPath(path string) string { return uriPathEscaper.Replace(path) }
 
 // Open opens (or creates) the SQLite database file at path, establishes
 // its read and write connection pools, and ensures the schema is present

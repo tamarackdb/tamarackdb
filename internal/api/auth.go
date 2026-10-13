@@ -1,6 +1,7 @@
 package api
 
 import (
+	"crypto/sha256"
 	"crypto/subtle"
 	"net/http"
 	"strings"
@@ -26,17 +27,22 @@ func (s *Server) withAuth(next http.Handler) http.Handler {
 	})
 }
 
+// bearerToken returns the token of r's Authorization header. The scheme
+// name is case-insensitive (RFC 7235): "bearer" and "BEARER" are accepted.
 func bearerToken(r *http.Request) (string, bool) {
 	h := r.Header.Get("Authorization")
-	if !strings.HasPrefix(h, bearerPrefix) {
+	if len(h) < len(bearerPrefix) || !strings.EqualFold(h[:len(bearerPrefix)], bearerPrefix) {
 		return "", false
 	}
-	return strings.TrimPrefix(h, bearerPrefix), true
+	return h[len(bearerPrefix):], true
 }
 
 // constantTimeEqual compares the presented token against the configured
 // one in constant time, to avoid a timing side-channel on this
-// security-sensitive string compare.
+// security-sensitive string compare. It compares their SHA-256 digests,
+// which have a fixed length: subtle.ConstantTimeCompare returns at once
+// on strings of different lengths, which would reveal the token's length.
 func constantTimeEqual(a, b string) bool {
-	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
+	ha, hb := sha256.Sum256([]byte(a)), sha256.Sum256([]byte(b))
+	return subtle.ConstantTimeCompare(ha[:], hb[:]) == 1
 }

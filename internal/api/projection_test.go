@@ -32,6 +32,9 @@ func getProjection(t *testing.T, srv *Server, typ, id string, wantCode int) (ver
 	if rec.Code != wantCode {
 		t.Fatalf("QUERY status = %d, want %d, body = %s", rec.Code, wantCode, rec.Body.String())
 	}
+	if wantCode == 200 && rec.Header().Get("X-Content-Type-Options") != "nosniff" {
+		t.Errorf("X-Content-Type-Options = %q, want nosniff", rec.Header().Get("X-Content-Type-Options"))
+	}
 	return rec.Header().Get(ProjectionVersionHeader), rec.Body.String()
 }
 

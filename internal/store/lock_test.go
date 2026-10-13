@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -38,4 +39,24 @@ func TestOpenAllowsReopenAfterClose(t *testing.T) {
 		t.Fatalf("second Open() after Close() error = %v, want nil", err)
 	}
 	second.Close()
+}
+
+func TestOpenPathWithURICharacters(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "a?b#c%25d")
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "test.db")
+
+	s, err := Open(context.Background(), path, 0)
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	s.Close()
+	if entries, _ := os.ReadDir(filepath.Dir(dir)); len(entries) != 1 {
+		t.Errorf("parent holds %v, want only the data directory", entries)
+	}
+	if info, err := os.Stat(path); err != nil || info.Size() == 0 {
+		t.Errorf("database file at %s: %v, want the schema in it", path, err)
+	}
 }

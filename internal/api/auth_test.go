@@ -61,3 +61,29 @@ func TestAuthRejectsEveryRoute(t *testing.T) {
 		})
 	}
 }
+
+func TestBearerSchemeIsCaseInsensitive(t *testing.T) {
+	srv, _, _ := newTestServer(t)
+	for _, scheme := range []string{"Bearer", "bearer", "BEARER"} {
+		req := httptest.NewRequest("GET", "/health", nil)
+		req.Header.Set("Authorization", scheme+" "+testToken)
+		rec := httptest.NewRecorder()
+		srv.ServeHTTP(rec, req)
+		if rec.Code != 200 {
+			t.Errorf("%s: status = %d, want 200", scheme, rec.Code)
+		}
+	}
+}
+
+func TestTokenThatIsAPrefixIsRejected(t *testing.T) {
+	srv, _, _ := newTestServer(t)
+	for _, token := range []string{testToken[:len(testToken)-1], testToken + "x", ""} {
+		req := httptest.NewRequest("GET", "/health", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		rec := httptest.NewRecorder()
+		srv.ServeHTTP(rec, req)
+		if rec.Code != 401 {
+			t.Errorf("token %q: status = %d, want 401", token, rec.Code)
+		}
+	}
+}
