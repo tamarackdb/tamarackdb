@@ -40,6 +40,18 @@ jobs:
         with:
           files: tamarackdb-${{ github.ref_name }}-linux-${{ matrix.arch }}.zip
 
+  checksums:
+    needs: binaries
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release download "$TAG" --repo "${{ github.repository }}" --pattern '*.zip'
+          sha256sum *.zip > SHA256SUMS
+          gh release upload "$TAG" SHA256SUMS --repo "${{ github.repository }}" --clobber
+
   docker:
     runs-on: ubuntu-latest
     steps:

@@ -39,10 +39,14 @@ Download a release and install its binaries (see the
 ```sh
 VERSION=v0.32.0 ARCH=amd64
 curl -fLO https://github.com/tamarackdb/tamarackdb/releases/download/$VERSION/tamarackdb-$VERSION-linux-$ARCH.zip
+curl -fLO https://github.com/tamarackdb/tamarackdb/releases/download/$VERSION/SHA256SUMS
+sha256sum -c SHA256SUMS --ignore-missing
 unzip tamarackdb-$VERSION-linux-$ARCH.zip
 sudo install -m 755 tamarackdb-$VERSION-linux-$ARCH/tamarackdb-* /usr/local/bin/
 ```
 
+- `sha256sum -c` checks the zip against the release's `SHA256SUMS`. It fails, and prints `FAILED`, when they don't
+  match: don't install that zip.
 - The binaries are static: no runtime and no library to install.
 - `--version` prints a binary's version and exits.
 - To build them from source instead, run `make build` in a clone of the repository, with Go. The binaries land in
