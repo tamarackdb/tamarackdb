@@ -2,7 +2,7 @@
 
 # The builder runs on the build machine's own platform and cross-compiles
 # for the target one, so a multi-platform build needs no emulation.
-FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS builder
+FROM --platform=$BUILDPLATFORM golang:1.27-alpine AS builder
 
 WORKDIR /src
 

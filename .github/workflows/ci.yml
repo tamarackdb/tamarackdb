@@ -14,7 +14,7 @@ jobs:
 
       - uses: actions/setup-go@v7
         with:
-          go-version: "1.26.7"
+          go-version: "1.27.2"
 
       - run: |
           if [ -n "$(gofmt -l .)" ]; then
@@ -35,6 +35,19 @@ jobs:
 
       - uses: actions/setup-go@v7
         with:
-          go-version: "1.26.7"
+          go-version: "1.27.2"
 
       - run: go test -race ./...
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.27.2"
+
+      - run: go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 ./...
+
+      - run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
