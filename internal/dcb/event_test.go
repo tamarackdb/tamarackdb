@@ -127,7 +127,6 @@ func sameSet[T comparable](a, b []T) bool {
 }
 
 func TestEventDataValidate(t *testing.T) {
-	const ct = "2026-09-01T14:23:05.123456Z"
 	makeIdentifiers := func(n int) IdentifierSet {
 		out := make(IdentifierSet, n)
 		for i := range out {

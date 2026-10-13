@@ -71,7 +71,7 @@ func (s *Server) handleErr(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.As(err, &ve):
 		// Covers dcb.EventInput.Validate(), dcb.Query.Validate(),
 		// request-shape decode errors
-		// (see decodeJSON, which wraps those as *dcb.ValidationError
+		// (see decodeJSONStrict, which wraps those as *dcb.ValidationError
 		// too), and every API-layer-invented rule (limit, projection
 		// count cap, duplicate projection key)
 		// that isn't really a dcb domain rule but reuses this same 400

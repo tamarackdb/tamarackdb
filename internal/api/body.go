@@ -11,26 +11,17 @@ import (
 	"github.com/tamarackdb/tamarackdb/internal/dcb"
 )
 
-// decodeJSON reads r's body in full, then decodes it into v, wrapping any
-// decoding failure as a *dcb.ValidationError. A failure can be invalid
-// JSON syntax, a wrong top-level shape, or an error from v's own
-// UnmarshalJSON (e.g. dcb.Query's or dcb.IdentifierSet's, which return
-// plain errors, not *dcb.ValidationError, since shape parsing is
-// encoding/json plumbing, not a dcb domain rule). This lets handleErr's
-// single case handle "malformed body" and "domain validation failure"
-// identically, both as 400 InvalidRequest. A body that can't be read
-// gets errClientGone or a *bodyTooLargeError instead (see readBody).
-func decodeJSON(r *http.Request, v any) error {
-	body, err := readBody(r)
-	if err != nil {
-		return err
-	}
-	return decode(json.NewDecoder(bytes.NewReader(body)), v)
-}
-
-// decodeJSONStrict is decodeJSON that also rejects unknown keys, at every
-// level of v. It's for a body whose keys are all optional, where a
-// misspelled key would otherwise drop data without a word.
+// decodeJSONStrict reads r's body in full, then decodes it into v,
+// rejecting unknown keys at every level of v: a misspelled key would
+// otherwise drop data without a word. It wraps any decoding failure as a
+// *dcb.ValidationError. A failure can be invalid JSON syntax, a wrong
+// top-level shape, an unknown key, or an error from v's own UnmarshalJSON
+// (e.g. dcb.Query's or dcb.IdentifierSet's, which return plain errors,
+// not *dcb.ValidationError, since shape parsing is encoding/json
+// plumbing, not a dcb domain rule). This lets handleErr's single case
+// handle "malformed body" and "domain validation failure" identically,
+// both as 400 InvalidRequest. A body that can't be read gets
+// errClientGone or a *bodyTooLargeError instead (see readBody).
 func decodeJSONStrict(r *http.Request, v any) error {
 	body, err := readBody(r)
 	if err != nil {
