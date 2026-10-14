@@ -61,9 +61,9 @@ Check each point before an instance holds real data:
 2. Keep `dataDir` readable by that user only (`0700`).
 3. Run the server on the application's host, on its unix socket (see
    [Security](/docs/operations/security/#unix-socket)).
-4. From another host, go through a reverse proxy for TLS, and turn `enableAuth` on (see
+4. From another host, go through a reverse proxy for TLS, and set `authTokenFile` (see
    [Security](/docs/operations/security/#another-host)).
-5. Make a `config.toml` that holds `authToken` readable by the server's user only (`chmod 600`).
+5. Make the token file readable by the server's user only (`chmod 600`).
 6. Leave `devMode` off.
 7. Size `maxQueuedWrites` (see [Configuration](/docs/operations/configuration/#write-queue)).
 8. Watch `/health` and `/stats` (see [Monitoring](/docs/operations/monitoring/)).
@@ -117,6 +117,16 @@ sudo -u tamarackdb /usr/local/bin/tamarackdb-init --data-dir /var/lib/tamarackdb
 sudo systemctl enable --now tamarackdb
 ```
 
+To turn authentication on, let systemd hand the token file to the server. Add to `[Service]`:
+
+```ini
+LoadCredential=token:/etc/tamarackdb/token
+Environment=TAMARACKDB_AUTH_TOKEN_FILE=%d/token
+```
+
+- `/etc/tamarackdb/token` can then stay readable by root only.
+- systemd copies it into a directory only the service can read, and `%d` names that directory.
+
 On `systemctl stop`, the server lets a write already running finish, and turns away the requests still waiting with
 `503 ShuttingDown`.
 
@@ -135,7 +145,7 @@ sudo -u tamarackdb /usr/local/bin/tamarackdb-server --config /path/to/config.tom
 - `tamarackdb-init` creates `dataDir` and a new database. It never overwrites an existing database.
 - The server never creates a database: it refuses to start when the file is missing.
 - The server refuses to start when the database's schema version doesn't match its own. It never changes the schema.
-- At startup, the server prints its resolved configuration to stdout (never `authToken`).
+- At startup, the server prints its resolved configuration to stdout (never the token).
 
 ## Docker
 
@@ -151,11 +161,21 @@ docker run -d -p 127.0.0.1:8085:8085 -v tamarackdb-data:/data \
 - The image is set up with `TAMARACKDB_*` environment variables only (see
   [Configuration](/docs/operations/configuration/)).
 - It listens over TCP on port `8085`, and keeps the database in `/data`.
-- The server refuses to start until it's given `TAMARACKDB_ENABLE_AUTH=true` and a token, or
-  `TAMARACKDB_ALLOW_NO_AUTH=true`. It can't see whether its port is private.
+- The server refuses to start until it's given `TAMARACKDB_AUTH_TOKEN_FILE` or `TAMARACKDB_ALLOW_NO_AUTH=true`. It
+  can't see whether its port is private.
 - Without a token, publish the port on `127.0.0.1` only. A plain `-p 8085:8085` opens the API to anyone who can reach
-  the host. To expose it, turn `enableAuth` on and put a reverse proxy in front for TLS (see
+  the host. To expose it, set a token and put a reverse proxy in front for TLS (see
   [Security](/docs/operations/security/#another-host)).
+- To set a token, mount its file read-only and name it in `TAMARACKDB_AUTH_TOKEN_FILE`. The file must be readable by
+  UID `10001`:
+
+  ```sh
+  sudo chown 10001 /etc/tamarackdb/token
+  docker run -d -p 127.0.0.1:8085:8085 -v tamarackdb-data:/data \
+    -v /etc/tamarackdb/token:/run/secrets/tamarackdb-token:ro \
+    -e TAMARACKDB_AUTH_TOKEN_FILE=/run/secrets/tamarackdb-token \
+    ghcr.io/tamarackdb/tamarackdb:latest
+  ```
 - The server runs as UID and GID `10001`. To mount a host directory instead of a named volume, give it to that user
   first: `sudo install -d -o 10001 -g 10001 -m 700 /srv/tamarackdb`.
 - When `/data` holds no database, the image creates one and logs `tamarackdb-init: created /data/tamarackdb.sqlite`.
@@ -183,5 +203,27 @@ volumes:
   tamarackdb-data:
 ```
 
-Every container on that network can reach the API. If some of them aren't trusted, turn `enableAuth` on instead of
-`TAMARACKDB_ALLOW_NO_AUTH`.
+Every container on that network can reach the API. If some of them aren't trusted, give the server a token instead of
+`TAMARACKDB_ALLOW_NO_AUTH`, as a Compose secret:
+
+```yaml
+services:
+  tamarackdb:
+    image: ghcr.io/tamarackdb/tamarackdb:latest
+    environment:
+      TAMARACKDB_AUTH_TOKEN_FILE: /run/secrets/tamarackdb-token
+    secrets:
+      - tamarackdb-token
+    volumes:
+      - tamarackdb-data:/data
+
+secrets:
+  tamarackdb-token:
+    file: ./tamarackdb-token
+
+volumes:
+  tamarackdb-data:
+```
+
+- Compose mounts `./tamarackdb-token` with its permissions on the host: it must be readable by UID `10001`.
+- The application gets the token by its own means, a secret of its own for example.

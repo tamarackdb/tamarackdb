@@ -35,7 +35,7 @@ Persistent=true
 WantedBy=timers.target
 ```
 
-- With `enableAuth` on, add `-H "Authorization: Bearer <token>"`.
+- With `authTokenFile` set, add `-H "Authorization: Bearer <token>"`.
 - `lastOptimizeAt` in `GET /stats` shows when it last ran.
 - After a large import, run a full `ANALYZE` once:
   `sudo -u tamarackdb sqlite3 /path/to/data/tamarackdb.sqlite 'ANALYZE;'`.

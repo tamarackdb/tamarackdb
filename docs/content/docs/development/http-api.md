@@ -25,7 +25,7 @@ server on `127.0.0.1:8085`, with authentication off.
 ## Conventions
 
 - By default the server listens on a unix socket. With curl: `curl --unix-socket <path> http://localhost/...`.
-- With `enableAuth` on, every request carries `Authorization: Bearer <token>`, or gets `401`.
+- With `authTokenFile` set, every request carries `Authorization: Bearer <token>`, or gets `401`.
 - A request body is JSON, decoded strictly: an unknown key, at any level, gets `400`.
 - A body is at most `maxRequestBodySize` bytes, or gets `413`.
 - Writes are served one at a time, in the order they arrive: commits, `POST /projections`, bulk deletes, `/pause`,

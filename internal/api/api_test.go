@@ -56,7 +56,6 @@ func newTestServerWith(t *testing.T, o testOptions) (*Server, *writer.Writer, *s
 	}
 	txs := tx.New(st, wr, tx.Config{IdleTimeout: o.txIdle, MaxEventsPerTx: 100, MaxReadsPerTx: o.maxReads, MaxProjectionsPerTx: 500, MaxOpenTx: o.maxOpenTx})
 	srv := New(wr, txs, st, Options{
-		EnableAuth:             true,
 		AuthToken:              testToken,
 		DefaultEventsPerPage:   1000,
 		MaxEventsPerPage:       10000,

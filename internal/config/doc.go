@@ -1,5 +1,5 @@
 // Package config loads TamarackDB's startup configuration: socket path or
-// bind address and port, auth token, data directory, and the pagination,
+// bind address and port, auth token file, data directory, and the pagination,
 // size, queue, and transaction limits.
 //
 // Values come from a TOML file when present. Any field it leaves out, or

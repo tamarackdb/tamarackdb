@@ -66,11 +66,21 @@ type Config struct {
 	BindAddress string `toml:"bindAddress"` // default: 127.0.0.1 (ignored when SocketPath is set)
 	Port        int    `toml:"port"`        // default: 8085 (ignored when SocketPath is set)
 
-	EnableAuth bool   `toml:"enableAuth"`
-	AuthToken  string `toml:"authToken"`
+	// AuthTokenFile is the path of a file holding the Bearer token every
+	// request must present. Setting it turns authentication on; leaving
+	// it out serves the API with no authentication at all. The token
+	// lives in its own file, never in the TOML file or the environment,
+	// so the configuration holds no secret and the token can come from
+	// systemd credentials or Docker secrets.
+	AuthTokenFile string `toml:"authTokenFile"`
+
+	// AuthToken is the token Load read from AuthTokenFile, with leading
+	// and trailing whitespace removed. Empty when AuthTokenFile is unset.
+	// It can't be set from the TOML file.
+	AuthToken string `toml:"-"`
 
 	// AllowNoAuth lets the server listen over TCP on an address other
-	// than loopback with EnableAuth off. Without it, Validate refuses
+	// than loopback with no AuthTokenFile. Without it, Validate refuses
 	// that setup: anyone who can reach the address would get the whole
 	// API, and in a container the server can't tell whether its port is
 	// published on the host's loopback or on every interface. DevMode
@@ -244,6 +254,11 @@ func Load(path string) (*Config, error) {
 	if cfg.MaxOpenTx == 0 {
 		cfg.MaxOpenTx = DefaultMaxOpenTx
 	}
+	if cfg.AuthTokenFile != "" {
+		if cfg.AuthToken, err = readTokenFile("authTokenFile", cfg.AuthTokenFile); err != nil {
+			return nil, err
+		}
+	}
 
 	if err := cfg.Validate(); err != nil {
 		return nil, validationError(path, found, err)
@@ -255,7 +270,6 @@ func Load(path string) (*Config, error) {
 // value, false, is also a value the file can set on purpose, so it can't
 // tell "left out" apart from "set to false" the way the other fields do.
 type fileBools struct {
-	EnableAuth  *bool `toml:"enableAuth"`
 	AllowNoAuth *bool `toml:"allowNoAuth"`
 	DevMode     *bool `toml:"devMode"`
 }
@@ -268,12 +282,11 @@ func applyEnv(cfg *Config, inFile fileBools) error {
 	envString(&cfg.SocketPath, "TAMARACKDB_SOCKET_PATH")
 	envString(&cfg.SocketMode, "TAMARACKDB_SOCKET_MODE")
 	envString(&cfg.BindAddress, "TAMARACKDB_BIND_ADDRESS")
-	envString(&cfg.AuthToken, "TAMARACKDB_AUTH_TOKEN")
+	envString(&cfg.AuthTokenFile, "TAMARACKDB_AUTH_TOKEN_FILE")
 	envString(&cfg.DataDir, "TAMARACKDB_DATA_DIR")
 	envString(&cfg.LogLevel, "TAMARACKDB_LOG_LEVEL")
 	return errors.Join(
 		envInt(&cfg.Port, "TAMARACKDB_PORT"),
-		envBool(&cfg.EnableAuth, inFile.EnableAuth != nil, "TAMARACKDB_ENABLE_AUTH"),
 		envBool(&cfg.AllowNoAuth, inFile.AllowNoAuth != nil, "TAMARACKDB_ALLOW_NO_AUTH"),
 		envBool(&cfg.DevMode, inFile.DevMode != nil, "TAMARACKDB_DEV_MODE"),
 		envInt(&cfg.DefaultEventsPerPage, "TAMARACKDB_DEFAULT_EVENTS_PER_PAGE"),
@@ -352,10 +365,8 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("bindAddress must not be empty")
 	case c.SocketPath == "" && (c.Port < 1 || c.Port > 65535):
 		return fmt.Errorf("port must be between 1 and 65535, got %d", c.Port)
-	case c.EnableAuth && c.AuthToken == "":
-		return fmt.Errorf("authToken must not be empty when enableAuth is true")
-	case c.SocketPath == "" && !c.EnableAuth && !c.AllowNoAuth && !c.DevMode && !isLoopback(c.BindAddress):
-		return fmt.Errorf("bindAddress %s is reachable from other hosts, and enableAuth is off: turn enableAuth on, or set allowNoAuth to true to serve without a token", c.BindAddress)
+	case c.SocketPath == "" && c.AuthTokenFile == "" && !c.AllowNoAuth && !c.DevMode && !isLoopback(c.BindAddress):
+		return fmt.Errorf("bindAddress %s is reachable from other hosts, and authTokenFile is not set: set authTokenFile, or set allowNoAuth to true to serve without a token", c.BindAddress)
 	case c.DataDir == "":
 		return fmt.Errorf("dataDir must not be empty")
 	case c.LogLevel != "debug" && c.LogLevel != "info" && c.LogLevel != "warning" && c.LogLevel != "error":

@@ -53,26 +53,35 @@ server {
 
 - Set nginx's `client_max_body_size` to the server's `maxRequestBodySize`. nginx refuses bodies over 1 MiB by default.
 - The proxy's user must be allowed by `socketMode`, like the application's.
-- Turn `enableAuth` on: the proxy opens the API to the network. The proxy passes the `Authorization` header through.
+- Set `authTokenFile`: the proxy opens the API to the network. The proxy passes the `Authorization` header through.
 - In Docker, the server listens over TCP: keep its port private (see [Install](/docs/operations/install/#docker)).
 
 ## Bearer token
 
-- With `enableAuth` on, every route needs `Authorization: Bearer <token>`, `/health` and `/stats` included.
+Setting `authTokenFile` turns authentication on. The file holds the token alone, in plain text. To create one:
+
+```sh
+sudo install -o tamarackdb -g tamarackdb -m 600 /dev/null /etc/tamarackdb/token
+openssl rand -hex 32 | sudo tee /etc/tamarackdb/token > /dev/null
+```
+
+- Every route then needs `Authorization: Bearer <token>`, `/health` and `/stats` included.
 - A request without the right token gets `401 Unauthorized`.
-- There is one token, `authToken`. Changing it means changing the configuration and restarting the server.
-- With `enableAuth` off, the default, no request is checked.
-- The server refuses to start with `enableAuth` off when it listens over TCP on an address other than loopback, such
+- The server removes spaces and line breaks at the start and end of the file.
+- The server refuses to start when the file is missing, unreadable, or empty.
+- There is one token. The server reads it at startup: changing it means restarting the server.
+- Without `authTokenFile`, the default, no request is checked.
+- The server refuses to start without `authTokenFile` when it listens over TCP on an address other than loopback, such
   as `0.0.0.0`. Set `allowNoAuth` to `true` to start it anyway, when something else keeps the port private. `devMode`
   implies it.
 - On the unix socket, `allowNoAuth` has no effect: `socketMode` decides who can connect.
 
 ## Files
 
-Anyone who can read the database file reads every event and projection, whatever `enableAuth` and `socketMode` say.
+Anyone who can read the database file reads every event and projection, whatever the token and `socketMode` say.
 
 - `tamarackdb-init` and `tamarackdb-backup` create a data directory as `0700` and a database file as `0600`.
 - An existing directory or file keeps its permissions: the server never changes them. Give a directory you create
   yourself `0700`.
-- A `config.toml` that holds `authToken` must be readable by the server's user only: `chmod 600 config.toml`.
+- The token file must be readable by the server's user only: `chmod 600`.
 - `devMode` stays off in production: it exposes `DELETE /events`, which deletes every event.

@@ -27,7 +27,13 @@ type BackupConfig struct {
 	// a source on the same host. Exactly one of them is set.
 	SourceURL    string `toml:"sourceUrl"`
 	SourceSocket string `toml:"sourceSocket"`
-	SourceToken  string `toml:"sourceToken"`
+
+	// SourceTokenFile is the path of a file holding the source's Bearer
+	// token, for a source with authentication on. SourceToken is the
+	// token LoadBackup read from it, with leading and trailing whitespace
+	// removed; it can't be set from the TOML file.
+	SourceTokenFile string `toml:"sourceTokenFile"`
+	SourceToken     string `toml:"-"`
 
 	// DataDir is the directory holding the backup file,
 	// tamarackdb-backup.sqlite. Its default isn't the
@@ -61,6 +67,11 @@ func LoadBackup(path string) (*BackupConfig, error) {
 	if cfg.PageLimit == 0 {
 		cfg.PageLimit = DefaultBackupPageLimit
 	}
+	if cfg.SourceTokenFile != "" {
+		if cfg.SourceToken, err = readTokenFile("sourceTokenFile", cfg.SourceTokenFile); err != nil {
+			return nil, err
+		}
+	}
 
 	if err := cfg.Validate(); err != nil {
 		return nil, validationError(path, found, err)
@@ -82,7 +93,7 @@ func applyBackupEnv(cfg *BackupConfig, sourceInFile bool) error {
 			cfg.SourceSocket = v
 		}
 	}
-	envString(&cfg.SourceToken, "TAMARACKDB_BACKUP_SOURCE_TOKEN")
+	envString(&cfg.SourceTokenFile, "TAMARACKDB_BACKUP_SOURCE_TOKEN_FILE")
 	envString(&cfg.DataDir, "TAMARACKDB_BACKUP_DATA_DIR")
 	return envInt(&cfg.PageLimit, "TAMARACKDB_BACKUP_PAGE_LIMIT")
 }

@@ -36,9 +36,8 @@ tamarackdb-backup --default-config >> config.toml
 | `socketMode` | `TAMARACKDB_SOCKET_MODE` | `"0600"` | The socket's permissions, as an octal string |
 | `bindAddress` | `TAMARACKDB_BIND_ADDRESS` | `127.0.0.1` | The address to listen on over TCP |
 | `port` | `TAMARACKDB_PORT` | `8085` | The port to listen on over TCP |
-| `enableAuth` | `TAMARACKDB_ENABLE_AUTH` | `false` | Whether every request needs the Bearer token |
-| `authToken` | `TAMARACKDB_AUTH_TOKEN` | none | The Bearer token |
-| `allowNoAuth` | `TAMARACKDB_ALLOW_NO_AUTH` | `false` | Whether the server may listen over TCP on an address other than loopback with `enableAuth` off. Ignored on the unix socket |
+| `authTokenFile` | `TAMARACKDB_AUTH_TOKEN_FILE` | none | The file holding the Bearer token. Setting it turns authentication on (see [Security](/docs/operations/security/#bearer-token)) |
+| `allowNoAuth` | `TAMARACKDB_ALLOW_NO_AUTH` | `false` | Whether the server may listen over TCP on an address other than loopback without `authTokenFile`. Ignored on the unix socket |
 | `dataDir` | `TAMARACKDB_DATA_DIR` | `data` | The directory holding the database file, `tamarackdb.sqlite` |
 | `logLevel` | `TAMARACKDB_LOG_LEVEL` | `warning` | The lowest level logged: `debug`, `info`, `warning`, or `error` |
 | `devMode` | `TAMARACKDB_DEV_MODE` | `false` | Turns on `DELETE /events` and the profiling endpoints |

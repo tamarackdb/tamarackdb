@@ -64,3 +64,20 @@ func validationError(path string, found bool, err error) error {
 	}
 	return fmt.Errorf("config: %w", err)
 }
+
+// readTokenFile returns the token held in the file at path, named by the
+// key that set it, with leading and trailing whitespace removed: a file
+// written with echo ends with a newline that isn't part of the token. A
+// missing, unreadable, or empty file is an error, so a server meant to
+// check a token never starts without one.
+func readTokenFile(key, path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("config: read %s: %w", key, err)
+	}
+	token := strings.TrimSpace(string(data))
+	if token == "" {
+		return "", fmt.Errorf("config: %s %s is empty", key, path)
+	}
+	return token, nil
+}

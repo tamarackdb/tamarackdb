@@ -36,7 +36,7 @@ func main() {
 // ones config.LoadBackup would otherwise default on its own, so this is a
 // complete reference of what's configurable rather than a partial file.
 // Every key is commented out at the value config.LoadBackup would apply
-// anyway (or, for sourceUrl, sourceSocket, and sourceToken, which have no
+// anyway (or, for sourceUrl, sourceSocket, and sourceTokenFile, which have no
 // built-in default, a placeholder): uncommenting a line is how it takes
 // effect. Exactly one of sourceUrl and sourceSocket must be set. It
 // is a hand-written template, not a Marshal of config.BackupConfig, so it
@@ -45,7 +45,7 @@ const defaultConfigTemplate = `[backup]
 # Set one of sourceUrl or sourceSocket.
 # sourceUrl = "https://tamarackdb.example.com"
 # sourceSocket = "/run/tamarackdb/tamarackdb.sock"
-# sourceToken = "changeme"
+# sourceTokenFile = "/etc/tamarackdb/backup-token"
 # dataDir = "%s"
 # pageLimit = %d
 `

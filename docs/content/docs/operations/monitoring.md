@@ -5,8 +5,8 @@ slug: "monitoring"
 weight: 5
 ---
 
-Watching an instance: whether it's up, what it does, and what goes wrong. With `enableAuth` on, `/health` and `/stats`
-need the token like every other route.
+Watching an instance: whether it's up, what it does, and what goes wrong. With `authTokenFile` set, `/health` and
+`/stats` need the token like every other route.
 
 ## Health check
 

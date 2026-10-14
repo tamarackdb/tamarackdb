@@ -28,19 +28,21 @@ tamarackdb-backup --config backup-config.toml
 |---|---|---|---|
 | `sourceUrl` | `TAMARACKDB_BACKUP_SOURCE_URL` | none | The `http://` or `https://` address of the instance to copy |
 | `sourceSocket` | `TAMARACKDB_BACKUP_SOURCE_SOCKET` | none | The unix socket of an instance on the same host |
-| `sourceToken` | `TAMARACKDB_BACKUP_SOURCE_TOKEN` | none | The Bearer token of the source, when it has `enableAuth` on |
+| `sourceTokenFile` | `TAMARACKDB_BACKUP_SOURCE_TOKEN_FILE` | none | The file holding the source's Bearer token, when the source has `authTokenFile` set |
 | `dataDir` | `TAMARACKDB_BACKUP_DATA_DIR` | `backup` | The directory the backup files go to. Never the server's own `dataDir` |
 | `pageLimit` | `TAMARACKDB_BACKUP_PAGE_LIMIT` | `1000` | Events read per page. At most the source's `maxEventsPerPage` |
 
 - Set exactly one of `sourceUrl` and `sourceSocket`.
-- A file that holds `sourceToken` must be readable by the backup's user only (`chmod 600`).
+- The token file holds the token alone, like the server's (see [Security](/docs/operations/security/#bearer-token)). It
+  must be readable by the backup's user only (`chmod 600`).
 
 ### The source
 
 - **On the same host:** set `sourceSocket` to the server's socket. The backup's user must be allowed by the server's
   `socketMode` (see [Security](/docs/operations/security/#unix-socket)).
 - **On another host:** set `sourceUrl` to the `https://` address of a reverse proxy in front of the server, with
-  `enableAuth` on and the token in `sourceToken` (see [Security](/docs/operations/security/#another-host)).
+  `authTokenFile` set, and the same token in `sourceTokenFile` (see
+  [Security](/docs/operations/security/#another-host)).
 
 ### How a run works
 

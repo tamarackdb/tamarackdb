@@ -7,9 +7,10 @@ import (
 )
 
 func TestLoadBackupFullConfig(t *testing.T) {
+	tokenPath := writeTokenFile(t, "secret\n")
 	path := writeConfigFile(t, `[backup]
 		sourceUrl = "https://source.internal:8085"
-		sourceToken = "secret"
+		sourceTokenFile = "`+tokenPath+`"
 		dataDir = "/var/lib/tamarackdb-backup"
 		pageLimit = 500
 	`)
@@ -19,10 +20,11 @@ func TestLoadBackupFullConfig(t *testing.T) {
 		t.Fatalf("LoadBackup() error = %v", err)
 	}
 	want := BackupConfig{
-		SourceURL:   "https://source.internal:8085",
-		SourceToken: "secret",
-		DataDir:     "/var/lib/tamarackdb-backup",
-		PageLimit:   500,
+		SourceURL:       "https://source.internal:8085",
+		SourceTokenFile: tokenPath,
+		SourceToken:     "secret",
+		DataDir:         "/var/lib/tamarackdb-backup",
+		PageLimit:       500,
 	}
 	if *cfg != want {
 		t.Errorf("LoadBackup() = %+v, want %+v", *cfg, want)
@@ -65,8 +67,8 @@ func TestLoadBackupAppliesPageLimitDefault(t *testing.T) {
 
 func TestLoadBackupEnvFillsOmittedFields(t *testing.T) {
 	setEnv(t, map[string]string{
-		"TAMARACKDB_BACKUP_SOURCE_TOKEN": "from-env",
-		"TAMARACKDB_BACKUP_PAGE_LIMIT":   "250",
+		"TAMARACKDB_BACKUP_SOURCE_TOKEN_FILE": writeTokenFile(t, "from-env"),
+		"TAMARACKDB_BACKUP_PAGE_LIMIT":        "250",
 	})
 	path := writeConfigFile(t, `[backup]
 		sourceUrl = "https://source.internal:8085"
@@ -240,5 +242,16 @@ func TestLoadBackupRejectsNonHTTPSourceURL(t *testing.T) {
 		if _, err := LoadBackup(path); err == nil || !strings.Contains(err.Error(), "http:// or https://") {
 			t.Errorf("sourceUrl %q: LoadBackup() error = %v, want an http/https error", u, err)
 		}
+	}
+}
+
+func TestLoadBackupSourceTokenFileEmpty(t *testing.T) {
+	path := writeConfigFile(t, `[backup]
+		sourceUrl = "https://source.internal:8085"
+		sourceTokenFile = "`+writeTokenFile(t, "\n")+`"
+	`)
+	_, err := LoadBackup(path)
+	if err == nil || !strings.Contains(err.Error(), "sourceTokenFile") {
+		t.Fatalf("LoadBackup() error = %v, want one naming sourceTokenFile", err)
 	}
 }

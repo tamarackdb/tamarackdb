@@ -59,7 +59,7 @@ func main() {
 	fmt.Printf("socketMode: %s\n", cfg.SocketMode)
 	fmt.Printf("bindAddress: %s\n", cfg.BindAddress)
 	fmt.Printf("port: %d\n", cfg.Port)
-	fmt.Printf("enableAuth: %t\n", cfg.EnableAuth)
+	fmt.Printf("authTokenFile: %s\n", cfg.AuthTokenFile)
 	fmt.Printf("allowNoAuth: %t\n", cfg.AllowNoAuth)
 	fmt.Printf("dataDir: %s\n", cfg.DataDir)
 	fmt.Printf("devMode: %t\n", cfg.DevMode)
@@ -106,7 +106,6 @@ func main() {
 	fatalCh := make(chan error, 1)
 	srv := api.New(wr, txs, st, api.Options{
 		Version:                buildinfo.Version,
-		EnableAuth:             cfg.EnableAuth,
 		AuthToken:              cfg.AuthToken,
 		DefaultEventsPerPage:   cfg.DefaultEventsPerPage,
 		MaxEventsPerPage:       cfg.MaxEventsPerPage,
@@ -154,14 +153,14 @@ func main() {
 	defer stop()
 
 	if cfg.SocketPath != "" {
-		log.Printf("tamarackdb-server: listening on %s (auth=%t)", cfg.SocketPath, cfg.EnableAuth)
+		log.Printf("tamarackdb-server: listening on %s (auth=%t)", cfg.SocketPath, cfg.AuthToken != "")
 	} else {
 		addr := listener.Addr().(*net.TCPAddr)
 		host := addr.IP.String()
 		if addr.IP.IsUnspecified() {
 			host = "localhost" // 0.0.0.0 or :: is not a useful link target
 		}
-		log.Printf("tamarackdb-server: listening on http://%s (auth=%t)", net.JoinHostPort(host, strconv.Itoa(addr.Port)), cfg.EnableAuth)
+		log.Printf("tamarackdb-server: listening on http://%s (auth=%t)", net.JoinHostPort(host, strconv.Itoa(addr.Port)), cfg.AuthToken != "")
 	}
 
 	// Plain HTTP only, on the socket or over TCP: TLS is a reverse proxy's
@@ -257,8 +256,7 @@ const defaultConfigTemplate = `[server]
 # socketMode = "%s"
 # bindAddress = "%s"
 # port = %d
-# enableAuth = false
-# authToken = "changeme"
+# authTokenFile = "/etc/tamarackdb/token"
 # allowNoAuth = false
 # dataDir = "%s"
 # devMode = false

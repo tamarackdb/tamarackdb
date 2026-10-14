@@ -19,12 +19,9 @@ type Options struct {
 	// GET /health. Empty is valid: it just reports as "".
 	Version string
 
-	// EnableAuth turns on the Bearer-token check on every request. When
-	// false, the API is served with no authentication at all.
-	EnableAuth bool
-
 	// AuthToken is the single static Bearer token every request must
-	// present when EnableAuth is true. Unused otherwise.
+	// present. When empty, the API is served with no authentication at
+	// all.
 	AuthToken string
 
 	// DefaultEventsPerPage is the QUERY /events page size applied when a request
@@ -181,7 +178,7 @@ func New(wr *writer.Writer, txs *tx.Registry, st *store.Store, opts Options) *Se
 	}
 
 	var h http.Handler = s.withBodyLimit(mux)
-	if opts.EnableAuth {
+	if opts.AuthToken != "" {
 		h = s.withAuth(h)
 	}
 	s.handler = s.withLogging(h)
