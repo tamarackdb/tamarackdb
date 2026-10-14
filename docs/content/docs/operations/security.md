@@ -83,5 +83,6 @@ Anyone who can read the database file reads every event and projection, whatever
 - `tamarackdb-init` and `tamarackdb-backup` create a data directory as `0700` and a database file as `0600`.
 - An existing directory or file keeps its permissions: the server never changes them. Give a directory you create
   yourself `0700`.
-- The token file must be readable by the server's user only: `chmod 600`.
+- The token file must be readable by the server's user only: `chmod 600`. With systemd's `LoadCredential=`, it can be
+  owned by root instead (see [Install](/docs/operations/install/#systemd)).
 - `devMode` stays off in production: it exposes `DELETE /events`, which deletes every event.

@@ -108,6 +108,16 @@ socketMode = "0660"
 dataDir = "/var/lib/tamarackdb"
 ```
 
+To turn authentication on, let systemd hand the token file to the server. Add to `[Service]`:
+
+```ini
+LoadCredential=token:/etc/tamarackdb/token
+Environment=TAMARACKDB_AUTH_TOKEN_FILE=%d/token
+```
+
+- `/etc/tamarackdb/token` can then be owned by root, with `chmod 600`.
+- systemd copies it into a directory only the service can read, and `%d` names that directory.
+
 Create the user and the database, then start the service:
 
 ```sh
@@ -116,16 +126,6 @@ sudo install -d -o tamarackdb -g tamarackdb -m 700 /var/lib/tamarackdb
 sudo -u tamarackdb /usr/local/bin/tamarackdb-init --data-dir /var/lib/tamarackdb
 sudo systemctl enable --now tamarackdb
 ```
-
-To turn authentication on, let systemd hand the token file to the server. Add to `[Service]`:
-
-```ini
-LoadCredential=token:/etc/tamarackdb/token
-Environment=TAMARACKDB_AUTH_TOKEN_FILE=%d/token
-```
-
-- `/etc/tamarackdb/token` can then stay readable by root only.
-- systemd copies it into a directory only the service can read, and `%d` names that directory.
 
 On `systemctl stop`, the server lets a write already running finish, and turns away the requests still waiting with
 `503 ShuttingDown`.
