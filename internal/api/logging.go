@@ -43,7 +43,7 @@ func (sw *statusWriter) WriteHeader(status int) {
 }
 
 // Unwrap lets http.ResponseController reach the underlying connection, to
-// set deadlines (see doInTx).
+// set deadlines (see stallDeadline).
 func (sw *statusWriter) Unwrap() http.ResponseWriter {
 	return sw.ResponseWriter
 }

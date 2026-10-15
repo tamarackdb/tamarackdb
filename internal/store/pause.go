@@ -17,9 +17,9 @@ func (s *Store) PausedAt() (time.Time, bool) {
 }
 
 // SetPause records a pause that began at at, and returns the last
-// Sequence Position as it stands at that moment. It runs on the write connection, so the caller MUST call it in its turn in
-// the FIFO: no write can then come between the pause and the sequence it
-// returns.
+// Sequence Position as it stands at that moment. It runs on the write
+// connection, so the caller MUST call it in its turn in the FIFO: no write
+// can then come between the pause and the sequence it returns.
 func (s *Store) SetPause(ctx context.Context, at time.Time) (lastSequence int64, err error) {
 	at = at.UTC().Truncate(time.Microsecond)
 	if _, err := s.writeDB.ExecContext(ctx, "UPDATE store SET paused_at = ?", at.Format(dcb.TimeLayout)); err != nil {

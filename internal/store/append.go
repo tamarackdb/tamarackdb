@@ -106,7 +106,7 @@ var afterReserve func()
 // checkCondition reports whether c holds against every event visible to
 // tx.
 func (s *Store) checkCondition(ctx context.Context, tx *sql.Tx, c dcb.AppendCondition) (bool, error) {
-	holds, decided := resolveWithoutQuery(c.FailIfEventsMatch, c.AfterSequence, s.peekLastAssigned())
+	holds, decided := resolveWithoutQuery(c.FailIfEventsMatch, c.AfterSequence, s.LastSequence())
 	if decided {
 		return holds, nil
 	}
@@ -147,10 +147,10 @@ func insertEvents(ctx context.Context, tx *sql.Tx, events []dcb.PendingEvent, st
 	return result, nil
 }
 
-// peekLastAssigned returns the highest sequence number the in-memory
-// counter has assigned so far (0 if nothing has ever been appended).
-// Does not advance the counter.
-func (s *Store) peekLastAssigned() int64 {
+// LastSequence returns the highest sequence number the in-memory counter
+// has assigned so far, or 0 if nothing was ever appended. It doesn't
+// advance the counter.
+func (s *Store) LastSequence() int64 {
 	s.seqMu.Lock()
 	defer s.seqMu.Unlock()
 	return s.nextSeq - 1

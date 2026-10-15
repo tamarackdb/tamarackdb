@@ -14,11 +14,8 @@ import (
 )
 
 const (
-	// fallbackReadPoolSize is used when Open's readPoolSize argument is
-	// <= 0 ("not specified"), for callers with no opinion on it (tests,
-	// cmd/tamarackdb-init, cmd/tamarackdb-demo, cmd/tamarackdb-backup).
-	// Production deployments configure this via internal/config's
-	// ReadPoolSize field instead, which defaults to the same value.
+	// fallbackReadPoolSize is the read pool's size when Open gets a
+	// readPoolSize of 0 or less.
 	fallbackReadPoolSize = 8
 	busyTimeoutMillis    = 5000
 )
@@ -174,14 +171,10 @@ func (s *Store) Ping(ctx context.Context) error {
 	return wrapf("ping", err)
 }
 
-// Optimize runs PRAGMA optimize on the write connection, letting SQLite
-// refresh query planner statistics for tables it judges stale, without the
-// cost of a full ANALYZE. Meant to be called periodically by main.go for
-// the life of a long-running process; a single connection's statistics
-// otherwise never update on their own once it's past its initial ANALYZE
-// (if any). Runs on writeDB, not readDB, since it may write to
-// sqlite_stat1; callers should expect it to briefly hold the sole write
-// connection, the same as any other write.
+// Optimize runs PRAGMA optimize, which refreshes the query planner
+// statistics of the tables SQLite judges stale, without a full ANALYZE
+// (see the package comment). It may write to sqlite_stat1, so it runs on
+// the write connection: the caller MUST call it in its turn in the FIFO.
 func (s *Store) Optimize(ctx context.Context) error {
 	_, err := s.writeDB.ExecContext(ctx, "PRAGMA optimize")
 	return wrapf("optimize", err)

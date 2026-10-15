@@ -58,9 +58,3 @@ func (s *Store) Import(ctx context.Context, events []dcb.Event) error {
 
 	return nil
 }
-
-// LastSequence returns the highest sequence number currently known to this
-// Store, or 0 if it is empty.
-func (s *Store) LastSequence() int64 {
-	return s.peekLastAssigned()
-}

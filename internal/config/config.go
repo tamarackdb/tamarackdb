@@ -167,12 +167,11 @@ type Config struct {
 	MaxOpenTx int `toml:"maxOpenTx"` // default: 1000
 }
 
-// Load reads and parses the [server] section of the TOML configuration file
-// at path if it exists (rejecting any unknown key, see readFile), fills in any field left at its zero value from the
-// matching TAMARACKDB_* environment variable, applies the documented
-// defaults for any field still unset, and validates the result. Any non-nil
-// error is fatal at startup: the caller should log it and exit rather than
-// retry.
+// Load reads the [server] section of the TOML file at path, if it exists,
+// and rejects any unknown key (see readFile). It fills each field left at
+// its zero value from its TAMARACKDB_* environment variable, then from its
+// default, and validates the result. Any error is fatal at startup: the
+// caller logs it and exits.
 func Load(path string) (*Config, error) {
 	f, data, found, err := readFile(path)
 	if err != nil {

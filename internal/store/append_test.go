@@ -373,7 +373,7 @@ func TestAppendProjectionConflictWritesNothing(t *testing.T) {
 func TestAppendPanicPutsTheCounterBack(t *testing.T) {
 	s := openTestStore(t)
 	mustAppend(t, s, []dcb.EventData{{Type: "a"}}, nil)
-	before := s.peekLastAssigned()
+	before := s.LastSequence()
 
 	afterReserve = func() { panic("boom") }
 	t.Cleanup(func() { afterReserve = nil })
@@ -387,7 +387,7 @@ func TestAppendPanicPutsTheCounterBack(t *testing.T) {
 	}()
 	afterReserve = nil
 
-	if got := s.peekLastAssigned(); got != before {
+	if got := s.LastSequence(); got != before {
 		t.Errorf("last assigned sequence = %d after the panic, want %d", got, before)
 	}
 	if got := mustAppend(t, s, []dcb.EventData{{Type: "c"}}, nil); got[0].Sequence != before+1 {
@@ -398,7 +398,7 @@ func TestAppendPanicPutsTheCounterBack(t *testing.T) {
 func TestAppendFailedInsertPutsTheCounterBack(t *testing.T) {
 	s := openTestStore(t)
 	mustAppend(t, s, []dcb.EventData{{Type: "a"}}, nil)
-	before := s.peekLastAssigned()
+	before := s.LastSequence()
 	if _, err := s.writeDB.Exec(`INSERT INTO events (sequence, time, type, payload, identifiers, metadata)
 		VALUES (?, '2026-01-01T00:00:00.000000Z', 'squatter', '', '{}', '{}')`, before+1); err != nil {
 		t.Fatalf("insert squatter row: %v", err)
@@ -407,7 +407,7 @@ func TestAppendFailedInsertPutsTheCounterBack(t *testing.T) {
 	if _, err := s.Append(context.Background(), dcb.NewPendingEvents([]dcb.EventData{{Type: "b"}}, dcb.Now()), nil, projection.Writes{}); err == nil {
 		t.Fatal("Append() error = nil, want the insert to fail")
 	}
-	if got := s.peekLastAssigned(); got != before {
+	if got := s.LastSequence(); got != before {
 		t.Errorf("last assigned sequence = %d after the failed write, want %d", got, before)
 	}
 }

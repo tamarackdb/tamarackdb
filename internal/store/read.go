@@ -42,7 +42,8 @@ func (s *Store) Read(ctx context.Context, f ReadFilter) (*EventIterator, error) 
 // committed event q matches, with no page limit, since a decision must see
 // all of them. In the same SQLite snapshot it reads the position, the
 // highest Sequence Position committed (0 for an empty store): an Append
-// Condition built from this read uses that position as its afterSequence. For dcb.QueryNone it reads no event. The returned
+// Condition built from this read uses that position as its
+// afterSequence. For dcb.QueryNone it reads no event. The returned
 // *EventIterator holds the read transaction until it's closed; HasMore is
 // always false.
 func (s *Store) ReadDecision(ctx context.Context, q dcb.Query) (*EventIterator, error) {
@@ -124,16 +125,11 @@ WHERE events.sequence > ?`)
 	return b.String(), args
 }
 
-// ReadEvent is one row of a Read result. Time, Identifiers, and Metadata
-// are left exactly as stored (see insertEventsBatch): time is always
-// written from a UTC time.Time in dcb.TimeLayout, and identifiers/metadata are
-// always written via IdentifierSet/MetadataSet's own MarshalJSON, so all
-// three are already byte-identical to what the HTTP API returns. Nothing in the read
-// path needs the structured form (query filtering already happened in SQL),
-// so scanEvent skips decoding them at all, trading away read-time corruption
-// detection on these three columns for that: a garbled column is
-// forwarded to the client as-is instead of failing with a clear "corrupt
-// data" error, the same trade-off already made for the type/payload columns.
+// ReadEvent is one event read. Time, Identifiers, and Metadata are kept
+// as stored, already in the form the HTTP API returns (see
+// insertEventsBatch). A read filters in SQL and never needs them decoded,
+// so they aren't: a garbled column goes to the client as is, like the type
+// and the payload.
 type ReadEvent struct {
 	Sequence    int64
 	Time        string // raw events.time text, already UTC and dcb.TimeLayout-formatted
@@ -160,15 +156,11 @@ func scanEvent(rows *sql.Rows) (ReadEvent, error) {
 	}, nil
 }
 
-// EventIterator streams Read's result page, or ReadDecision's result, one
-// event at a time. Next returns false once Limit events have been
-// returned (Read only) or the underlying query is exhausted; HasMore is only meaningful after that point (i.e.
-// once Next has returned false); before then it is always false.
-//
-// internal/api's QUERY /events handler drives this with Next()/Event()/Err(),
-// writing each event as it comes out of SQLite; the single underlying
-// query keeps the read transaction short-lived, to support live projection
-// rebuilds, never held open across pages.
+// EventIterator streams Read's page, or ReadDecision's result, one event
+// at a time, from a single SQL query. Next returns false once Limit events
+// have been returned (Read only), or the query is exhausted. HasMore is
+// meaningful only after that; before, it's false. The read transaction
+// lasts one page, never more.
 type EventIterator struct {
 	rows     *sql.Rows // nil when the read selects no event at all
 	tx       *sql.Tx   // the read transaction Close ends

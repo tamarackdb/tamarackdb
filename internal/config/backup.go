@@ -44,12 +44,11 @@ type BackupConfig struct {
 	PageLimit int    `toml:"pageLimit"` // default: 1000
 }
 
-// LoadBackup reads and parses the [backup] section of the TOML configuration
-// file at path if it exists (rejecting any unknown key, see readFile), fills in any field left at its zero value from
-// the matching TAMARACKDB_BACKUP_* environment variable, applies the
-// documented defaults for dataDir and pageLimit if still unset, and validates the
-// result. Any non-nil error is fatal at startup: the caller should log it
-// and exit rather than retry.
+// LoadBackup reads the [backup] section of the TOML file at path, if it
+// exists, and rejects any unknown key (see readFile). It fills each field
+// left at its zero value from its TAMARACKDB_BACKUP_* environment
+// variable, then dataDir and pageLimit from their defaults, and validates
+// the result. Any error is fatal at startup: the caller logs it and exits.
 func LoadBackup(path string) (*BackupConfig, error) {
 	f, _, found, err := readFile(path)
 	if err != nil {

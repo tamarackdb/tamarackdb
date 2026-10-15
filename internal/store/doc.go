@@ -106,17 +106,19 @@
 // POST /optimize, in its turn in the FIFO. events only grows, so
 // statistics gathered once drift further from reality the longer the
 // process runs. PRAGMA optimize only analyzes again the tables that
-// changed enough to matter, so it's cheap enough to run often. A full ANALYZE never runs on its own: it's for a
-// one-off bulk import, run by hand while the server is stopped.
+// changed enough to matter, so it's cheap enough to run often. A full
+// ANALYZE never runs on its own: it's for a one-off bulk import, run by
+// hand while the server is stopped.
 //
 // # The pause
 //
-// The pause is kept in the store table, in paused_at, and in memory
-// next to the Sequence Position counter. It MUST survive a restart: an operation that
-// relies on it, a rebuild for example, would otherwise see commands start
-// again because the server restarted. SetPause and ClearPause write it on
-// the write connection, in their caller's turn in the FIFO. DeleteAllEvents
-// leaves it as it is. What a pause blocks, and how it begins and ends, is package tx's.
+// The pause is kept in the store table, in paused_at, and in memory next
+// to the Sequence Position counter. It MUST survive a restart: an
+// operation that relies on it, a rebuild for example, would otherwise see
+// commands start again because the server restarted. SetPause and
+// ClearPause write it on the write connection, in their caller's turn in
+// the FIFO. DeleteAllEvents leaves it as it is. What a pause blocks, and
+// how it begins and ends, is package tx's.
 //
 // # Schema version
 //
