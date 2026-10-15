@@ -24,7 +24,9 @@
 //
 // An empty write still closes a condition, and the condition is still
 // checked at commit. A decision to do nothing then stays protected: if
-// what it read changes before the commit, the commit is refused.
+// what it read changes before the commit, the commit is refused. A
+// transaction that writes nothing at all commits at once, without a turn
+// and without a check: it has nothing to protect.
 //
 // # What a transaction holds
 //

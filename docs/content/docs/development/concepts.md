@@ -85,7 +85,7 @@ everything at commit, or nothing.
 4. **Commit.** The server checks every condition and every projection written, then writes everything at once.
 
 - A read of events opens a condition. The next call must be the write of events that closes it, even with an empty
-  list. The decision to write nothing is checked at commit too.
+  list. If the transaction writes anything else, the decision to write nothing is checked at commit too.
 - A decision that rests on no event reads `"none"` first.
 - A projection only read is not checked at commit: a decision that rests on it is not protected.
 - To read events without making a decision, use `QUERY /events`, outside the transaction.
