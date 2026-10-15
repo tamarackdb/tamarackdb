@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -79,12 +78,12 @@ func TestClientLeavingMidBodyKeepsTheTransaction(t *testing.T) {
 			// handled proves the request reached the handler: without it, a
 			// connection closed too early would pass the test without
 			// testing anything. active tells when the server has started
-			// reading the request: from then on, ts.Close waits for it.
-			var handled atomic.Int32
+			// reading the request.
+			handled := make(chan struct{})
 			active := make(chan struct{}, 1)
 			ts := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				srv.ServeHTTP(w, r)
-				handled.Add(1)
+				close(handled)
 			}))
 			ts.Config.ConnState = func(_ net.Conn, state http.ConnState) {
 				if state == http.StateActive {
@@ -109,10 +108,12 @@ func TestClientLeavingMidBodyKeepsTheTransaction(t *testing.T) {
 				t.Fatal("the server never started reading the request")
 			}
 			conn.Close()
-			ts.Close() // waits for the handler to finish
-			if handled.Load() != 1 {
-				t.Fatalf("handled %d requests, want 1", handled.Load())
+			select {
+			case <-handled:
+			case <-time.After(2 * time.Second):
+				t.Fatal("the handler never returned")
 			}
+			ts.Close()
 
 			if s := srv.txs.Stats(); s.DesignErrors != 0 {
 				t.Errorf("Stats().DesignErrors = %d, want 0", s.DesignErrors)

@@ -72,7 +72,7 @@ func writeReadEvents(nw *ndjson.Writer, it *store.EventIterator, beforeWrite fun
 // handleReadEvents implements QUERY /events: the read runs on the read pool
 // and sees committed events only.
 func (s *Server) handleReadEvents(w http.ResponseWriter, r *http.Request) {
-	filter, err := s.parseReadRequest(r)
+	filter, err := s.parseReadRequest(w, r)
 	if err != nil {
 		s.handleErr(w, r, err)
 		return
@@ -116,9 +116,9 @@ var readStallTimeout = 30 * time.Second
 
 // parseReadRequest decodes and validates a QUERY /events body into a
 // store.ReadFilter.
-func (s *Server) parseReadRequest(r *http.Request) (store.ReadFilter, error) {
+func (s *Server) parseReadRequest(w http.ResponseWriter, r *http.Request) (store.ReadFilter, error) {
 	var req readRequest
-	if err := decodeJSONStrict(r, &req); err != nil {
+	if err := decodeJSONStrict(w, r, &req); err != nil {
 		return store.ReadFilter{}, err
 	}
 	if err := req.Query.Validate(); err != nil {

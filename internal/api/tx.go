@@ -105,7 +105,7 @@ func (s *Server) txFail(w http.ResponseWriter, r *http.Request, id string, err e
 func (s *Server) handleTxReadEvents(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("txId")
 	var req txReadRequest
-	err := decodeJSONStrict(r, &req)
+	err := decodeJSONStrict(w, r, &req)
 	if err == nil {
 		err = req.Query.Validate()
 	}
@@ -163,7 +163,7 @@ func streamTxEvents(w http.ResponseWriter, read tx.Read, beforeWrite func()) err
 func (s *Server) handleTxWriteEvents(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("txId")
 	var req txEventsRequest
-	err := decodeJSONStrict(r, &req)
+	err := decodeJSONStrict(w, r, &req)
 	if err == nil && req.Events == nil {
 		err = &dcb.ValidationError{Err: errMissingEvents, Message: "events is required: send an empty list to write no event"}
 	}
@@ -188,7 +188,7 @@ func (s *Server) handleTxWriteEvents(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleTxGetProjection(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("txId")
 	var key projection.Key
-	err := decodeJSONStrict(r, &key)
+	err := decodeJSONStrict(w, r, &key)
 	if err == nil {
 		err = key.Validate()
 	}
@@ -215,7 +215,7 @@ func (s *Server) handleTxGetProjection(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleTxWriteProjections(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("txId")
 	var req txProjectionsRequest
-	err := decodeJSONStrict(r, &req)
+	err := decodeJSONStrict(w, r, &req)
 	if err == nil {
 		err = s.validateTxProjections(req)
 	}

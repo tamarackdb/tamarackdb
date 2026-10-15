@@ -44,7 +44,7 @@ func toProjectionVersions(versions []string) []projectionVersion {
 // up to the writing application, the store never parses it.
 func (s *Server) handleGetProjection(w http.ResponseWriter, r *http.Request) {
 	var key projection.Key
-	err := decodeJSONStrict(r, &key)
+	err := decodeJSONStrict(w, r, &key)
 	if err == nil {
 		err = key.Validate()
 	}
@@ -75,7 +75,7 @@ func (s *Server) handleGetProjection(w http.ResponseWriter, r *http.Request) {
 // comment). An empty write gets 200 at once, without a turn.
 func (s *Server) handleWriteProjections(w http.ResponseWriter, r *http.Request) {
 	var req projection.Writes
-	err := decodeJSONStrict(r, &req)
+	err := decodeJSONStrict(w, r, &req)
 	if err == nil {
 		err = s.validateWriteProjections(req)
 	}

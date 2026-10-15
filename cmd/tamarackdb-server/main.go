@@ -126,6 +126,11 @@ func main() {
 	httpServer := &http.Server{
 		Handler:           srv,
 		ReadHeaderTimeout: 10 * time.Second,
+		// A client that sends its body very slowly would otherwise hold a
+		// goroutine and a connection forever. net/http clears this
+		// deadline once the body is read, so a longer request, a write
+		// waiting for its turn or a long read, isn't cut.
+		ReadTimeout: time.Minute,
 		// A keep-alive connection with no request in flight is closed
 		// after this long, so idle clients can't pile up open connections.
 		IdleTimeout: 2 * time.Minute,

@@ -22,8 +22,8 @@ import (
 // handle "malformed body" and "domain validation failure" identically,
 // both as 400 InvalidRequest. A body that can't be read gets
 // errClientGone or a *bodyTooLargeError instead (see readBody).
-func decodeJSONStrict(r *http.Request, v any) error {
-	body, err := readBody(r)
+func decodeJSONStrict(w http.ResponseWriter, r *http.Request, v any) error {
+	body, err := readBody(w, r)
 	if err != nil {
 		return err
 	}
@@ -33,8 +33,9 @@ func decodeJSONStrict(r *http.Request, v any) error {
 }
 
 // errClientGone is returned when a request body can't be read to its end:
-// the client left while sending it, or broke its framing. Either way the
-// connection is no longer usable, so nothing is answered.
+// the client left while sending it, broke its framing, or took longer than
+// the server's ReadTimeout. Either way the connection is no longer usable,
+// so nothing is answered.
 var errClientGone = errors.New("api: the request body could not be read to its end")
 
 // readBody reads r's body in full, before any of it is decoded. A request
@@ -46,11 +47,18 @@ var errClientGone = errors.New("api: the request body could not be read to its e
 // leaving and for a complete body holding truncated JSON, which is a
 // design error. r.Context() can't tell either: over HTTP/1.1, net/http
 // only watches the connection once the body has been read.
-func readBody(r *http.Request) ([]byte, error) {
+//
+// A body that can't be read to its end closes the connection at once.
+// Otherwise, net/http would answer 200 with an empty body once the
+// handler returns, and a slow client could take it for a success.
+func readBody(w http.ResponseWriter, r *http.Request) ([]byte, error) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		if tooLarge := bodyTooLarge(err); tooLarge != nil {
 			return nil, tooLarge
+		}
+		if conn, _, hijackErr := http.NewResponseController(w).Hijack(); hijackErr == nil {
+			_ = conn.Close()
 		}
 		return nil, fmt.Errorf("%w: %w", errClientGone, err)
 	}

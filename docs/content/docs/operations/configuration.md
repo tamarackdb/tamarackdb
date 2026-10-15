@@ -69,6 +69,8 @@ tamarackdb-backup --default-config >> config.toml
   application's data, and use the same ones in production. Every error from a limit names the setting to raise.
 - Every limit must be positive, and `defaultEventsPerPage` can't exceed `maxEventsPerPage`. The server refuses to
   start otherwise.
+- A client has one minute to send a request, its body included. Past that, the server closes the connection without
+  an answer. This limit is fixed.
 - `txIdleTimeout` only ends transactions the application forgot. A transaction that keeps making calls lives as long
   as it needs.
 - Past `maxOpenTx`, `POST /tx` gets `503 TooManyTransactions`. The open transactions go on. A commit still writing
