@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -119,6 +120,42 @@ func TestTransactionOverHTTP(t *testing.T) {
 	}
 }
 
+// TestTransactionReadWithALimit checks the order of a read in each
+// direction, and that limit counts the pending and committed events
+// together.
+func TestTransactionReadWithALimit(t *testing.T) {
+	srv, _, _ := newTestServer(t)
+	commitEvents(t, srv, `[{"type":"c1","payload":""},{"type":"c2","payload":""}]`)
+	tx := begin(t, srv)
+	txRequest(t, srv, "QUERY", tx+"/events", `{"query":"none"}`, 200)
+	txRequest(t, srv, "POST", tx+"/events", `{"events":[{"type":"p1","payload":""},{"type":"p2","payload":""}]}`, 200)
+
+	tests := []struct {
+		body string
+		want []string
+	}{
+		{`{"query":"all"}`, []string{"c1", "c2", "p1", "p2"}},
+		{`{"query":"all","backwards":true}`, []string{"p2", "p1", "c2", "c1"}},
+		{`{"query":"all","backwards":true,"limit":1}`, []string{"p2"}},
+		{`{"query":"all","backwards":true,"limit":3}`, []string{"p2", "p1", "c2"}},
+		{`{"query":"all","limit":3}`, []string{"c1", "c2", "p1"}},
+		{`{"query":"all","limit":1}`, []string{"c1"}},
+		{`{"query":"none","backwards":true,"limit":1}`, nil},
+	}
+	for _, tt := range tests {
+		rec := txRequest(t, srv, "QUERY", tx+"/events", tt.body, 200)
+		lines := txLines(t, rec.Body.String())
+		var got []string
+		for _, l := range lines[:len(lines)-1] {
+			got = append(got, l["type"].(string))
+		}
+		if !slices.Equal(got, tt.want) || lines[len(lines)-1]["end"] != true {
+			t.Errorf("%s: got %v then %v, want %v then the trailer", tt.body, got, lines[len(lines)-1], tt.want)
+		}
+		txRequest(t, srv, "POST", tx+"/events", `{"events":[]}`, 200)
+	}
+}
+
 func TestTransactionNotFound(t *testing.T) {
 	srv, _, _ := newTestServer(t)
 	for _, path := range []string{"/tx/not-a-uuid", "/tx/5b0c7e2a-1f4d-4a9b-8c3e-6d2f1a0b9e47"} {
@@ -139,7 +176,8 @@ func TestRefusedRequestsEndTheTransaction(t *testing.T) {
 		wantCode                 int
 		open                     bool // read first, so a write of events is allowed
 	}{
-		{"unknown key in a read", "QUERY", "/events", `{"query":"none","limit":5}`, 400, false},
+		{"unknown key in a read", "QUERY", "/events", `{"query":"none","afterSequence":5}`, 400, false},
+		{"zero limit in a read", "QUERY", "/events", `{"query":"all","limit":0}`, 400, false},
 		{"missing query", "QUERY", "/events", `{}`, 400, false},
 		{"star query", "QUERY", "/events", `{"query":"*"}`, 400, false},
 		{"missing events key", "POST", "/events", `{}`, 400, true},

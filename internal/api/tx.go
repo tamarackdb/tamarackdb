@@ -9,6 +9,7 @@ import (
 	"github.com/tamarackdb/tamarackdb/internal/dcb"
 	"github.com/tamarackdb/tamarackdb/internal/ndjson"
 	"github.com/tamarackdb/tamarackdb/internal/projection"
+	"github.com/tamarackdb/tamarackdb/internal/store"
 	"github.com/tamarackdb/tamarackdb/internal/tx"
 )
 
@@ -24,10 +25,13 @@ type txBeginResponse struct {
 	TxID string `json:"txId"`
 }
 
-// txReadRequest is QUERY /tx/{txId}/events's body. A decision read has no
-// afterSequence and no limit: it sees every event that matches.
+// txReadRequest is QUERY /tx/{txId}/events's body. A decision rests on
+// one read, so there is no afterSequence and no page: it sees every event
+// that matches, or at most limit, with no upper bound.
 type txReadRequest struct {
-	Query dcb.Query `json:"query"`
+	Query     dcb.Query `json:"query"`
+	Backwards bool      `json:"backwards,omitempty"`
+	Limit     *int      `json:"limit,omitempty"`
 }
 
 // txEventsRequest is POST /tx/{txId}/events's body. events is a pointer so
@@ -101,7 +105,8 @@ func (s *Server) txFail(w http.ResponseWriter, r *http.Request, id string, err e
 
 // handleTxReadEvents implements QUERY /tx/{txId}/events: the committed
 // events that match, then the transaction's pending events that match,
-// then the trailer. It opens a condition (see tx.Registry.ReadEvents).
+// then the trailer. Backwards, the pending events come first. It opens a
+// condition (see tx.Registry.ReadEvents).
 func (s *Server) handleTxReadEvents(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("txId")
 	var req txReadRequest
@@ -109,26 +114,33 @@ func (s *Server) handleTxReadEvents(w http.ResponseWriter, r *http.Request) {
 	if err == nil {
 		err = req.Query.Validate()
 	}
+	f := store.DecisionFilter{Query: req.Query, Backwards: req.Backwards}
+	if err == nil && req.Limit != nil {
+		err = validateLimit(*req.Limit)
+		f.Limit = *req.Limit
+	}
 	if err != nil {
 		s.txFail(w, r, id, err)
 		return
 	}
-	read, err := s.txs.ReadEvents(r.Context(), id, req.Query)
+	read, err := s.txs.ReadEvents(r.Context(), id, f)
 	if err != nil {
 		s.handleErr(w, r, err)
 		return
 	}
 	renew, done := s.stallDeadline(w)
 	defer done()
-	if err := streamTxEvents(w, read, renew); err != nil {
+	if err := streamTxEvents(w, read, f, renew); err != nil {
 		s.handleErr(w, r, err)
 	}
 }
 
-// streamTxEvents writes read as NDJSON, closing its iterator. As with
-// streamEvents, a failure once the first line is out can only end the
-// response early, without the trailer.
-func streamTxEvents(w http.ResponseWriter, read tx.Read, beforeWrite func()) error {
+// streamTxEvents writes read as NDJSON, closing its iterator: the
+// committed events, then the pending ones, or the pending ones first
+// backwards, at most f.Limit in all. As with streamEvents, a failure once
+// the first line is out can only end the response early, without the
+// trailer.
+func streamTxEvents(w http.ResponseWriter, read tx.Read, f store.DecisionFilter, beforeWrite func()) error {
 	if read.Committed != nil {
 		defer read.Committed.Close()
 	}
@@ -137,22 +149,51 @@ func streamTxEvents(w http.ResponseWriter, read tx.Read, beforeWrite func()) err
 	w.WriteHeader(http.StatusOK)
 
 	nw := ndjson.NewWriter(w)
-	if it := read.Committed; it != nil {
-		if err := writeReadEvents(nw, it, beforeWrite); err != nil {
-			return err
+	sent := 0
+	more := func() bool { return f.Limit == 0 || sent < f.Limit }
+	writeCommitted := func() error {
+		it := read.Committed
+		if it == nil {
+			return nil
 		}
+		for more() && it.Next() {
+			beforeWrite()
+			ev := it.Event()
+			if err := nw.WriteAppend(func(dst []byte) []byte { return appendReadEvent(dst, ev) }); err != nil {
+				return err
+			}
+			sent++
+		}
+		return it.Err()
 	}
-	for _, e := range read.Pending {
-		beforeWrite()
-		if err := nw.WriteValue(pendingEventWire{
-			Time:        e.Time.Format(dcb.TimeLayout),
-			Type:        e.Type,
-			Identifiers: e.Identifiers,
-			Metadata:    e.Metadata,
-			Payload:     e.Payload,
-		}); err != nil {
-			return err
+	writePending := func() error {
+		for _, e := range read.Pending {
+			if !more() {
+				return nil
+			}
+			beforeWrite()
+			if err := nw.WriteValue(pendingEventWire{
+				Time:        e.Time.Format(dcb.TimeLayout),
+				Type:        e.Type,
+				Identifiers: e.Identifiers,
+				Metadata:    e.Metadata,
+				Payload:     e.Payload,
+			}); err != nil {
+				return err
+			}
+			sent++
 		}
+		return nil
+	}
+	first, second := writeCommitted, writePending
+	if f.Backwards {
+		first, second = writePending, writeCommitted
+	}
+	if err := first(); err != nil {
+		return err
+	}
+	if err := second(); err != nil {
+		return err
 	}
 	beforeWrite()
 	return nw.WriteValue(txReadTrailer{End: true})

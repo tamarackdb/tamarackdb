@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"slices"
 	"testing"
 	"time"
 
@@ -11,9 +12,9 @@ import (
 
 // mustReadDecision drains ReadDecision and returns its events and
 // position.
-func mustReadDecision(t *testing.T, s *Store, q dcb.Query) ([]dcb.Event, int64) {
+func mustReadDecision(t *testing.T, s *Store, f DecisionFilter) ([]dcb.Event, int64) {
 	t.Helper()
-	it, err := s.ReadDecision(context.Background(), q)
+	it, err := s.ReadDecision(context.Background(), f)
 	if err != nil {
 		t.Fatalf("ReadDecision() error = %v", err)
 	}
@@ -33,7 +34,7 @@ func mustReadDecision(t *testing.T, s *Store, q dcb.Query) ([]dcb.Event, int64) 
 
 func TestReadDecisionEmptyStore(t *testing.T) {
 	s := openTestStore(t)
-	events, position := mustReadDecision(t, s, dcb.QueryAll())
+	events, position := mustReadDecision(t, s, DecisionFilter{Query: dcb.QueryAll()})
 	if len(events) != 0 || position != 0 {
 		t.Errorf("events = %d, position = %d, want 0, 0", len(events), position)
 	}
@@ -51,7 +52,7 @@ func TestReadDecisionReadsEveryMatchWithNoLimit(t *testing.T) {
 	}
 	mustAppend(t, s, events, nil)
 
-	got, position := mustReadDecision(t, s, dcb.NewQuery([]dcb.QueryItem{{Types: []string{"wanted"}}}))
+	got, position := mustReadDecision(t, s, DecisionFilter{Query: dcb.NewQuery([]dcb.QueryItem{{Types: []string{"wanted"}}})})
 	if len(got) != 1500 {
 		t.Fatalf("got %d events, want 1500", len(got))
 	}
@@ -66,10 +67,40 @@ func TestReadDecisionReadsEveryMatchWithNoLimit(t *testing.T) {
 	}
 }
 
+// TestReadDecisionBackwardsWithALimit checks that a limit cuts the events
+// read, in either order, and leaves the position alone.
+func TestReadDecisionBackwardsWithALimit(t *testing.T) {
+	s := openTestStore(t)
+	mustAppend(t, s, []dcb.EventData{{Type: "a"}, {Type: "a"}, {Type: "a"}, {Type: "b"}}, nil)
+	q := dcb.NewQuery([]dcb.QueryItem{{Types: []string{"a"}}})
+	tests := []struct {
+		name     string
+		f        DecisionFilter
+		wantSeqs []int64
+	}{
+		{"backwards, limit 1", DecisionFilter{Query: q, Backwards: true, Limit: 1}, []int64{3}},
+		{"backwards, no limit", DecisionFilter{Query: q, Backwards: true}, []int64{3, 2, 1}},
+		{"forwards, limit 2", DecisionFilter{Query: q, Limit: 2}, []int64{1, 2}},
+		{"none, backwards, limit 1", DecisionFilter{Query: dcb.QueryNone(), Backwards: true, Limit: 1}, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			events, position := mustReadDecision(t, s, tt.f)
+			var seqs []int64
+			for _, e := range events {
+				seqs = append(seqs, e.Sequence)
+			}
+			if !slices.Equal(seqs, tt.wantSeqs) || position != 4 {
+				t.Errorf("sequences = %v, position = %d, want %v, 4", seqs, position, tt.wantSeqs)
+			}
+		})
+	}
+}
+
 func TestReadDecisionNone(t *testing.T) {
 	s := openTestStore(t)
 	mustAppend(t, s, []dcb.EventData{{Type: "a"}, {Type: "b"}}, nil)
-	events, position := mustReadDecision(t, s, dcb.QueryNone())
+	events, position := mustReadDecision(t, s, DecisionFilter{Query: dcb.QueryNone()})
 	if len(events) != 0 || position != 2 {
 		t.Errorf("events = %d, position = %d, want 0, 2", len(events), position)
 	}
@@ -81,7 +112,7 @@ func TestReadDecisionIsOneSnapshot(t *testing.T) {
 	s := openTestStore(t)
 	mustAppend(t, s, []dcb.EventData{{Type: "a"}}, nil)
 
-	it, err := s.ReadDecision(context.Background(), dcb.QueryAll())
+	it, err := s.ReadDecision(context.Background(), DecisionFilter{Query: dcb.QueryAll()})
 	if err != nil {
 		t.Fatalf("ReadDecision() error = %v", err)
 	}

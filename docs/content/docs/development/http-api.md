@@ -89,6 +89,7 @@ curl -X QUERY http://127.0.0.1:8085/events \
 | `query` | yes | A [query](#queries) |
 | `afterSequence` | no | Only events after this Sequence Position. Left out, the read starts at the beginning |
 | `limit` | no | The most events in the page, from 1 to `maxEventsPerPage`. Left out, `defaultEventsPerPage` |
+| `backwards` | no | `true` reads the newest events first. Left out, `false` |
 
 `200 OK`, with an NDJSON body (`application/x-ndjson`), one JSON value per line:
 
@@ -98,7 +99,8 @@ curl -X QUERY http://127.0.0.1:8085/events \
 {"hasMore":true}
 ```
 
-- Events come in Sequence Position order. There is no filter on `time`.
+- Events come in Sequence Position order, or newest first with `backwards`. There is no filter on `time`.
+- `backwards` with `afterSequence` gets `400`. A backwards read gives the latest events, in a single page.
 - The last line is the trailer, `{"hasMore": true}` or `{"hasMore": false}`. Tell it apart from an event by its
   `hasMore` key.
 - For the next page, send the same query with `afterSequence` set to the last event's `sequence`.
@@ -157,8 +159,18 @@ curl -X QUERY http://127.0.0.1:8085/tx/<txId>/events \
 {"end":true}
 ```
 
-- The body takes `query` only: no `afterSequence`, no `limit`. Every matching event comes back.
+| Key | Required | What it does |
+|---|---|---|
+| `query` | yes | A [query](#queries) |
+| `backwards` | no | `true` reads the newest events first. Left out, `false` |
+| `limit` | no | The most events returned, 1 or more. Left out, every matching event |
+
 - Committed events come first, then the transaction's own pending events, which have no `sequence`.
+- With `backwards`, the pending events come first, newest first, then the committed events, newest first.
+- `limit` counts the pending and committed events together.
+- `limit` doesn't page: the read returns at most `limit` events, and the condition covers the whole query. To read
+  the last invoice number, read its events with `backwards` and `limit: 1`.
+- There is no `afterSequence`.
 - The last line is the trailer, `{"end": true}`.
 - The read opens a condition. The next call must be a write of events.
 - A read cut short leaves the condition open: abandon the transaction and run the command again.

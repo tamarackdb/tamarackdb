@@ -22,6 +22,12 @@
 // closed, isn't an error: each decision has its place in the order of the
 // pending events, and what comes after it lands after it in the log.
 //
+// A read with a limit returns fewer events, but its condition is still
+// the whole query, after the position of the read: an event the client
+// didn't receive still makes the commit fail. The condition MUST NOT
+// depend on the limit or on the order of the read: an event committed
+// meanwhile, outside the events returned, would then go unchecked.
+//
 // An empty write still closes a condition, and the condition is still
 // checked at commit. A decision to do nothing then stays protected: if
 // what it read changes before the commit, the commit is refused. A

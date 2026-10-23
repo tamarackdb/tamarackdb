@@ -124,6 +124,7 @@ var (
 	errNegativeLimit          = errors.New("api: limit must be non-negative")
 	errZeroLimit              = errors.New("api: limit must be greater than zero")
 	errLimitExceedsMax        = errors.New("api: limit exceeds the configured maximum")
+	errBackwardsAfterSequence = errors.New("api: afterSequence used with backwards")
 	errTrailingData           = errors.New("api: request body holds more than one JSON value")
 )
 

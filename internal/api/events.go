@@ -18,6 +18,7 @@ type readRequest struct {
 	Query         dcb.Query `json:"query"`
 	AfterSequence *int64    `json:"afterSequence,omitempty"`
 	Limit         *int      `json:"limit,omitempty"`
+	Backwards     bool      `json:"backwards,omitempty"`
 }
 
 // readTrailer is the last NDJSON line of every /events response:
@@ -128,25 +129,37 @@ func (s *Server) parseReadRequest(w http.ResponseWriter, r *http.Request) (store
 	if req.AfterSequence != nil && *req.AfterSequence < 0 {
 		return store.ReadFilter{}, &dcb.ValidationError{Err: dcb.ErrNegativeAfterSequence, Message: "afterSequence must be a non-negative integer"}
 	}
+	if req.AfterSequence != nil && req.Backwards {
+		// A backwards read gives the latest events, and has no page after
+		// the first.
+		return store.ReadFilter{}, &dcb.ValidationError{Err: errBackwardsAfterSequence, Message: "afterSequence can't be used with backwards"}
+	}
 
-	filter := store.ReadFilter{Query: req.Query, AfterSequence: req.AfterSequence, Limit: s.opts.DefaultEventsPerPage}
+	filter := store.ReadFilter{Query: req.Query, AfterSequence: req.AfterSequence, Limit: s.opts.DefaultEventsPerPage, Backwards: req.Backwards}
 
 	if req.Limit != nil {
-		switch {
-		case *req.Limit < 0:
-			return store.ReadFilter{}, &dcb.ValidationError{Err: errNegativeLimit, Message: "limit must be a non-negative integer"}
-		case *req.Limit == 0:
-			// store.ReadFilter.Limit must be >= 1, and a zero-size page
-			// can never determine hasMore meaningfully, so it's rejected
-			// rather than silently falling back to the default.
-			return store.ReadFilter{}, &dcb.ValidationError{Err: errZeroLimit, Message: "limit must be greater than zero"}
-		case *req.Limit > s.opts.MaxEventsPerPage:
+		if err := validateLimit(*req.Limit); err != nil {
+			return store.ReadFilter{}, err
+		}
+		if *req.Limit > s.opts.MaxEventsPerPage {
 			return store.ReadFilter{}, &dcb.ValidationError{Err: errLimitExceedsMax, Message: fmt.Sprintf(
 				"limit %d exceeds maxEventsPerPage (%d)", *req.Limit, s.opts.MaxEventsPerPage)}
 		}
 		filter.Limit = *req.Limit
 	}
 	return filter, nil
+}
+
+// validateLimit checks a read's limit, given: at least 1. A zero limit is
+// rejected rather than silently read as the default, or as no limit.
+func validateLimit(limit int) error {
+	switch {
+	case limit < 0:
+		return &dcb.ValidationError{Err: errNegativeLimit, Message: "limit must be a non-negative integer"}
+	case limit == 0:
+		return &dcb.ValidationError{Err: errZeroLimit, Message: "limit must be greater than zero"}
+	}
+	return nil
 }
 
 // streamEvents writes it as an NDJSON page, closing it before returning.

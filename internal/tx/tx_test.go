@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -86,7 +87,7 @@ func events(names ...string) []dcb.EventData {
 // events, then of the pending ones.
 func read(t *testing.T, r *Registry, id string, q dcb.Query) (committed, pending []string) {
 	t.Helper()
-	res, err := r.ReadEvents(bg, id, q)
+	res, err := r.ReadEvents(bg, id, store.DecisionFilter{Query: q})
 	if err != nil {
 		t.Fatalf("ReadEvents() error = %v", err)
 	}
@@ -131,7 +132,7 @@ func commit(t *testing.T, r *Registry, id string) {
 // committedEvents returns every committed event.
 func committedEvents(t *testing.T, st *store.Store) []store.ReadEvent {
 	t.Helper()
-	it, err := st.ReadDecision(bg, dcb.QueryAll())
+	it, err := st.ReadDecision(bg, store.DecisionFilter{Query: dcb.QueryAll()})
 	if err != nil {
 		t.Fatalf("ReadDecision() error = %v", err)
 	}
@@ -244,17 +245,17 @@ func TestRulesEndTheTransaction(t *testing.T) {
 			return err
 		}},
 		{"read while a condition is open", func(r *Registry, id string) error {
-			if _, err := r.ReadEvents(bg, id, dcb.QueryNone()); err != nil {
+			if _, err := r.ReadEvents(bg, id, store.DecisionFilter{Query: dcb.QueryNone()}); err != nil {
 				return err
 			}
-			_, err := r.ReadEvents(bg, id, dcb.QueryNone())
+			_, err := r.ReadEvents(bg, id, store.DecisionFilter{Query: dcb.QueryNone()})
 			return err
 		}},
 		{"projection written while a condition is open", func(r *Registry, id string) error {
 			if _, _, err := r.GetProjection(bg, id, key); err != nil {
 				return err
 			}
-			if _, err := r.ReadEvents(bg, id, dcb.QueryNone()); err != nil {
+			if _, err := r.ReadEvents(bg, id, store.DecisionFilter{Query: dcb.QueryNone()}); err != nil {
 				return err
 			}
 			_, err := r.WriteProjections(id, Writes{Create: []Projection{{key, "x"}}})
@@ -291,7 +292,7 @@ func TestRulesEndTheTransaction(t *testing.T) {
 			return err
 		}},
 		{"commit while a condition is open", func(r *Registry, id string) error {
-			if _, err := r.ReadEvents(bg, id, dcb.QueryNone()); err != nil {
+			if _, err := r.ReadEvents(bg, id, store.DecisionFilter{Query: dcb.QueryNone()}); err != nil {
 				return err
 			}
 			return r.Commit(bg, id)
@@ -306,7 +307,7 @@ func TestRulesEndTheTransaction(t *testing.T) {
 			if !errors.Is(err, ErrDesign) || !errors.As(err, &ve) {
 				t.Fatalf("error = %v, want a *dcb.ValidationError for ErrDesign", err)
 			}
-			if _, err := env.r.ReadEvents(bg, id, dcb.QueryNone()); !errors.Is(err, ErrNotFound) {
+			if _, err := env.r.ReadEvents(bg, id, store.DecisionFilter{Query: dcb.QueryNone()}); !errors.Is(err, ErrNotFound) {
 				t.Errorf("next call error = %v, want ErrNotFound: a broken rule ends the transaction", err)
 			}
 			if s := env.r.Stats(); s.DesignErrors != 1 {
@@ -334,6 +335,62 @@ func TestConditionConflictNamesItsRank(t *testing.T) {
 	}
 	if got := committedEvents(t, env.st); len(got) != 1 {
 		t.Errorf("store holds %d events, want only the one written outside", len(got))
+	}
+}
+
+// TestBackwardsReadWithALimit checks that a backwards read gives the
+// pending events newest first, then the committed ones newest first, and
+// that its condition is still the whole query: an event committed
+// meanwhile fails the commit, though the limit would have left it out.
+func TestBackwardsReadWithALimit(t *testing.T) {
+	env := newTestEnv(t, time.Minute)
+	if _, err := env.wr.WritePending(bg, dcb.NewPendingEvents(events("a", "a"), dcb.Now()), nil, projection.Writes{}); err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+	id := begin(t, env.r)
+	decide(t, env.r, id, dcb.QueryNone(), "a", "b", "a")
+
+	res, err := env.r.ReadEvents(bg, id, store.DecisionFilter{Query: types("a"), Backwards: true, Limit: 1})
+	if err != nil {
+		t.Fatalf("ReadEvents() error = %v", err)
+	}
+	var committed []int64
+	for res.Committed.Next() {
+		committed = append(committed, res.Committed.Event().Sequence)
+	}
+	res.Committed.Close()
+	// Every pending match, newest first: the caller sends at most the limit.
+	if len(res.Pending) != 2 || !slices.Equal(committed, []int64{2}) {
+		t.Fatalf("pending = %d, committed = %v, want 2 pending and committed [2]", len(res.Pending), committed)
+	}
+	write(t, env.r, id, "c")
+
+	if _, err := env.wr.WritePending(bg, dcb.NewPendingEvents(events("a"), dcb.Now()), nil, projection.Writes{}); err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+	var ce *store.ConditionConflictError
+	if err := env.r.Commit(bg, id); !errors.As(err, &ce) {
+		t.Fatalf("Commit() error = %v, want a condition conflict", err)
+	}
+}
+
+// TestBackwardsReversesThePendingEvents checks the order of the pending
+// events of a backwards read.
+func TestBackwardsReversesThePendingEvents(t *testing.T) {
+	env := newTestEnv(t, time.Minute)
+	id := begin(t, env.r)
+	decide(t, env.r, id, dcb.QueryNone(), "a", "b", "c")
+	res, err := env.r.ReadEvents(bg, id, store.DecisionFilter{Query: dcb.QueryAll(), Backwards: true})
+	if err != nil {
+		t.Fatalf("ReadEvents() error = %v", err)
+	}
+	res.Committed.Close()
+	var got []string
+	for _, e := range res.Pending {
+		got = append(got, e.Type)
+	}
+	if !slices.Equal(got, []string{"c", "b", "a"}) {
+		t.Errorf("pending = %v, want [c b a]", got)
 	}
 }
 
@@ -497,7 +554,7 @@ func TestIdleTransactionExpires(t *testing.T) {
 	if info := env.r.PauseInfo(); info.Open != 0 {
 		t.Errorf("PauseInfo().Open = %d at IdleTimeout, want 0", info.Open)
 	}
-	if _, err := env.r.ReadEvents(bg, id, dcb.QueryNone()); !errors.Is(err, ErrNotFound) {
+	if _, err := env.r.ReadEvents(bg, id, store.DecisionFilter{Query: dcb.QueryNone()}); !errors.Is(err, ErrNotFound) {
 		t.Errorf("ReadEvents() error = %v, want ErrNotFound", err)
 	}
 	if s := env.r.Stats(); s.Expired != 1 {
@@ -601,7 +658,7 @@ func TestSecondCallIsRefused(t *testing.T) {
 	key := projection.Key{Type: "p", ID: "1"}
 	calls := map[string]func() error{
 		"ReadEvents": func() error {
-			_, err := env.r.ReadEvents(bg, id, dcb.QueryNone())
+			_, err := env.r.ReadEvents(bg, id, store.DecisionFilter{Query: dcb.QueryNone()})
 			return err
 		},
 		"WriteEvents": func() error {
@@ -732,7 +789,7 @@ func TestTooManyReads(t *testing.T) {
 		decide(t, env.r, id, types("a"))
 	}
 	env.st.Close() // a read of the store would now fail with another error
-	_, err := env.r.ReadEvents(bg, id, types("a"))
+	_, err := env.r.ReadEvents(bg, id, store.DecisionFilter{Query: types("a")})
 	wantTooLarge(t, env.r, id, err, "maxReadsPerTx")
 }
 
@@ -807,7 +864,7 @@ func TestReadsIgnoreTheClientLeaving(t *testing.T) {
 	if _, _, err := env.r.GetProjection(gone, id, key); err != nil {
 		t.Fatalf("GetProjection() with a cancelled context error = %v, want nil", err)
 	}
-	read, err := env.r.ReadEvents(gone, id, types("a"))
+	read, err := env.r.ReadEvents(gone, id, store.DecisionFilter{Query: types("a")})
 	if err != nil {
 		t.Fatalf("ReadEvents() with a cancelled context error = %v, want nil", err)
 	}

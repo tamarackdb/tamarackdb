@@ -91,6 +91,8 @@ everything at commit, or nothing.
 - To read events without making a decision, use `QUERY /events`, outside the transaction.
 - A read in a transaction sees committed events, then the transaction's own pending events. A pending event has no
   `sequence` until the commit.
+- A decision can read only the latest events, with `backwards` and a `limit`. Its condition still covers every event
+  that matches the query.
 - After a `409`, run the whole command again, in a new transaction.
 - A transaction ends at its commit, when it's abandoned, at its first error, after `txIdleTimeout` without a call, or
   when the server stops. Then every call on it gets `404 TransactionNotFound`.

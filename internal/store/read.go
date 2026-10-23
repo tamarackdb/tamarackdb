@@ -19,6 +19,16 @@ type ReadFilter struct {
 	Query         dcb.Query
 	AfterSequence *int64 // nil = from the beginning; sequence > *AfterSequence
 	Limit         int    // must be >= 1; Read fetches Limit+1 rows
+	Backwards     bool   // newest first
+}
+
+// DecisionFilter holds ReadDecision's parameters. A Limit cuts only the
+// events returned: the position, and so the Append Condition built from
+// the read, stays the same.
+type DecisionFilter struct {
+	Query     dcb.Query
+	Backwards bool // newest first
+	Limit     int  // 0 = every match
 }
 
 // Read runs a paginated DCB read on the read pool: it sees committed
@@ -38,20 +48,20 @@ func (s *Store) Read(ctx context.Context, f ReadFilter) (*EventIterator, error) 
 	return it, nil
 }
 
-// ReadDecision runs the read a decision rests on, on the read pool: every
-// committed event q matches, with no page limit, since a decision must see
-// all of them. In the same SQLite snapshot it reads the position, the
-// highest Sequence Position committed (0 for an empty store): an Append
-// Condition built from this read uses that position as its
-// afterSequence. For dcb.QueryNone it reads no event. The returned
-// *EventIterator holds the read transaction until it's closed; HasMore is
-// always false.
-func (s *Store) ReadDecision(ctx context.Context, q dcb.Query) (*EventIterator, error) {
+// ReadDecision runs the read a decision rests on, on the read pool: the
+// committed events f.Query matches, all of them unless f.Limit is set.
+// There is no page: a decision rests on one read. In the same SQLite
+// snapshot it reads the position, the highest Sequence Position committed
+// (0 for an empty store): an Append Condition built from this read uses
+// that position as its afterSequence, whatever f.Limit. For
+// dcb.QueryNone it reads no event. The returned *EventIterator holds the
+// read transaction until it's closed; HasMore is always false.
+func (s *Store) ReadDecision(ctx context.Context, f DecisionFilter) (*EventIterator, error) {
 	tx, err := s.readDB.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, wrapf("begin read", err)
 	}
-	it, err := readDecision(ctx, tx, q)
+	it, err := readDecision(ctx, tx, f)
 	if err != nil {
 		tx.Rollback()
 		return nil, err
@@ -60,16 +70,19 @@ func (s *Store) ReadDecision(ctx context.Context, q dcb.Query) (*EventIterator, 
 	return it, nil
 }
 
-func readDecision(ctx context.Context, tx *sql.Tx, q dcb.Query) (*EventIterator, error) {
+func readDecision(ctx context.Context, tx *sql.Tx, f DecisionFilter) (*EventIterator, error) {
 	var position int64
 	if err := tx.QueryRowContext(ctx, "SELECT coalesce(max(sequence), 0) FROM events").Scan(&position); err != nil {
 		return nil, wrapf("read position", err)
 	}
 	it := &EventIterator{position: position}
-	if q.None() {
+	if f.Query.None() {
 		return it, nil
 	}
-	sqlStr, args := buildEventsSQL(q, 0)
+	sqlStr, args := buildEventsSQL(f.Query, 0, f.Backwards)
+	if f.Limit > 0 {
+		sqlStr, args = sqlStr+" LIMIT ?", append(args, f.Limit)
+	}
 	rows, err := tx.QueryContext(ctx, sqlStr, args...)
 	if err != nil {
 		return nil, wrapf("ReadDecision", err)
@@ -101,13 +114,13 @@ func buildReadSQL(f ReadFilter) (string, []any) {
 	if f.AfterSequence != nil {
 		after = *f.AfterSequence
 	}
-	sqlStr, args := buildEventsSQL(f.Query, after)
+	sqlStr, args := buildEventsSQL(f.Query, after, f.Backwards)
 	return sqlStr + " LIMIT ?", append(args, f.Limit+1)
 }
 
 // buildEventsSQL selects the events q matches after Sequence Position
-// after, in ascending order, with no limit.
-func buildEventsSQL(q dcb.Query, after int64) (string, []any) {
+// after, in ascending order, or descending with backwards, with no limit.
+func buildEventsSQL(q dcb.Query, after int64, backwards bool) (string, []any) {
 	var b strings.Builder
 	args := make([]any, 0, 6)
 	b.WriteString(`SELECT events.sequence, events.time, events.type, events.payload,
@@ -121,7 +134,11 @@ WHERE events.sequence > ?`)
 		b.WriteString(where)
 		args = append(args, whereArgs...)
 	}
-	b.WriteString(" ORDER BY events.sequence ASC")
+	if backwards {
+		b.WriteString(" ORDER BY events.sequence DESC")
+	} else {
+		b.WriteString(" ORDER BY events.sequence ASC")
+	}
 	return b.String(), args
 }
 

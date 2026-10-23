@@ -61,6 +61,24 @@ func TestReadAfterSequenceFiltering(t *testing.T) {
 
 // TestQueryTranslationEndToEnd checks queryToSQL against real SQLite rows:
 // OR across items and types, AND across identifiers and metadata.
+// TestReadBackwards checks that a backwards read gives the latest
+// matching events, newest first, with hasMore when older ones remain.
+func TestReadBackwards(t *testing.T) {
+	s := openTestStore(t)
+	mustAppend(t, s, []dcb.EventData{{Type: "a"}, {Type: "b"}, {Type: "a"}, {Type: "a"}, {Type: "b"}}, nil)
+	q := dcb.NewQuery([]dcb.QueryItem{{Types: []string{"a"}}})
+
+	events, hasMore := mustReadAll(t, s, ReadFilter{Query: q, Limit: 2, Backwards: true})
+	if len(events) != 2 || events[0].Sequence != 4 || events[1].Sequence != 3 || !hasMore {
+		t.Errorf("got %+v, hasMore = %v, want sequences 4 and 3, hasMore = true", events, hasMore)
+	}
+	events, hasMore = mustReadAll(t, s, ReadFilter{Query: dcb.QueryAll(), Limit: 5, Backwards: true})
+	if len(events) != 5 || events[0].Sequence != 5 || events[4].Sequence != 1 || hasMore {
+		t.Errorf("got %d events from %d to %d, hasMore = %v, want 5 to 1, hasMore = false",
+			len(events), events[0].Sequence, events[len(events)-1].Sequence, hasMore)
+	}
+}
+
 func TestQueryTranslationEndToEnd(t *testing.T) {
 	s := openTestStore(t)
 	mustAppend(t, s, []dcb.EventData{

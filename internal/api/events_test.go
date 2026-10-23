@@ -60,6 +60,20 @@ func TestReadPaginationOverHTTP(t *testing.T) {
 	}
 }
 
+func TestReadBackwardsOverHTTP(t *testing.T) {
+	srv, _, _ := newTestServer(t)
+	seedHTTPEvents(t, srv, 3)
+
+	rec := doRequest(t, srv, "QUERY", "/events", `{"query":"all","backwards":true,"limit":2}`)
+	if rec.Code != 200 {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	header, events := parseNDJSON(t, rec.Body.String())
+	if len(events) != 2 || events[0].Sequence != 3 || events[1].Sequence != 2 || !header.HasMore {
+		t.Errorf("events = %+v, hasMore = %v, want sequences 3 and 2, hasMore = true", events, header.HasMore)
+	}
+}
+
 func TestReadAfterSequenceFilteringOverHTTP(t *testing.T) {
 	srv, _, st := newTestServer(t)
 	day := func(d int) time.Time { return time.Date(2020, 1, d, 0, 0, 0, 0, time.UTC) }
@@ -102,6 +116,7 @@ func TestReadValidationFailures(t *testing.T) {
 		// widen the read without a word.
 		{"unknown key", `{"query":"all","time":{"from":"2026-01-01T00:00:00Z"}}`},
 		{"misspelled afterSequence", `{"query":"all","afterSequense":1}`},
+		{"afterSequence backwards", `{"query":"all","afterSequence":1,"backwards":true}`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

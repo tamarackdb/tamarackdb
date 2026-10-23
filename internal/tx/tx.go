@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -305,25 +306,29 @@ func (r *Registry) Reject(id string, design bool) error {
 }
 
 // Read is the result of ReadEvents: the committed events that match,
-// then the pending events that match.
+// then the pending events that match, or, backwards, the pending events
+// first. With a limit, the caller sends at most that many events in all:
+// Committed holds up to the limit, and Pending every match.
 type Read struct {
 	// Committed streams the committed events, in Sequence Position
-	// order. It's nil for "none". The caller must close it.
+	// order, newest first backwards. It's nil for "none". The caller
+	// must close it.
 	Committed *store.EventIterator
 
 	// Pending are the transaction's pending events that match, in the
-	// order they were written.
+	// order they were written, newest first backwards.
 	Pending []dcb.PendingEvent
 }
 
-// ReadEvents reads the events q matches and opens a condition on them.
-// The next call on the transaction must be WriteEvents.
+// ReadEvents reads the events f.Query matches and opens a condition on
+// them. The condition is the whole query, whatever f.Backwards and
+// f.Limit. The next call on the transaction must be WriteEvents.
 //
 // The read runs with ctx without its cancellation: a client that leaves
 // MUST NOT end its transaction, so the condition opens even if the
 // client is already gone. Only the stream stops: its next write fails,
 // which closes Committed and frees the read connection.
-func (r *Registry) ReadEvents(ctx context.Context, id string, q dcb.Query) (Read, error) {
+func (r *Registry) ReadEvents(ctx context.Context, id string, f store.DecisionFilter) (Read, error) {
 	ctx = context.WithoutCancel(ctx)
 	var read Read
 	err := r.do(id, func(t *transaction) error {
@@ -333,9 +338,10 @@ func (r *Registry) ReadEvents(ctx context.Context, id string, q dcb.Query) (Read
 		if n := len(t.conditions) + 1; n > r.cfg.MaxReadsPerTx {
 			return tooLarge(fmt.Sprintf("read events %d times", n), "maxReadsPerTx", r.cfg.MaxReadsPerTx)
 		}
+		q := f.Query
 		open := &openCondition{query: q}
 		if !q.None() {
-			it, err := r.st.ReadDecision(ctx, q)
+			it, err := r.st.ReadDecision(ctx, f)
 			if err != nil {
 				return err
 			}
@@ -346,6 +352,9 @@ func (r *Registry) ReadEvents(ctx context.Context, id string, q dcb.Query) (Read
 			if q.Matches(e.EventData) {
 				read.Pending = append(read.Pending, e)
 			}
+		}
+		if f.Backwards {
+			slices.Reverse(read.Pending)
 		}
 		t.open = open
 		return nil
