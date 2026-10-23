@@ -168,8 +168,7 @@ curl -X QUERY http://127.0.0.1:8085/tx/<txId>/events \
 - Committed events come first, then the transaction's own pending events, which have no `sequence`.
 - With `backwards`, the pending events come first, newest first, then the committed events, newest first.
 - `limit` counts the pending and committed events together.
-- `limit` doesn't page: the read returns at most `limit` events, and the condition covers the whole query. To read
-  the last invoice number, read its events with `backwards` and `limit: 1`.
+- `limit` doesn't page: the read returns at most `limit` events, and the condition covers the whole query.
 - There is no `afterSequence`.
 - The last line is the trailer, `{"end": true}`.
 - The read opens a condition. The next call must be a write of events.
