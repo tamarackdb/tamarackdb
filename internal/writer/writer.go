@@ -3,6 +3,7 @@ package writer
 import (
 	"context"
 	"errors"
+	"log"
 	"sync"
 	"time"
 
@@ -26,14 +27,24 @@ type Writer struct {
 	q  *queue.Manager
 	st *store.Store
 
+	// nextCheckpoint is the WAL size at which the next checkpoint runs
+	// (see checkpoint). Only a turn touches it: the FIFO keeps it to one
+	// goroutine at a time, with no lock.
+	nextCheckpoint int64
+
 	mu     sync.Mutex // guards everything below
 	closed bool
 	stats  Stats
 }
 
+// walCheckpointSize is the WAL size, in bytes, past which a turn ends
+// with a checkpoint (see checkpoint). A variable, not a constant, so tests
+// can lower it.
+var walCheckpointSize int64 = 64 << 20
+
 // New creates a Writer. Callers must Close it when done.
 func New(st *store.Store, cfg Config) *Writer {
-	return &Writer{q: queue.New(cfg.MaxQueued), st: st}
+	return &Writer{q: queue.New(cfg.MaxQueued), st: st, nextCheckpoint: walCheckpointSize}
 }
 
 // WriteProjections runs one POST /projections in its turn: it has the
@@ -79,7 +90,9 @@ func (w *Writer) record(err error) {
 
 // RunInTurn waits for a turn in the FIFO, behind every request already
 // queued, runs fn, then gives the turn to the next request. fn runs with
-// the write connection to itself, and commits on its own.
+// the write connection to itself, and commits on its own. If the WAL has
+// grown past its threshold, the turn ends with a checkpoint, before the
+// next request gets it (see checkpoint).
 //
 // A request that joined runs fn even if its client disconnects while it
 // waits. fn gets ctx without its cancellation, since database/sql would
@@ -101,7 +114,53 @@ func (w *Writer) RunInTurn(ctx context.Context, fn func(ctx context.Context) err
 	if closed {
 		return ErrClosed
 	}
-	return fn(context.WithoutCancel(ctx))
+	ctx = context.WithoutCancel(ctx)
+	err = fn(ctx)
+	w.checkpoint(ctx)
+	return err
+}
+
+// checkpoint runs a TRUNCATE checkpoint once the WAL has reached
+// nextCheckpoint (see store.Store.Checkpoint), at the end of the turn that
+// took it there. Without it, reads in turn during a rebuild keep the WAL
+// from ever starting over, and it grows to the size of the whole rebuild.
+//
+// It MUST run in a turn, never in a goroutine of its own: the server
+// starts none. The request whose write crossed the threshold waits for
+// it; the writes behind it would wait in any case.
+//
+// A checkpoint that gives up, because a reader was still in the WAL after
+// the busy timeout, makes the writes behind it wait that long. The next
+// try MUST then wait until the WAL has grown by walCheckpointSize more:
+// trying again at the next write could make every write wait. A
+// checkpoint that succeeds empties the WAL, and the threshold goes back to
+// walCheckpointSize.
+//
+// The write it follows is already committed: an error is logged, never
+// returned. A file that fails here fails the next write too.
+func (w *Writer) checkpoint(ctx context.Context) {
+	size, err := w.st.WALSize()
+	if err != nil {
+		log.Printf("tamarackdb-server: [ERROR] %v", err)
+		return
+	}
+	if size < w.nextCheckpoint {
+		return
+	}
+	done, err := w.st.Checkpoint(ctx)
+	if err != nil {
+		log.Printf("tamarackdb-server: [ERROR] %v", err)
+		return
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if done {
+		w.stats.Checkpoints++
+		w.nextCheckpoint = walCheckpointSize
+	} else {
+		w.stats.CheckpointsBusy++
+		w.nextCheckpoint = size + walCheckpointSize
+	}
 }
 
 // Optimize runs PRAGMA optimize (see store.Store.Optimize) in its turn

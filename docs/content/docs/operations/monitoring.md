@@ -54,6 +54,7 @@ change from one version to the next.
     "since": "2026-10-03T14:00:00.000000Z",
     "openTransactions": 0
   },
+  "wal": { "size": 4120032, "checkpoints": 81, "checkpointsBusy": 0 },
   "errors": { "internal": 0 }
 }
 ```
@@ -74,6 +75,9 @@ What to watch:
   has a `warning` line for each read over half of it.
 - **`pause.state`** stuck at `pauseRequested`: transactions are still open (`openTransactions`), or whoever asked for
   the pause stopped calling `POST /pause`.
+- **`wal.size`** well above 64 MiB, or **`wal.checkpointsBusy`** rising: reads take too long, and keep the WAL from
+  being emptied. `defaultEventsPerPage` or `maxEventsPerPage` is too high. The WAL file is emptied each time it goes
+  past 64 MiB; the write that took it there waits for it, usually under a second.
 - **`lastOptimizeAt`** more than a day old: the daily `POST /optimize` doesn't run (see
   [Maintenance](/docs/operations/maintenance/#query-statistics)).
 - **`errors.internal`** above zero: a failure on the server. The log has the matching `error` lines.

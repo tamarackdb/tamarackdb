@@ -335,6 +335,10 @@ func TestStats(t *testing.T) {
 		Writes:       writesStats{Committed: 2},
 		Transactions: transactionsStats{Begun: 3, Committed: 1, Abandoned: 1, DesignErrors: 1},
 		Pause:        pauseStats{State: "normal", Since: got.Pause.Since},
+		WAL:          walStats{Size: got.WAL.Size},
+	}
+	if got.WAL.Size <= 0 {
+		t.Errorf("wal.size = %d, want more than 0 after two writes", got.WAL.Size)
 	}
 	if got != want {
 		t.Errorf("stats = %+v, want %+v", got, want)

@@ -21,9 +21,17 @@
 // transaction, an event gets its time when its write reaches the server,
 // long before the commit.
 //
+// # Checkpoints
+//
+// A turn whose write took the WAL past 64 MiB ends with a TRUNCATE
+// checkpoint, before the next request gets the turn (see
+// Writer.checkpoint, and package store for why the WAL would grow
+// otherwise). The request that crossed the threshold waits for it.
+//
 // # Counters
 //
 // A Writer counts, since startup, the writes committed, the writes
-// refused by a conflict, and the requests turned away by a full FIFO
-// (see Stats). They're kept in memory only, for GET /stats.
+// refused by a conflict, the requests turned away by a full FIFO, and
+// the checkpoints that succeeded or gave up (see Stats). They're kept in
+// memory only, for GET /stats.
 package writer

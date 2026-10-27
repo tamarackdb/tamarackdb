@@ -70,6 +70,8 @@ tamarackdb-backup --default-config >> config.toml
   application's data, and use the same ones in production. Every error from a limit names the setting to raise.
 - Every limit must be positive, and `defaultEventsPerPage` can't exceed `maxEventsPerPage`. The server refuses to
   start otherwise.
+- Set `defaultEventsPerPage` so that a page reads in under a second. A longer read keeps the WAL file from being
+  emptied (see [Monitoring](/docs/operations/monitoring/#counters)).
 - The server loads a read in memory before it sends it. At worst, it holds `readPoolSize` reads at once, each of
   `maxEventsPerPage` (or `maxEventsPerTxRead`) events of `maxEventSize` bytes: about 5 GiB with the defaults. A page
   of 10,000 events of about 1 KB takes about 10 MB.

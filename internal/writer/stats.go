@@ -10,6 +10,8 @@ type Stats struct {
 	ConditionConflicts  uint64 // writes refused with 409: an Append Condition didn't hold
 	ProjectionConflicts uint64 // writes refused with 409: a projection wasn't at the version given
 	WriteQueueFull      uint64 // requests turned away with 503 WriteQueueFull
+	Checkpoints         uint64 // TRUNCATE checkpoints that emptied the WAL
+	CheckpointsBusy     uint64 // TRUNCATE checkpoints given up: a reader was still in the WAL
 
 	// LastOptimize is when PRAGMA optimize last succeeded, at startup or
 	// by POST /optimize. Zero until it first succeeds.

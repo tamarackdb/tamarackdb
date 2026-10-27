@@ -2,8 +2,10 @@ package writer
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -397,5 +399,84 @@ func TestOptimizeRecordsItsTime(t *testing.T) {
 	}
 	if at := env.m.Stats().LastOptimize; at.Before(before) {
 		t.Errorf("LastOptimize = %v, want a time after %v", at, before)
+	}
+}
+
+// TestCheckpointAtTheEndOfATurn checks that a turn whose write takes the
+// WAL past walCheckpointSize ends with a checkpoint, and that a
+// checkpoint given up because of a reader is tried again only once the
+// WAL has grown by walCheckpointSize more. It waits the busy timeout once.
+func TestCheckpointAtTheEndOfATurn(t *testing.T) {
+	defer func(size int64) { walCheckpointSize = size }(walCheckpointSize)
+	walCheckpointSize = 64 << 10
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "test.db")
+	st, err := store.Open(ctx, path, 0)
+	if err != nil {
+		t.Fatalf("store.Open() error = %v", err)
+	}
+	defer st.Close()
+	w := New(st, Config{})
+	defer w.Close()
+	write := func() {
+		t.Helper()
+		ev := dcb.EventData{Type: "a", Payload: strings.Repeat("x", 16<<10)}
+		if _, err := w.WritePending(ctx, dcb.NewPendingEvents([]dcb.EventData{ev}, dcb.Now()), nil, projection.Writes{}); err != nil {
+			t.Fatalf("WritePending() error = %v", err)
+		}
+	}
+	walSize := func() int64 {
+		t.Helper()
+		size, err := st.WALSize()
+		if err != nil {
+			t.Fatalf("WALSize() error = %v", err)
+		}
+		return size
+	}
+	// writeUntil writes until the stats change: the turn of the last write
+	// ended with a checkpoint.
+	writeUntil := func(changed func(Stats) bool) {
+		t.Helper()
+		for range 100 {
+			write()
+			if changed(w.Stats()) {
+				return
+			}
+		}
+		t.Fatalf("no checkpoint after 100 writes: stats = %+v", w.Stats())
+	}
+
+	writeUntil(func(s Stats) bool { return s.Checkpoints == 1 })
+	if size := walSize(); size != 0 {
+		t.Fatalf("WAL size after a checkpoint = %d, want 0", size)
+	}
+
+	// A reader outside the server, still in the WAL.
+	db, err := sql.Open("sqlite", "file:"+path+"?mode=ro")
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	defer db.Close()
+	write()
+	reader, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatalf("BeginTx() error = %v", err)
+	}
+	defer reader.Rollback()
+	var n int
+	if err := reader.QueryRowContext(ctx, "SELECT count(*) FROM events").Scan(&n); err != nil {
+		t.Fatalf("read error = %v", err)
+	}
+	writeUntil(func(s Stats) bool { return s.CheckpointsBusy == 1 })
+	given := walSize()
+
+	reader.Rollback()
+	write()
+	if s := w.Stats(); s.Checkpoints != 1 || s.CheckpointsBusy != 1 {
+		t.Errorf("stats after one more write = %+v, want no new try before the WAL grows by walCheckpointSize", s)
+	}
+	writeUntil(func(s Stats) bool { return s.Checkpoints == 2 })
+	if size := walSize(); size != 0 {
+		t.Errorf("WAL size after the retry = %d, want 0 (it was %d when given up)", size, given)
 	}
 }

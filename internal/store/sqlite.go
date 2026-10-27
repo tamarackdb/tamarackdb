@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"strings"
 	"sync"
@@ -25,6 +26,7 @@ type Store struct {
 	writeDB *sql.DB
 	readDB  *sql.DB
 	lock    *os.File
+	walPath string // SQLite's WAL file, next to the database file
 
 	// seqMu guards nextSeq, the in-memory Sequence Position counter.
 	// Append advances it as it inserts events, and puts it back if the
@@ -135,7 +137,7 @@ func Open(ctx context.Context, path string, readPoolSize int) (_ *Store, err err
 		return nil, err
 	}
 
-	return &Store{writeDB: writeDB, readDB: readDB, lock: lock, nextSeq: maxSeq + 1, pausedAt: pausedAt}, nil
+	return &Store{writeDB: writeDB, readDB: readDB, lock: lock, walPath: path + "-wal", nextSeq: maxSeq + 1, pausedAt: pausedAt}, nil
 }
 
 // createPrivate creates the database file, empty, readable and writable
@@ -169,6 +171,34 @@ func (s *Store) Ping(ctx context.Context) error {
 	var one int
 	err := s.readDB.QueryRowContext(ctx, "SELECT 1").Scan(&one)
 	return wrapf("ping", err)
+}
+
+// WALSize returns the size of the WAL file, in bytes: 0 when there is
+// none. The file keeps the largest size it reached until a TRUNCATE
+// checkpoint, or until the last connection closes.
+func (s *Store) WALSize() (int64, error) {
+	fi, err := os.Stat(s.walPath)
+	if errors.Is(err, fs.ErrNotExist) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, wrapf("stat WAL", err)
+	}
+	return fi.Size(), nil
+}
+
+// Checkpoint runs a TRUNCATE checkpoint (see the package comment): it
+// copies the whole WAL into the database file, then empties the WAL file.
+// It waits for the readers still in the WAL, up to the busy timeout. done
+// is false, with no error, when a reader was still there at the end. It
+// takes SQLite's write lock: the caller MUST call it in its turn in the
+// FIFO.
+func (s *Store) Checkpoint(ctx context.Context) (done bool, err error) {
+	var busy, frames, copied int
+	if err := s.writeDB.QueryRowContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)").Scan(&busy, &frames, &copied); err != nil {
+		return false, wrapf("checkpoint", err)
+	}
+	return busy == 0, nil
 }
 
 // Optimize runs PRAGMA optimize, which refreshes the query planner

@@ -17,7 +17,16 @@ type statsResponse struct {
 	Writes         writesStats       `json:"writes"`
 	Transactions   transactionsStats `json:"transactions"`
 	Pause          pauseStats        `json:"pause"`
+	WAL            walStats          `json:"wal"`
 	Errors         errorsStats       `json:"errors"`
+}
+
+// walStats is the size of the WAL file now, and the TRUNCATE checkpoints
+// that emptied it or gave up (see writer.Writer.checkpoint).
+type walStats struct {
+	Size            int64  `json:"size"`
+	Checkpoints     uint64 `json:"checkpoints"`
+	CheckpointsBusy uint64 `json:"checkpointsBusy"`
 }
 
 // pauseStats is the state of the pause, since when, and how many
@@ -58,6 +67,11 @@ type errorsStats struct {
 // handleStats implements GET /stats. It never waits for a write.
 func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 	ws, ts, ps := s.wr.Stats(), s.txs.Stats(), s.txs.PauseInfo()
+	walSize, err := s.st.WALSize()
+	if err != nil {
+		s.handleErr(w, r, err)
+		return
+	}
 	var lastOptimize *string
 	if !ws.LastOptimize.IsZero() {
 		at := ws.LastOptimize.UTC().Format(dcb.TimeLayout)
@@ -86,6 +100,11 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 			State:            ps.State.String(),
 			Since:            ps.Since.UTC().Format(dcb.TimeLayout),
 			OpenTransactions: ps.Open,
+		},
+		WAL: walStats{
+			Size:            walSize,
+			Checkpoints:     ws.Checkpoints,
+			CheckpointsBusy: ws.CheckpointsBusy,
 		},
 		Errors: errorsStats{Internal: s.internalErrors.Load()},
 	})

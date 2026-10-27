@@ -101,11 +101,23 @@
 //
 // # Checkpoints
 //
-// The store relies on SQLite's automatic passive checkpoint, run once the
-// WAL crosses its default size, without blocking any reader or writer.
-// Two things can hold it back: a read, which pins a snapshot while SQLite
-// reads it (see Reads), and a large write, whose changes can't be
-// checkpointed before it commits.
+// SQLite's automatic passive checkpoint runs once the WAL crosses its
+// default size, without blocking any reader or writer. It copies the WAL
+// into the database file only up to the snapshot of the oldest reader.
+// The WAL starts over from its beginning only once everything is copied,
+// and no reader still uses it when a write begins. Reads in turn, while
+// writes go on, never leave that moment: every reader has a snapshot a
+// little behind the last commit. During a rebuild with several
+// projectors in parallel, the WAL then grows with every write, to the
+// size of everything the rebuild writes. A WAL file never shrinks on its
+// own.
+//
+// Checkpoint runs a TRUNCATE checkpoint instead. It takes the write lock,
+// waits for the readers still in the WAL, copies all of it, and empties
+// the file. A reader that begins once everything is copied reads the
+// database file, and doesn't hold it back. It waits at most the busy
+// timeout: a reader still there after that makes it give up, without
+// error. Package writer decides when it runs.
 //
 // # Query planner statistics
 //
