@@ -67,5 +67,6 @@ var codeLevel = map[string]level{
 	"Paused":               levelInfo,    // 503, the operator paused transactions
 	"TransactionBusy":      levelInfo,    // 409, a call while another one uses the transaction
 	"InternalError":        levelError,   // 500, real failure
+	"StorageFull":          levelError,   // 507, the operator must free space
 	"Unavailable":          levelError,   // 503, storage unreachable
 }

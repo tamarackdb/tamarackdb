@@ -61,7 +61,8 @@ type transactionsStats struct {
 }
 
 type errorsStats struct {
-	Internal uint64 `json:"internal"`
+	Internal    uint64 `json:"internal"`
+	StorageFull uint64 `json:"storageFull"`
 }
 
 // handleStats implements GET /stats. It never waits for a write.
@@ -106,6 +107,6 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 			Checkpoints:     ws.Checkpoints,
 			CheckpointsBusy: ws.CheckpointsBusy,
 		},
-		Errors: errorsStats{Internal: s.internalErrors.Load()},
+		Errors: errorsStats{Internal: s.internalErrors.Load(), StorageFull: s.storageFullErrors.Load()},
 	})
 }

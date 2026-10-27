@@ -23,6 +23,8 @@ What a client of the protocol has to do, whatever its language. The calls themse
 - After `409 ConcurrencyException` or `404 TransactionNotFound`, run the whole command again, in a new transaction.
 - `POST /tx` can get `503 Paused`, or `503 TooManyTransactions`. What to do with the command is the application's
   choice.
+- `507 StorageFull` means nothing was written, and the transaction is over. Don't retry on your own: the disk stays
+  full until the operator frees space.
 - Abandon a transaction you no longer need, for example in the error handler around a command, and ignore the
   response.
 - Give each event of a write the `time` the write returned: it's the `time` the event keeps once committed.

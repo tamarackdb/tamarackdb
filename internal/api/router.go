@@ -82,9 +82,10 @@ type Server struct {
 	st   *store.Store
 	opts Options
 
-	// startedAt and internalErrors are for GET /stats.
-	startedAt      time.Time
-	internalErrors atomic.Uint64
+	// startedAt, internalErrors, and storageFullErrors are for GET /stats.
+	startedAt         time.Time
+	internalErrors    atomic.Uint64
+	storageFullErrors atomic.Uint64
 
 	// logThreshold is Options.LogLevel parsed once at construction; see
 	// withLogging.

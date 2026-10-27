@@ -457,6 +457,7 @@ behind a limit.
 | `409` | `TransactionBusy` | A call while another one runs on the same transaction. The transaction goes on |
 | `413` | `PayloadTooLarge` | An event, a projection, or a body over its size limit |
 | `500` | `InternalError` | A failure on the server |
+| `507` | `StorageFull` | A write while the server's disk is full. Nothing was written |
 | `503` | `Paused` | `POST /tx` during a pause |
 | `503` | `TooManyTransactions` | `POST /tx` while `maxOpenTx` transactions are open |
 | `503` | `WriteQueueFull` | A write while too many already wait. Nothing was written |

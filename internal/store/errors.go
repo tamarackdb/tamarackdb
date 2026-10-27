@@ -62,6 +62,7 @@ var ErrDatabaseLocked = errors.New("store: database file is locked by another ta
 const (
 	sqliteIOErr    = 10
 	sqliteCorrupt  = 11
+	sqliteFull     = 13
 	sqliteCantOpen = 14
 	sqliteNotADB   = 26
 )
@@ -88,6 +89,16 @@ func IsFatal(err error) bool {
 	default:
 		return false
 	}
+}
+
+// IsStorageFull reports whether err is SQLite's SQLITE_FULL: the disk is
+// full. It isn't fatal. SQLite rolls the write back whole, and the file
+// is intact: once the operator frees space, the next write goes through,
+// with no restart. internal/api answers it with its own error, so a
+// client can tell it apart from a bug of the server.
+func IsStorageFull(err error) bool {
+	var sqliteErr *sqlite.Error
+	return errors.As(err, &sqliteErr) && sqliteErr.Code()&0xff == sqliteFull
 }
 
 func wrapf(op string, err error) error {

@@ -106,6 +106,12 @@ func (s *Server) handleErr(w http.ResponseWriter, r *http.Request, err error) {
 		// The server is shutting down: a request waiting in the FIFO, or
 		// arriving after it closed, gets no turn.
 		writeError(w, http.StatusServiceUnavailable, "ShuttingDown", "")
+	case store.IsStorageFull(err):
+		// The disk is full: nothing was written, and the server goes on.
+		// Its own code, so that a client doesn't take it for a bug of the
+		// server, and the operator knows to free space.
+		s.storageFullErrors.Add(1)
+		writeError(w, http.StatusInsufficientStorage, "StorageFull", "the server's disk is full: nothing was written")
 	default:
 		// Everything else: any unexpected error, including fatal storage
 		// errors.

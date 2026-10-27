@@ -55,7 +55,7 @@ change from one version to the next.
     "openTransactions": 0
   },
   "wal": { "size": 4120032, "checkpoints": 81, "checkpointsBusy": 0 },
-  "errors": { "internal": 0 }
+  "errors": { "internal": 0, "storageFull": 0 }
 }
 ```
 
@@ -81,6 +81,8 @@ What to watch:
 - **`lastOptimizeAt`** more than a day old: the daily `POST /optimize` doesn't run (see
   [Maintenance](/docs/operations/maintenance/#query-statistics)).
 - **`errors.internal`** above zero: a failure on the server. The log has the matching `error` lines.
+- **`errors.storageFull`** above zero: writes were refused because the disk is full, with `507 StorageFull`. Nothing
+  was written. Free space: the next write goes through, with no restart.
 
 ## Logs
 
@@ -97,4 +99,4 @@ tamarackdb-server: [WARNING] POST /projections 503 27B 0.07ms
 - `info`: a client's mistake, such as a malformed request or a bad token, or a pause, a resume, an optimize, or a bulk delete.
 - `warning`: the write queue is full, `maxOpenTx` transactions are open, or a read of a transaction returned more than
   half of `maxEventsPerTxRead` events.
-- `error`: a failure on the server.
+- `error`: a failure on the server, or a write refused because the disk is full.
