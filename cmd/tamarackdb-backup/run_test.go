@@ -27,7 +27,7 @@ func newSourceAPI(t *testing.T, st *store.Store) http.Handler {
 	t.Helper()
 	wr := writer.New(st, writer.Config{})
 	t.Cleanup(wr.Close)
-	txs := tx.New(st, wr, tx.Config{IdleTimeout: time.Minute, MaxEventsPerTx: 100, MaxReadsPerTx: 100, MaxProjectionsPerTx: 500})
+	txs := tx.New(st, wr, tx.Config{IdleTimeout: time.Minute, MaxEventsPerTx: 100, MaxReadsPerTx: 100, MaxProjectionsPerTx: 500, MaxEventsPerTxRead: 10000})
 	return api.New(wr, txs, st, api.Options{
 		DefaultEventsPerPage: 1000, MaxEventsPerPage: 10000, MaxEventSize: 65536, MaxProjectionSize: 65536,
 		MaxProjectionsPerWrite: 500, MaxRequestBodySize: 8 << 20,
@@ -101,18 +101,14 @@ func mustReadAllFrom(t *testing.T, path string) []dcb.Event {
 	}
 	defer st.Close()
 
-	it, err := st.Read(context.Background(), store.ReadFilter{Query: dcb.QueryAll(), Limit: 1000})
+	page, err := st.Read(context.Background(), store.ReadFilter{Query: dcb.QueryAll(), Limit: 1000})
 	if err != nil {
 		t.Fatalf("Read() error = %v", err)
 	}
-	defer it.Close()
 
 	var events []dcb.Event
-	for it.Next() {
-		events = append(events, toDCBEvent(t, it.Event()))
-	}
-	if err := it.Err(); err != nil {
-		t.Fatalf("iteration error = %v", err)
+	for _, ev := range page.Events {
+		events = append(events, toDCBEvent(t, ev))
 	}
 	return events
 }

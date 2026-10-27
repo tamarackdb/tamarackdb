@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 
@@ -31,64 +30,80 @@ type DecisionFilter struct {
 	Limit     int  // 0 = every match
 }
 
+// Page is one page of Read: its events, oldest first, or newest first
+// backwards, and whether more match after the last one.
+type Page struct {
+	Events  []ReadEvent
+	HasMore bool
+}
+
 // Read runs a paginated DCB read on the read pool: it sees committed
-// events only. The returned *EventIterator holds its read transaction
-// until it's closed, by the caller directly or by exhausting Next.
-func (s *Store) Read(ctx context.Context, f ReadFilter) (*EventIterator, error) {
+// events only. It loads the whole page in memory and ends its read
+// transaction before it returns, so the connection goes back to the pool,
+// and the snapshot is released, before the caller sends a single event.
+// f.Limit bounds the memory a page takes.
+func (s *Store) Read(ctx context.Context, f ReadFilter) (Page, error) {
+	if f.Limit < 1 {
+		return Page{}, fmt.Errorf("store: Read: Limit must be >= 1, got %d", f.Limit)
+	}
 	tx, err := s.readDB.BeginTx(ctx, nil)
 	if err != nil {
-		return nil, wrapf("begin read", err)
+		return Page{}, wrapf("begin read", err)
 	}
-	it, err := readEvents(ctx, tx, f)
+	// The transaction only reads: rolling it back just ends it.
+	defer tx.Rollback()
+	sqlStr, args := buildReadSQL(f)
+	events, err := queryEvents(ctx, tx, sqlStr, args)
 	if err != nil {
-		tx.Rollback()
-		return nil, err
+		return Page{}, wrapf("Read", err)
 	}
-	it.tx = tx
-	return it, nil
+	// buildReadSQL asks for Limit+1 rows: the extra one only tells
+	// whether more match.
+	if len(events) > f.Limit {
+		return Page{Events: events[:f.Limit], HasMore: true}, nil
+	}
+	return Page{Events: events}, nil
+}
+
+// Decision is the result of ReadDecision: the events, and the position,
+// the highest Sequence Position committed in the snapshot they were read
+// from (0 for an empty store).
+type Decision struct {
+	Events   []ReadEvent
+	Position int64
 }
 
 // ReadDecision runs the read a decision rests on, on the read pool: the
 // committed events f.Query matches, all of them unless f.Limit is set.
-// There is no page: a decision rests on one read. In the same SQLite
-// snapshot it reads the position, the highest Sequence Position committed
-// (0 for an empty store): an Append Condition built from this read uses
-// that position as its afterSequence, whatever f.Limit. For
-// dcb.QueryNone it reads no event. The returned *EventIterator holds the
-// read transaction until it's closed; HasMore is always false.
-func (s *Store) ReadDecision(ctx context.Context, f DecisionFilter) (*EventIterator, error) {
+// There is no page: a decision rests on one read. It reads the position
+// in the same SQLite snapshot: an Append Condition built from this read
+// uses that position as its afterSequence, whatever f.Limit. For
+// dcb.QueryNone it reads no event.
+//
+// Like Read, it loads every event in memory and ends its read
+// transaction before it returns. Without f.Limit, nothing bounds that
+// memory: the caller sets one (see tx.Config.MaxEventsPerTxRead).
+func (s *Store) ReadDecision(ctx context.Context, f DecisionFilter) (Decision, error) {
 	tx, err := s.readDB.BeginTx(ctx, nil)
 	if err != nil {
-		return nil, wrapf("begin read", err)
+		return Decision{}, wrapf("begin read", err)
 	}
-	it, err := readDecision(ctx, tx, f)
-	if err != nil {
-		tx.Rollback()
-		return nil, err
+	defer tx.Rollback()
+	var d Decision
+	if err := tx.QueryRowContext(ctx, "SELECT coalesce(max(sequence), 0) FROM events").Scan(&d.Position); err != nil {
+		return Decision{}, wrapf("read position", err)
 	}
-	it.tx = tx
-	return it, nil
-}
-
-func readDecision(ctx context.Context, tx *sql.Tx, f DecisionFilter) (*EventIterator, error) {
-	var position int64
-	if err := tx.QueryRowContext(ctx, "SELECT coalesce(max(sequence), 0) FROM events").Scan(&position); err != nil {
-		return nil, wrapf("read position", err)
-	}
-	it := &EventIterator{position: position}
 	if f.Query.None() {
-		return it, nil
+		return d, nil
 	}
 	sqlStr, args := buildEventsSQL(f.Query, 0, f.Backwards)
 	if f.Limit > 0 {
 		sqlStr, args = sqlStr+" LIMIT ?", append(args, f.Limit)
 	}
-	rows, err := tx.QueryContext(ctx, sqlStr, args...)
-	if err != nil {
-		return nil, wrapf("ReadDecision", err)
+	if d.Events, err = queryEvents(ctx, tx, sqlStr, args); err != nil {
+		return Decision{}, wrapf("ReadDecision", err)
 	}
-	it.rows = rows
-	return it, nil
+	return d, nil
 }
 
 // querier is what a read needs, satisfied by both *sql.DB and *sql.Tx.
@@ -97,16 +112,22 @@ type querier interface {
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 }
 
-func readEvents(ctx context.Context, q querier, f ReadFilter) (*EventIterator, error) {
-	if f.Limit < 1 {
-		return nil, fmt.Errorf("store: Read: Limit must be >= 1, got %d", f.Limit)
-	}
-	sqlStr, args := buildReadSQL(f)
+// queryEvents runs a query built by buildEventsSQL and returns every row.
+func queryEvents(ctx context.Context, q querier, sqlStr string, args []any) ([]ReadEvent, error) {
 	rows, err := q.QueryContext(ctx, sqlStr, args...)
 	if err != nil {
-		return nil, wrapf("Read", err)
+		return nil, err
 	}
-	return &EventIterator{rows: rows, limit: f.Limit}, nil
+	defer rows.Close()
+	var events []ReadEvent
+	for rows.Next() {
+		ev, err := scanEvent(rows)
+		if err != nil {
+			return nil, err
+		}
+		events = append(events, ev)
+	}
+	return events, rows.Err()
 }
 
 func buildReadSQL(f ReadFilter) (string, []any) {
@@ -171,88 +192,4 @@ func scanEvent(rows *sql.Rows) (ReadEvent, error) {
 		Metadata:    json.RawMessage(mdJSON),
 		Payload:     payload,
 	}, nil
-}
-
-// EventIterator streams Read's page, or ReadDecision's result, one event
-// at a time, from a single SQL query. Next returns false once Limit events
-// have been returned (Read only), or the query is exhausted. HasMore is
-// meaningful only after that; before, it's false. The read transaction
-// lasts one page, never more.
-type EventIterator struct {
-	rows     *sql.Rows // nil when the read selects no event at all
-	tx       *sql.Tx   // the read transaction Close ends
-	position int64     // ReadDecision only: the highest Sequence Position in the snapshot
-	limit    int       // 0: no limit (ReadDecision)
-	n        int
-	hasMore  bool
-	err      error
-	cur      ReadEvent
-	closed   bool
-}
-
-func (it *EventIterator) Next() bool {
-	if it.err != nil || it.closed {
-		return false
-	}
-	if it.rows == nil {
-		it.Close()
-		return false
-	}
-	if it.limit > 0 && it.n >= it.limit {
-		// The Limit+1-th row exists iff the underlying SQL (LIMIT
-		// Limit+1) has one more row buffered: peek it without decoding
-		// or exposing it.
-		if it.rows.Next() {
-			it.hasMore = true
-		} else if err := it.rows.Err(); err != nil {
-			it.err = err
-		}
-		it.Close()
-		return false
-	}
-	if !it.rows.Next() {
-		if err := it.rows.Err(); err != nil {
-			it.err = err
-		}
-		it.Close()
-		return false
-	}
-	ev, err := scanEvent(it.rows)
-	if err != nil {
-		it.err = err
-		it.Close()
-		return false
-	}
-	it.cur = ev
-	it.n++
-	return true
-}
-
-func (it *EventIterator) Event() ReadEvent { return it.cur }
-func (it *EventIterator) Err() error       { return it.err }
-func (it *EventIterator) HasMore() bool    { return it.hasMore }
-
-// Position returns, for ReadDecision, the highest Sequence Position
-// committed in the snapshot the events were read from.
-func (it *EventIterator) Position() int64 { return it.position }
-
-// Close releases the underlying *sql.Rows, read transaction, and
-// connection. Safe to call more
-// than once, and safe to call before exhausting Next (e.g. a client
-// disconnects mid-stream); HasMore then simply reflects whatever was known
-// at that point.
-func (it *EventIterator) Close() error {
-	if it.closed {
-		return nil
-	}
-	it.closed = true
-	var err error
-	if it.rows != nil {
-		err = it.rows.Close()
-	}
-	if it.tx != nil {
-		// The transaction only read: rolling it back just ends it.
-		err = errors.Join(err, it.tx.Rollback())
-	}
-	return err
 }

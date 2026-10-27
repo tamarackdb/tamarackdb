@@ -36,22 +36,17 @@ func newTestEnv(t *testing.T) *testEnv {
 // readAll returns the committed events, up to 100.
 func readAll(t *testing.T, st *store.Store) []dcb.Event {
 	t.Helper()
-	it, err := st.Read(context.Background(), store.ReadFilter{Query: dcb.QueryAll(), Limit: 100})
+	page, err := st.Read(context.Background(), store.ReadFilter{Query: dcb.QueryAll(), Limit: 100})
 	if err != nil {
 		t.Fatalf("Read() error = %v", err)
 	}
-	defer it.Close()
 	var events []dcb.Event
-	for it.Next() {
-		e := it.Event()
+	for _, e := range page.Events {
 		tm, err := time.Parse(dcb.TimeLayout, e.Time)
 		if err != nil {
 			t.Fatalf("parse time: %v", err)
 		}
 		events = append(events, dcb.Event{Sequence: e.Sequence, Time: tm, EventData: dcb.EventData{Type: e.Type}})
-	}
-	if err := it.Err(); err != nil {
-		t.Fatalf("iteration error = %v", err)
 	}
 	return events
 }

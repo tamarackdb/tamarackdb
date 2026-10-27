@@ -36,8 +36,8 @@ var ErrDesign = errors.New("tx: design error")
 var ErrTooManyTransactions = errors.New("tx: too many open transactions")
 
 // ErrTooLarge is what a call that would take the transaction over
-// maxEventsPerTx, maxReadsPerTx, or maxProjectionsPerTx unwraps to, as a
-// *dcb.ValidationError.
+// maxEventsPerTx, maxReadsPerTx, maxProjectionsPerTx, or
+// maxEventsPerTxRead unwraps to, as a *dcb.ValidationError.
 var ErrTooLarge = errors.New("tx: transaction too large")
 
 // ConflictError is a commit refused because what the transaction read no
@@ -87,6 +87,14 @@ type Config struct {
 	MaxEventsPerTx      int
 	MaxReadsPerTx       int
 	MaxProjectionsPerTx int
+
+	// MaxEventsPerTxRead caps the events one read of a transaction
+	// returns, committed and pending together, after its limit if it
+	// has one. A read that would return more gets ErrTooLarge, which ends
+	// the transaction. A read is loaded in memory before it's sent (see
+	// package store): this MUST bound that memory, since a read of a
+	// transaction has no page and its limit is optional.
+	MaxEventsPerTxRead int
 
 	// MaxOpenTx caps how many transactions may be open at once, commits
 	// still writing included: Begin returns ErrTooManyTransactions past
@@ -310,10 +318,10 @@ func (r *Registry) Reject(id string, design bool) error {
 // first. With a limit, the caller sends at most that many events in all:
 // Committed holds up to the limit, and Pending every match.
 type Read struct {
-	// Committed streams the committed events, in Sequence Position
-	// order, newest first backwards. It's nil for "none". The caller
-	// must close it.
-	Committed *store.EventIterator
+	// Committed are the committed events, in Sequence Position order,
+	// newest first backwards, already read: the read connection is back
+	// in its pool. It's nil for "none".
+	Committed []store.ReadEvent
 
 	// Pending are the transaction's pending events that match, in the
 	// order they were written, newest first backwards.
@@ -326,8 +334,7 @@ type Read struct {
 //
 // The read runs with ctx without its cancellation: a client that leaves
 // MUST NOT end its transaction, so the condition opens even if the
-// client is already gone. Only the stream stops: its next write fails,
-// which closes Committed and frees the read connection.
+// client is already gone. Only the response stops, at its next line.
 func (r *Registry) ReadEvents(ctx context.Context, id string, f store.DecisionFilter) (Read, error) {
 	ctx = context.WithoutCancel(ctx)
 	var read Read
@@ -340,18 +347,32 @@ func (r *Registry) ReadEvents(ctx context.Context, id string, f store.DecisionFi
 		}
 		q := f.Query
 		open := &openCondition{query: q}
-		if !q.None() {
-			it, err := r.st.ReadDecision(ctx, f)
-			if err != nil {
-				return err
-			}
-			open.position = it.Position()
-			read.Committed = it
-		}
 		for _, e := range t.events {
 			if q.Matches(e.EventData) {
 				read.Pending = append(read.Pending, e)
 			}
+		}
+		if !q.None() {
+			// One row past MaxEventsPerTxRead is enough to know the read
+			// is over it: the store never loads more.
+			sf := f
+			sf.Limit = r.cfg.MaxEventsPerTxRead + 1
+			if f.Limit > 0 && f.Limit < sf.Limit {
+				sf.Limit = f.Limit
+			}
+			d, err := r.st.ReadDecision(ctx, sf)
+			if err != nil {
+				return err
+			}
+			open.position = d.Position
+			read.Committed = d.Events
+		}
+		n := len(read.Committed) + len(read.Pending)
+		if f.Limit > 0 && n > f.Limit {
+			n = f.Limit
+		}
+		if n > r.cfg.MaxEventsPerTxRead {
+			return tooLarge(fmt.Sprintf("read %d events or more at once", n), "maxEventsPerTxRead", r.cfg.MaxEventsPerTxRead)
 		}
 		if f.Backwards {
 			slices.Reverse(read.Pending)

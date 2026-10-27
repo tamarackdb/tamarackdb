@@ -59,9 +59,15 @@
 // ReadDecision takes the events and the highest Sequence Position in the
 // same snapshot.
 //
-// A read holds its connection, and pins its snapshot, until its
-// EventIterator is closed. Package api bounds how long a client may take
-// to receive it.
+// A read loads all its events in memory, then ends its read transaction,
+// before a single event is sent. It MUST NOT hold its connection, or pin
+// its snapshot, while a client receives it. A client that processes each
+// event as it arrives would hold a read connection for as long as it
+// works. And while a snapshot is pinned, the WAL can't start over from
+// its beginning (see Checkpoints): with several clients reading in turn
+// while others write, it grows with every write. Memory is the price. A
+// page is bounded by its limit; a decision read, by the limit its caller
+// sets (package tx).
 //
 // # The Sequence Position counter
 //
@@ -97,8 +103,9 @@
 //
 // The store relies on SQLite's automatic passive checkpoint, run once the
 // WAL crosses its default size, without blocking any reader or writer.
-// Two things can hold it back: a long read, which pins a snapshot, and a
-// large write, whose changes can't be checkpointed before it commits.
+// Two things can hold it back: a read, which pins a snapshot while SQLite
+// reads it (see Reads), and a large write, whose changes can't be
+// checkpointed before it commits.
 //
 // # Query planner statistics
 //

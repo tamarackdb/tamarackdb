@@ -130,20 +130,17 @@ func (s *Server) handleTxReadEvents(w http.ResponseWriter, r *http.Request) {
 	}
 	renew, done := s.stallDeadline(w)
 	defer done()
-	if err := streamTxEvents(w, read, f, renew); err != nil {
+	if err := writeTxEvents(w, read, f, renew); err != nil {
 		s.handleErr(w, r, err)
 	}
 }
 
-// streamTxEvents writes read as NDJSON, closing its iterator: the
-// committed events, then the pending ones, or the pending ones first
-// backwards, at most f.Limit in all. As with streamEvents, a failure once
-// the first line is out can only end the response early, without the
+// writeTxEvents writes read as NDJSON: the committed events, then the
+// pending ones, or the pending ones first backwards, at most f.Limit in
+// all. As with writePage, the events are already read: a failure once the
+// first line is out can only end the response early, without the
 // trailer.
-func streamTxEvents(w http.ResponseWriter, read tx.Read, f store.DecisionFilter, beforeWrite func()) error {
-	if read.Committed != nil {
-		defer read.Committed.Close()
-	}
+func writeTxEvents(w http.ResponseWriter, read tx.Read, f store.DecisionFilter, beforeWrite func()) error {
 	w.Header().Set("Content-Type", "application/x-ndjson")
 	beforeWrite()
 	w.WriteHeader(http.StatusOK)
@@ -152,19 +149,17 @@ func streamTxEvents(w http.ResponseWriter, read tx.Read, f store.DecisionFilter,
 	sent := 0
 	more := func() bool { return f.Limit == 0 || sent < f.Limit }
 	writeCommitted := func() error {
-		it := read.Committed
-		if it == nil {
-			return nil
-		}
-		for more() && it.Next() {
+		for _, ev := range read.Committed {
+			if !more() {
+				return nil
+			}
 			beforeWrite()
-			ev := it.Event()
 			if err := nw.WriteAppend(func(dst []byte) []byte { return appendReadEvent(dst, ev) }); err != nil {
 				return err
 			}
 			sent++
 		}
-		return it.Err()
+		return nil
 	}
 	writePending := func() error {
 		for _, e := range read.Pending {

@@ -30,6 +30,7 @@ const (
 	DefaultMaxEventsPerTx         = 100
 	DefaultMaxReadsPerTx          = 100
 	DefaultMaxProjectionsPerTx    = 500
+	DefaultMaxEventsPerTxRead     = 10000
 	DefaultMaxOpenTx              = 1000
 	DefaultMaxProjectionsPerWrite = 500
 	DefaultMaxRequestBodySize     = 8 << 20 // 8 MiB
@@ -128,6 +129,10 @@ type Config struct {
 	MaxReadsPerTx          int `toml:"maxReadsPerTx"`          // default: 100
 	MaxProjectionsPerTx    int `toml:"maxProjectionsPerTx"`    // default: 500
 	MaxProjectionsPerWrite int `toml:"maxProjectionsPerWrite"` // default: 500
+
+	// MaxEventsPerTxRead caps the events one read of a transaction
+	// returns (see tx.Config). Optional; defaulted by Load when omitted.
+	MaxEventsPerTxRead int `toml:"maxEventsPerTxRead"` // default: 10000
 
 	// MaxRequestBodySize is the largest request body the server reads, in
 	// bytes, for every endpoint. It bounds one request, not a
@@ -235,6 +240,9 @@ func Load(path string) (*Config, error) {
 	if cfg.MaxProjectionsPerTx == 0 {
 		cfg.MaxProjectionsPerTx = DefaultMaxProjectionsPerTx
 	}
+	if cfg.MaxEventsPerTxRead == 0 {
+		cfg.MaxEventsPerTxRead = DefaultMaxEventsPerTxRead
+	}
 	if cfg.MaxProjectionsPerWrite == 0 {
 		cfg.MaxProjectionsPerWrite = DefaultMaxProjectionsPerWrite
 	}
@@ -296,6 +304,7 @@ func applyEnv(cfg *Config, inFile fileBools) error {
 		envInt(&cfg.MaxReadsPerTx, "TAMARACKDB_MAX_READS_PER_TX"),
 		envInt(&cfg.MaxProjectionsPerTx, "TAMARACKDB_MAX_PROJECTIONS_PER_TX"),
 		envInt(&cfg.MaxProjectionsPerWrite, "TAMARACKDB_MAX_PROJECTIONS_PER_WRITE"),
+		envInt(&cfg.MaxEventsPerTxRead, "TAMARACKDB_MAX_EVENTS_PER_TX_READ"),
 		envInt(&cfg.MaxRequestBodySize, "TAMARACKDB_MAX_REQUEST_BODY_SIZE"),
 		envInt(&cfg.MaxQueuedWrites, "TAMARACKDB_MAX_QUEUED_WRITES"),
 		envInt(&cfg.ReadPoolSize, "TAMARACKDB_READ_POOL_SIZE"),
@@ -386,6 +395,8 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("maxReadsPerTx must be positive, got %d", c.MaxReadsPerTx)
 	case c.MaxProjectionsPerTx <= 0:
 		return fmt.Errorf("maxProjectionsPerTx must be positive, got %d", c.MaxProjectionsPerTx)
+	case c.MaxEventsPerTxRead <= 0:
+		return fmt.Errorf("maxEventsPerTxRead must be positive, got %d", c.MaxEventsPerTxRead)
 	case c.MaxProjectionsPerWrite <= 0:
 		return fmt.Errorf("maxProjectionsPerWrite must be positive, got %d", c.MaxProjectionsPerWrite)
 	case c.MaxRequestBodySize <= 0:

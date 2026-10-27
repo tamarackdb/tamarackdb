@@ -24,10 +24,9 @@ type readRequest struct {
 // readTrailer is the last NDJSON line of every /events response:
 // {"hasMore":true|false}. Defined here, not in internal/ndjson, since
 // hasMore is a TamarackDB wire concept, not something a generic NDJSON
-// writer should know about. Its absence is meaningful: the response is
-// streamed as each event is scanned (see handleReadEvents), so a failure
-// partway through a page ends the response with no trailer line, the same
-// signal a client already handles for a dropped connection.
+// writer should know about. Its absence is meaningful: a page that fails
+// to go out to its end, such as on a dropped connection, has no trailer
+// line.
 type readTrailer struct {
 	HasMore bool `json:"hasMore"`
 }
@@ -55,19 +54,18 @@ func appendReadEvent(dst []byte, ev store.ReadEvent) []byte {
 	return append(dst, '}')
 }
 
-// writeReadEvents writes the events of it, one line each, with beforeWrite
-// run before each line. It doesn't close it.
-func writeReadEvents(nw *ndjson.Writer, it *store.EventIterator, beforeWrite func()) error {
-	for it.Next() {
+// writeReadEvents writes events, one line each, with beforeWrite run
+// before each line.
+func writeReadEvents(nw *ndjson.Writer, events []store.ReadEvent, beforeWrite func()) error {
+	for _, ev := range events {
 		beforeWrite()
-		ev := it.Event()
 		if err := nw.WriteAppend(func(dst []byte) []byte { return appendReadEvent(dst, ev) }); err != nil {
 			// The client is almost certainly gone (a broken pipe from a
 			// dropped connection): nothing left to write to.
 			return err
 		}
 	}
-	return it.Err()
+	return nil
 }
 
 // handleReadEvents implements QUERY /events: the read runs on the read pool
@@ -78,24 +76,24 @@ func (s *Server) handleReadEvents(w http.ResponseWriter, r *http.Request) {
 		s.handleErr(w, r, err)
 		return
 	}
-	it, err := s.st.Read(r.Context(), filter)
+	page, err := s.st.Read(r.Context(), filter)
 	if err != nil {
 		s.handleErr(w, r, err)
 		return
 	}
 	renew, done := s.stallDeadline(w)
 	defer done()
-	if err := streamEvents(w, it, renew); err != nil {
+	if err := writePage(w, page, renew); err != nil {
 		s.handleErr(w, r, err)
 	}
 }
 
-// stallDeadline bounds how long each line of a streamed read may take to
-// go out. A read holds a read connection, and pins its SQLite snapshot,
-// until it's fully sent. A client that stops reading would hold both
-// forever: each line gets readStallTimeout to go out, renewed by calling
-// renew before each one, so a read that keeps moving is never cut, and a
-// stalled one frees its connection. The caller defers done.
+// stallDeadline bounds how long each line of a read may take to go out.
+// The read connection is already back in its pool, but a client that
+// stops reading would still hold its HTTP connection, and the page in
+// memory, forever: each line gets readStallTimeout to go out, renewed by
+// calling renew before each one, so a read that keeps moving is never
+// cut, and a stalled one is dropped. The caller defers done.
 func (s *Server) stallDeadline(w http.ResponseWriter) (renew, done func()) {
 	rc := http.NewResponseController(w)
 	renew = func() { _ = rc.SetWriteDeadline(time.Now().Add(readStallTimeout)) }
@@ -110,9 +108,9 @@ func (s *Server) stallDeadline(w http.ResponseWriter) (renew, done func()) {
 	return renew, done
 }
 
-// readStallTimeout is how long a line of a streamed read may take to go
-// out before the server gives up on the client. A variable, not a
-// constant, so tests can shorten it.
+// readStallTimeout is how long a line of a read may take to go out before
+// the server gives up on the client. A variable, not a constant, so tests
+// can shorten it.
 var readStallTimeout = 30 * time.Second
 
 // parseReadRequest decodes and validates a QUERY /events body into a
@@ -162,15 +160,13 @@ func validateLimit(limit int) error {
 	return nil
 }
 
-// streamEvents writes it as an NDJSON page, closing it before returning.
-// beforeWrite, if non-nil, runs before each write, to renew a deadline.
-// The first line commits to 200 and starts sending bytes before the page
-// is known to succeed: a failure past that point can no longer produce a
-// clean error response (see readTrailer's doc comment). It can only end
-// the response early, with no trailer, and be returned so the caller
-// still sees it (handleErr writes nothing once the response has started).
-func streamEvents(w http.ResponseWriter, it *store.EventIterator, beforeWrite func()) error {
-	defer it.Close()
+// writePage writes page as NDJSON, its trailer last. beforeWrite, if
+// non-nil, runs before each write, to renew a deadline. The page is
+// already read, so an error of the store has already had its response:
+// the only failure left is a client that goes away, which ends the
+// response early, with no trailer. It's returned so the caller still sees
+// it (handleErr writes nothing once the response has started).
+func writePage(w http.ResponseWriter, page store.Page, beforeWrite func()) error {
 	if beforeWrite == nil {
 		beforeWrite = func() {}
 	}
@@ -180,11 +176,11 @@ func streamEvents(w http.ResponseWriter, it *store.EventIterator, beforeWrite fu
 	w.WriteHeader(http.StatusOK)
 
 	nw := ndjson.NewWriter(w)
-	if err := writeReadEvents(nw, it, beforeWrite); err != nil {
+	if err := writeReadEvents(nw, page.Events, beforeWrite); err != nil {
 		return err // no trailer: signals a cut-short page, see readTrailer
 	}
 	beforeWrite()
-	return nw.WriteValue(readTrailer{HasMore: it.HasMore()})
+	return nw.WriteValue(readTrailer{HasMore: page.HasMore})
 }
 
 // oversizeError is returned by the per-event and per-projection size checks

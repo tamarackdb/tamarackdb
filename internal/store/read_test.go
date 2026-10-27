@@ -110,31 +110,31 @@ func TestQueryTranslationEndToEnd(t *testing.T) {
 	}
 }
 
-// TestReadReleasesItsConnection checks that closing an iterator, or
-// exhausting it, ends its read transaction and frees the connection.
+// TestReadReleasesItsConnection checks that Read and ReadDecision end
+// their read transaction, and free their connection, before they return.
 func TestReadReleasesItsConnection(t *testing.T) {
 	s := openTestStore(t)
 	mustAppend(t, s, []dcb.EventData{{Type: "a"}, {Type: "b"}}, nil)
 
-	it, err := s.Read(context.Background(), ReadFilter{Query: dcb.QueryAll(), Limit: 1})
+	page, err := s.Read(context.Background(), ReadFilter{Query: dcb.QueryAll(), Limit: 1})
 	if err != nil {
 		t.Fatalf("Read() error = %v", err)
 	}
-	it.Next()
-	if err := it.Close(); err != nil {
-		t.Fatalf("Close() error = %v", err)
+	if len(page.Events) != 1 || !page.HasMore {
+		t.Errorf("Read() = %d events, hasMore %v, want 1 and true", len(page.Events), page.HasMore)
 	}
 	if inUse := s.ReadPoolStats().InUse; inUse != 0 {
-		t.Errorf("read connections in use after Close() = %d, want 0", inUse)
+		t.Errorf("read connections in use after Read() = %d, want 0", inUse)
 	}
 
-	it, err = s.Read(context.Background(), ReadFilter{Query: dcb.QueryAll(), Limit: 10})
+	d, err := s.ReadDecision(context.Background(), DecisionFilter{Query: dcb.QueryAll()})
 	if err != nil {
-		t.Fatalf("Read() error = %v", err)
+		t.Fatalf("ReadDecision() error = %v", err)
 	}
-	for it.Next() {
+	if len(d.Events) != 2 || d.Position != 2 {
+		t.Errorf("ReadDecision() = %d events, position %d, want 2 and 2", len(d.Events), d.Position)
 	}
 	if inUse := s.ReadPoolStats().InUse; inUse != 0 {
-		t.Errorf("read connections in use after exhausting Next = %d, want 0", inUse)
+		t.Errorf("read connections in use after ReadDecision() = %d, want 0", inUse)
 	}
 }

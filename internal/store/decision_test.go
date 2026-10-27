@@ -10,26 +10,19 @@ import (
 	"github.com/tamarackdb/tamarackdb/internal/projection"
 )
 
-// mustReadDecision drains ReadDecision and returns its events and
+// mustReadDecision runs ReadDecision and returns its events and
 // position.
 func mustReadDecision(t *testing.T, s *Store, f DecisionFilter) ([]dcb.Event, int64) {
 	t.Helper()
-	it, err := s.ReadDecision(context.Background(), f)
+	d, err := s.ReadDecision(context.Background(), f)
 	if err != nil {
 		t.Fatalf("ReadDecision() error = %v", err)
 	}
-	defer it.Close()
 	var events []dcb.Event
-	for it.Next() {
-		events = append(events, toDCBEvent(t, it.Event()))
+	for _, ev := range d.Events {
+		events = append(events, toDCBEvent(t, ev))
 	}
-	if err := it.Err(); err != nil {
-		t.Fatalf("iteration error = %v", err)
-	}
-	if it.HasMore() {
-		t.Errorf("HasMore() = true, want false")
-	}
-	return events, it.Position()
+	return events, d.Position
 }
 
 func TestReadDecisionEmptyStore(t *testing.T) {
@@ -103,31 +96,6 @@ func TestReadDecisionNone(t *testing.T) {
 	events, position := mustReadDecision(t, s, DecisionFilter{Query: dcb.QueryNone()})
 	if len(events) != 0 || position != 2 {
 		t.Errorf("events = %d, position = %d, want 0, 2", len(events), position)
-	}
-}
-
-// TestReadDecisionIsOneSnapshot checks that a write committed while the
-// decision read is open changes neither its events nor its position.
-func TestReadDecisionIsOneSnapshot(t *testing.T) {
-	s := openTestStore(t)
-	mustAppend(t, s, []dcb.EventData{{Type: "a"}}, nil)
-
-	it, err := s.ReadDecision(context.Background(), DecisionFilter{Query: dcb.QueryAll()})
-	if err != nil {
-		t.Fatalf("ReadDecision() error = %v", err)
-	}
-	defer it.Close()
-	mustAppend(t, s, []dcb.EventData{{Type: "b"}}, nil)
-
-	var n int
-	for it.Next() {
-		n++
-	}
-	if err := it.Err(); err != nil {
-		t.Fatalf("iteration error = %v", err)
-	}
-	if n != 1 || it.Position() != 1 {
-		t.Errorf("events = %d, position = %d, want 1 and 1", n, it.Position())
 	}
 }
 

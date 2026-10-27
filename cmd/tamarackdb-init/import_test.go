@@ -62,19 +62,14 @@ func readLines(t *testing.T, dataDir string) []string {
 		t.Fatal(err)
 	}
 	defer st.Close()
-	it, err := st.Read(context.Background(), store.ReadFilter{Query: dcb.QueryAll(), Limit: 1_000_000})
+	page, err := st.Read(context.Background(), store.ReadFilter{Query: dcb.QueryAll(), Limit: 1_000_000})
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer it.Close()
 	var lines []string
-	for it.Next() {
-		ev := it.Event()
+	for _, ev := range page.Events {
 		lines = append(lines, fmt.Sprintf(`{"sequence":%d,"time":%q,"type":%q,"identifiers":%s,"metadata":%s,"payload":%q}`,
 			ev.Sequence, ev.Time, ev.Type, ev.Identifiers, ev.Metadata, ev.Payload))
-	}
-	if err := it.Err(); err != nil {
-		t.Fatal(err)
 	}
 	return lines
 }

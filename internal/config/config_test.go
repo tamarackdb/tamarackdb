@@ -43,6 +43,7 @@ func TestLoadFullConfig(t *testing.T) {
 		maxReadsPerTx = 30
 		maxProjectionsPerTx = 300
 		maxProjectionsPerWrite = 200
+		maxEventsPerTxRead = 4000
 		maxRequestBodySize = 1048576
 		maxQueuedWrites = 250
 		readPoolSize = 16
@@ -61,7 +62,7 @@ func TestLoadFullConfig(t *testing.T) {
 		DefaultEventsPerPage: 500, MaxEventsPerPage: 5000, MaxEventSize: 32768,
 		MaxProjectionSize: 16384,
 		MaxEventsPerTx:    20, MaxReadsPerTx: 30, MaxProjectionsPerTx: 300,
-		MaxProjectionsPerWrite: 200, MaxRequestBodySize: 1 << 20,
+		MaxProjectionsPerWrite: 200, MaxEventsPerTxRead: 4000, MaxRequestBodySize: 1 << 20,
 		MaxQueuedWrites: 250, ReadPoolSize: 16, TxIdleTimeout: 30, MaxOpenTx: 50,
 	}
 	if *cfg != want {
@@ -130,6 +131,9 @@ func TestLoadAppliesDefaults(t *testing.T) {
 	}
 	if cfg.MaxProjectionsPerWrite != DefaultMaxProjectionsPerWrite {
 		t.Errorf("MaxProjectionsPerWrite = %d, want %d", cfg.MaxProjectionsPerWrite, DefaultMaxProjectionsPerWrite)
+	}
+	if cfg.MaxEventsPerTxRead != DefaultMaxEventsPerTxRead {
+		t.Errorf("MaxEventsPerTxRead = %d, want %d", cfg.MaxEventsPerTxRead, DefaultMaxEventsPerTxRead)
 	}
 	if cfg.MaxRequestBodySize != DefaultMaxRequestBodySize {
 		t.Errorf("MaxRequestBodySize = %d, want %d", cfg.MaxRequestBodySize, DefaultMaxRequestBodySize)
@@ -322,7 +326,7 @@ func TestLoadFileNotFoundUsesBuiltInDefaults(t *testing.T) {
 		SocketPath: DefaultSocketPath, SocketMode: DefaultSocketMode, DataDir: DefaultDataDir, LogLevel: DefaultLogLevel,
 		DefaultEventsPerPage: DefaultEventsPerPage, MaxEventsPerPage: DefaultMaxEventsPerPage, MaxEventSize: DefaultEventSize,
 		MaxProjectionSize: DefaultProjectionSize,
-		MaxEventsPerTx:    DefaultMaxEventsPerTx, MaxReadsPerTx: DefaultMaxReadsPerTx, MaxProjectionsPerTx: DefaultMaxProjectionsPerTx, MaxProjectionsPerWrite: DefaultMaxProjectionsPerWrite, MaxRequestBodySize: DefaultMaxRequestBodySize,
+		MaxEventsPerTx:    DefaultMaxEventsPerTx, MaxReadsPerTx: DefaultMaxReadsPerTx, MaxProjectionsPerTx: DefaultMaxProjectionsPerTx, MaxProjectionsPerWrite: DefaultMaxProjectionsPerWrite, MaxEventsPerTxRead: DefaultMaxEventsPerTxRead, MaxRequestBodySize: DefaultMaxRequestBodySize,
 		MaxQueuedWrites: DefaultMaxQueuedWrites, ReadPoolSize: DefaultReadPoolSize, TxIdleTimeout: DefaultTxIdleTimeout, MaxOpenTx: DefaultMaxOpenTx,
 	}
 	if *cfg != want {
@@ -427,7 +431,7 @@ func TestLoadFromEnvWithoutFile(t *testing.T) {
 		AuthTokenFile: tokenPath, AuthToken: "secret", DataDir: "data", LogLevel: DefaultLogLevel,
 		DefaultEventsPerPage: DefaultEventsPerPage, MaxEventsPerPage: DefaultMaxEventsPerPage, MaxEventSize: DefaultEventSize,
 		MaxProjectionSize: DefaultProjectionSize,
-		MaxEventsPerTx:    DefaultMaxEventsPerTx, MaxReadsPerTx: DefaultMaxReadsPerTx, MaxProjectionsPerTx: DefaultMaxProjectionsPerTx, MaxProjectionsPerWrite: DefaultMaxProjectionsPerWrite, MaxRequestBodySize: DefaultMaxRequestBodySize,
+		MaxEventsPerTx:    DefaultMaxEventsPerTx, MaxReadsPerTx: DefaultMaxReadsPerTx, MaxProjectionsPerTx: DefaultMaxProjectionsPerTx, MaxProjectionsPerWrite: DefaultMaxProjectionsPerWrite, MaxEventsPerTxRead: DefaultMaxEventsPerTxRead, MaxRequestBodySize: DefaultMaxRequestBodySize,
 		MaxQueuedWrites: DefaultMaxQueuedWrites, ReadPoolSize: DefaultReadPoolSize, TxIdleTimeout: DefaultTxIdleTimeout, MaxOpenTx: DefaultMaxOpenTx,
 	}
 	if *cfg != want {
@@ -682,6 +686,7 @@ func TestLoadWriteLimitsFromEnv(t *testing.T) {
 		"TAMARACKDB_MAX_READS_PER_TX":          "8",
 		"TAMARACKDB_MAX_PROJECTIONS_PER_TX":    "9",
 		"TAMARACKDB_MAX_PROJECTIONS_PER_WRITE": "70",
+		"TAMARACKDB_MAX_EVENTS_PER_TX_READ":    "71",
 		"TAMARACKDB_MAX_REQUEST_BODY_SIZE":     "4096",
 	})
 	path := writeConfigFile(t, `[server]
@@ -693,9 +698,9 @@ func TestLoadWriteLimitsFromEnv(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	got := []int{cfg.MaxEventsPerTx, cfg.MaxReadsPerTx, cfg.MaxProjectionsPerTx, cfg.MaxProjectionsPerWrite, cfg.MaxRequestBodySize}
-	if want := []int{7, 8, 9, 70, 4096}; !slices.Equal(got, want) {
-		t.Errorf("MaxEventsPerTx, MaxReadsPerTx, MaxProjectionsPerTx, MaxProjectionsPerWrite, MaxRequestBodySize = %v, want %v (from env)",
+	got := []int{cfg.MaxEventsPerTx, cfg.MaxReadsPerTx, cfg.MaxProjectionsPerTx, cfg.MaxProjectionsPerWrite, cfg.MaxEventsPerTxRead, cfg.MaxRequestBodySize}
+	if want := []int{7, 8, 9, 70, 71, 4096}; !slices.Equal(got, want) {
+		t.Errorf("MaxEventsPerTx, MaxReadsPerTx, MaxProjectionsPerTx, MaxProjectionsPerWrite, MaxEventsPerTxRead, MaxRequestBodySize = %v, want %v (from env)",
 			got, want)
 	}
 }
@@ -755,7 +760,7 @@ func TestValidateLogLevelValues(t *testing.T) {
 				DataDir: "data", LogLevel: lvl,
 				DefaultEventsPerPage: 1000, MaxEventsPerPage: 10000, MaxEventSize: 65536,
 				MaxProjectionSize: 65536,
-				MaxEventsPerTx:    100, MaxReadsPerTx: 100, MaxProjectionsPerTx: 500, MaxProjectionsPerWrite: 500, MaxRequestBodySize: 8 << 20,
+				MaxEventsPerTx:    100, MaxReadsPerTx: 100, MaxProjectionsPerTx: 500, MaxProjectionsPerWrite: 500, MaxEventsPerTxRead: 10000, MaxRequestBodySize: 8 << 20,
 				MaxQueuedWrites: 100, ReadPoolSize: 8, TxIdleTimeout: 60, MaxOpenTx: 1000,
 			}
 			if err := cfg.Validate(); err != nil {
@@ -771,7 +776,7 @@ func TestValidateInvalidLogLevel(t *testing.T) {
 		DataDir: "data", LogLevel: "verbose",
 		DefaultEventsPerPage: 1000, MaxEventsPerPage: 10000, MaxEventSize: 65536,
 		MaxProjectionSize: 65536,
-		MaxEventsPerTx:    100, MaxReadsPerTx: 100, MaxProjectionsPerTx: 500, MaxProjectionsPerWrite: 500, MaxRequestBodySize: 8 << 20,
+		MaxEventsPerTx:    100, MaxReadsPerTx: 100, MaxProjectionsPerTx: 500, MaxProjectionsPerWrite: 500, MaxEventsPerTxRead: 10000, MaxRequestBodySize: 8 << 20,
 		MaxQueuedWrites: 100, ReadPoolSize: 8, TxIdleTimeout: 60, MaxOpenTx: 1000,
 	}
 	if err := cfg.Validate(); err == nil {
@@ -785,7 +790,7 @@ func TestValidateNonPositiveMaxProjectionSize(t *testing.T) {
 		DataDir: "data", LogLevel: "warning",
 		DefaultEventsPerPage: 1000, MaxEventsPerPage: 10000, MaxEventSize: 65536,
 		MaxProjectionSize: 0,
-		MaxEventsPerTx:    100, MaxReadsPerTx: 100, MaxProjectionsPerTx: 500, MaxProjectionsPerWrite: 500, MaxRequestBodySize: 8 << 20,
+		MaxEventsPerTx:    100, MaxReadsPerTx: 100, MaxProjectionsPerTx: 500, MaxProjectionsPerWrite: 500, MaxEventsPerTxRead: 10000, MaxRequestBodySize: 8 << 20,
 		MaxQueuedWrites: 100, ReadPoolSize: 8, TxIdleTimeout: 60, MaxOpenTx: 1000,
 	}
 	if err := cfg.Validate(); err == nil {
@@ -799,6 +804,7 @@ func TestValidateNonPositiveWriteLimits(t *testing.T) {
 		"MaxReadsPerTx":          func(c *Config) { c.MaxReadsPerTx = 0 },
 		"MaxProjectionsPerTx":    func(c *Config) { c.MaxProjectionsPerTx = 0 },
 		"MaxProjectionsPerWrite": func(c *Config) { c.MaxProjectionsPerWrite = 0 },
+		"MaxEventsPerTxRead":     func(c *Config) { c.MaxEventsPerTxRead = 0 },
 		"MaxRequestBodySize":     func(c *Config) { c.MaxRequestBodySize = 0 },
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -807,7 +813,7 @@ func TestValidateNonPositiveWriteLimits(t *testing.T) {
 				DataDir: "data", LogLevel: "warning",
 				DefaultEventsPerPage: 1000, MaxEventsPerPage: 10000, MaxEventSize: 65536,
 				MaxProjectionSize: 65536,
-				MaxEventsPerTx:    100, MaxReadsPerTx: 100, MaxProjectionsPerTx: 500, MaxProjectionsPerWrite: 500, MaxRequestBodySize: 8 << 20,
+				MaxEventsPerTx:    100, MaxReadsPerTx: 100, MaxProjectionsPerTx: 500, MaxProjectionsPerWrite: 500, MaxEventsPerTxRead: 10000, MaxRequestBodySize: 8 << 20,
 				MaxQueuedWrites: 100, ReadPoolSize: 8, TxIdleTimeout: 60, MaxOpenTx: 1000,
 			}
 			zero(&cfg)
@@ -824,7 +830,7 @@ func TestValidateEmptyDataDir(t *testing.T) {
 		DataDir: "", LogLevel: "warning",
 		DefaultEventsPerPage: 1000, MaxEventsPerPage: 10000, MaxEventSize: 65536,
 		MaxProjectionSize: 65536,
-		MaxEventsPerTx:    100, MaxReadsPerTx: 100, MaxProjectionsPerTx: 500, MaxProjectionsPerWrite: 500, MaxRequestBodySize: 8 << 20,
+		MaxEventsPerTx:    100, MaxReadsPerTx: 100, MaxProjectionsPerTx: 500, MaxProjectionsPerWrite: 500, MaxEventsPerTxRead: 10000, MaxRequestBodySize: 8 << 20,
 		MaxQueuedWrites: 100, ReadPoolSize: 8, TxIdleTimeout: 60, MaxOpenTx: 1000,
 	}
 	if err := cfg.Validate(); err == nil {
@@ -838,7 +844,7 @@ func TestValidateDirectly(t *testing.T) {
 		DataDir: "data", LogLevel: "warning",
 		DefaultEventsPerPage: 1000, MaxEventsPerPage: 10000, MaxEventSize: 65536,
 		MaxProjectionSize: 65536, MaxQueuedWrites: 100,
-		MaxEventsPerTx: 100, MaxReadsPerTx: 100, MaxProjectionsPerTx: 500, MaxProjectionsPerWrite: 500, MaxRequestBodySize: 8 << 20,
+		MaxEventsPerTx: 100, MaxReadsPerTx: 100, MaxProjectionsPerTx: 500, MaxProjectionsPerWrite: 500, MaxEventsPerTxRead: 10000, MaxRequestBodySize: 8 << 20,
 		ReadPoolSize: 8, TxIdleTimeout: 60, MaxOpenTx: 1000,
 	}
 	if err := cfg.Validate(); err != nil {
@@ -861,7 +867,7 @@ func TestValidateNonPositiveMaxQueuedWrites(t *testing.T) {
 				DataDir: "data", LogLevel: "warning",
 				DefaultEventsPerPage: 1000, MaxEventsPerPage: 10000, MaxEventSize: 65536,
 				MaxProjectionSize: 65536,
-				MaxEventsPerTx:    100, MaxReadsPerTx: 100, MaxProjectionsPerTx: 500, MaxProjectionsPerWrite: 500, MaxRequestBodySize: 8 << 20,
+				MaxEventsPerTx:    100, MaxReadsPerTx: 100, MaxProjectionsPerTx: 500, MaxProjectionsPerWrite: 500, MaxEventsPerTxRead: 10000, MaxRequestBodySize: 8 << 20,
 				MaxQueuedWrites: tt.maxQueuedWrites, ReadPoolSize: 8, TxIdleTimeout: 60, MaxOpenTx: 1000,
 			}
 			if err := cfg.Validate(); err == nil {
@@ -886,7 +892,7 @@ func TestValidateNonPositiveReadPoolSize(t *testing.T) {
 				DataDir: "data", LogLevel: "warning",
 				DefaultEventsPerPage: 1000, MaxEventsPerPage: 10000, MaxEventSize: 65536,
 				MaxProjectionSize: 65536,
-				MaxEventsPerTx:    100, MaxReadsPerTx: 100, MaxProjectionsPerTx: 500, MaxProjectionsPerWrite: 500, MaxRequestBodySize: 8 << 20,
+				MaxEventsPerTx:    100, MaxReadsPerTx: 100, MaxProjectionsPerTx: 500, MaxProjectionsPerWrite: 500, MaxEventsPerTxRead: 10000, MaxRequestBodySize: 8 << 20,
 				MaxQueuedWrites: 100, ReadPoolSize: tt.readPoolSize, TxIdleTimeout: 60, MaxOpenTx: 1000,
 			}
 			if err := cfg.Validate(); err == nil {
@@ -933,7 +939,7 @@ func TestValidateAuthOutsideLoopback(t *testing.T) {
 		Port: 8085, DataDir: "data", LogLevel: DefaultLogLevel,
 		DefaultEventsPerPage: DefaultEventsPerPage, MaxEventsPerPage: DefaultMaxEventsPerPage, MaxEventSize: DefaultEventSize,
 		MaxProjectionSize: DefaultProjectionSize,
-		MaxEventsPerTx:    DefaultMaxEventsPerTx, MaxReadsPerTx: DefaultMaxReadsPerTx, MaxProjectionsPerTx: DefaultMaxProjectionsPerTx, MaxProjectionsPerWrite: DefaultMaxProjectionsPerWrite, MaxRequestBodySize: DefaultMaxRequestBodySize,
+		MaxEventsPerTx:    DefaultMaxEventsPerTx, MaxReadsPerTx: DefaultMaxReadsPerTx, MaxProjectionsPerTx: DefaultMaxProjectionsPerTx, MaxProjectionsPerWrite: DefaultMaxProjectionsPerWrite, MaxEventsPerTxRead: DefaultMaxEventsPerTxRead, MaxRequestBodySize: DefaultMaxRequestBodySize,
 		MaxQueuedWrites: DefaultMaxQueuedWrites, ReadPoolSize: DefaultReadPoolSize, TxIdleTimeout: DefaultTxIdleTimeout, MaxOpenTx: DefaultMaxOpenTx,
 	}
 	tests := []struct {
@@ -1100,7 +1106,7 @@ func TestValidateNonPositiveTxIdleTimeout(t *testing.T) {
 			DataDir: "data", LogLevel: "warning",
 			DefaultEventsPerPage: 1000, MaxEventsPerPage: 10000, MaxEventSize: 65536,
 			MaxProjectionSize: 65536,
-			MaxEventsPerTx:    100, MaxReadsPerTx: 100, MaxProjectionsPerTx: 500, MaxProjectionsPerWrite: 500, MaxRequestBodySize: 8 << 20,
+			MaxEventsPerTx:    100, MaxReadsPerTx: 100, MaxProjectionsPerTx: 500, MaxProjectionsPerWrite: 500, MaxEventsPerTxRead: 10000, MaxRequestBodySize: 8 << 20,
 			MaxQueuedWrites: 100, ReadPoolSize: 8, TxIdleTimeout: timeout, MaxOpenTx: 1000,
 		}
 		if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "txIdleTimeout") {
@@ -1127,7 +1133,7 @@ func TestValidateNonPositiveMaxOpenTx(t *testing.T) {
 			DataDir: "data", LogLevel: "warning",
 			DefaultEventsPerPage: 1000, MaxEventsPerPage: 10000, MaxEventSize: 65536,
 			MaxProjectionSize: 65536,
-			MaxEventsPerTx:    100, MaxReadsPerTx: 100, MaxProjectionsPerTx: 500, MaxProjectionsPerWrite: 500, MaxRequestBodySize: 8 << 20,
+			MaxEventsPerTx:    100, MaxReadsPerTx: 100, MaxProjectionsPerTx: 500, MaxProjectionsPerWrite: 500, MaxEventsPerTxRead: 10000, MaxRequestBodySize: 8 << 20,
 			MaxQueuedWrites: 100, ReadPoolSize: 8, TxIdleTimeout: 60, MaxOpenTx: max,
 		}
 		if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "maxOpenTx") {

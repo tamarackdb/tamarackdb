@@ -72,6 +72,7 @@ func main() {
 	fmt.Printf("maxReadsPerTx: %d\n", cfg.MaxReadsPerTx)
 	fmt.Printf("maxProjectionsPerTx: %d\n", cfg.MaxProjectionsPerTx)
 	fmt.Printf("maxProjectionsPerWrite: %d\n", cfg.MaxProjectionsPerWrite)
+	fmt.Printf("maxEventsPerTxRead: %d\n", cfg.MaxEventsPerTxRead)
 	fmt.Printf("maxRequestBodySize: %d\n", cfg.MaxRequestBodySize)
 	fmt.Printf("maxQueuedWrites: %d\n", cfg.MaxQueuedWrites)
 	fmt.Printf("readPoolSize: %d\n", cfg.ReadPoolSize)
@@ -100,6 +101,7 @@ func main() {
 		MaxEventsPerTx:      cfg.MaxEventsPerTx,
 		MaxReadsPerTx:       cfg.MaxReadsPerTx,
 		MaxProjectionsPerTx: cfg.MaxProjectionsPerTx,
+		MaxEventsPerTxRead:  cfg.MaxEventsPerTxRead,
 		MaxOpenTx:           cfg.MaxOpenTx,
 	})
 
@@ -274,6 +276,7 @@ const defaultConfigTemplate = `[server]
 # maxReadsPerTx = %d
 # maxProjectionsPerTx = %d
 # maxProjectionsPerWrite = %d
+# maxEventsPerTxRead = %d
 # maxRequestBodySize = %d # bytes
 # maxQueuedWrites = %d
 # readPoolSize = %d
@@ -290,7 +293,7 @@ func printDefaultConfig() {
 		config.DefaultEventsPerPage, config.DefaultMaxEventsPerPage, config.DefaultEventSize,
 		config.DefaultProjectionSize,
 		config.DefaultMaxEventsPerTx, config.DefaultMaxReadsPerTx, config.DefaultMaxProjectionsPerTx,
-		config.DefaultMaxProjectionsPerWrite, config.DefaultMaxRequestBodySize,
+		config.DefaultMaxProjectionsPerWrite, config.DefaultMaxEventsPerTxRead, config.DefaultMaxRequestBodySize,
 		config.DefaultMaxQueuedWrites, config.DefaultReadPoolSize, config.DefaultTxIdleTimeout, config.DefaultMaxOpenTx)
 }
 

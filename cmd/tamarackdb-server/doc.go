@@ -50,7 +50,7 @@
 //
 // A connection that doesn't finish sending its request headers within 10
 // seconds is closed, and so is a keep-alive connection with no request
-// for 2 minutes. A streamed read has its own limit for each line (see
+// for 2 minutes. A read has its own limit for each line it sends (see
 // package api).
 //
 // # Failures

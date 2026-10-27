@@ -38,14 +38,8 @@ func TestLargestValidQueryRuns(t *testing.T) {
 	mustAppend(t, s, []dcb.EventData{eventWithIdentifier("t", "n0", "0")}, nil)
 	q := largestQuery(t)
 
-	it, err := s.Read(context.Background(), ReadFilter{Query: q, Limit: 10})
-	if err != nil {
+	if _, err := s.Read(context.Background(), ReadFilter{Query: q, Limit: 10}); err != nil {
 		t.Fatalf("Read() error = %v", err)
-	}
-	for it.Next() {
-	}
-	if err := it.Err(); err != nil {
-		t.Fatalf("Read() iteration error = %v", err)
 	}
 
 	// Force the SQL check: an event exists after afterSequence 0.

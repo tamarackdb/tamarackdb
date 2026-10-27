@@ -37,7 +37,7 @@ func writeError(w http.ResponseWriter, status int, code, message string) {
 
 // handleErr maps err to the right HTTP status/envelope and writes it, or
 // writes nothing at all if the client is already gone or the response has
-// already started (a read cut short partway through its NDJSON stream).
+// already started (a read cut short partway through its NDJSON lines).
 func (s *Server) handleErr(w http.ResponseWriter, r *http.Request, err error) {
 	if err == nil {
 		return

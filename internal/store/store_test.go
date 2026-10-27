@@ -32,19 +32,15 @@ func mustAppend(t *testing.T, s *Store, events []dcb.EventData, conditions []dcb
 
 func mustReadAll(t *testing.T, s *Store, f ReadFilter) ([]dcb.Event, bool) {
 	t.Helper()
-	it, err := s.Read(context.Background(), f)
+	page, err := s.Read(context.Background(), f)
 	if err != nil {
 		t.Fatalf("Read() error = %v", err)
 	}
-	defer it.Close()
 	var events []dcb.Event
-	for it.Next() {
-		events = append(events, toDCBEvent(t, it.Event()))
+	for _, ev := range page.Events {
+		events = append(events, toDCBEvent(t, ev))
 	}
-	if err := it.Err(); err != nil {
-		t.Fatalf("iteration error = %v", err)
-	}
-	return events, it.HasMore()
+	return events, page.HasMore
 }
 
 // toDCBEvent decodes a ReadEvent's raw time/identifiers/metadata back into a

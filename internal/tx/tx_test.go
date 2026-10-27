@@ -51,7 +51,7 @@ func newTestEnv(t *testing.T, idle time.Duration) *testEnv {
 	}
 	wr := writer.New(st, writer.Config{})
 	clock := &testClock{now: time.Now()}
-	r := New(st, wr, Config{IdleTimeout: idle, Now: clock.Now, MaxEventsPerTx: 10, MaxReadsPerTx: 10, MaxProjectionsPerTx: 10})
+	r := New(st, wr, Config{IdleTimeout: idle, Now: clock.Now, MaxEventsPerTx: 10, MaxReadsPerTx: 10, MaxProjectionsPerTx: 10, MaxEventsPerTxRead: 10})
 	t.Cleanup(func() {
 		wr.Close()
 		st.Close()
@@ -91,14 +91,8 @@ func read(t *testing.T, r *Registry, id string, q dcb.Query) (committed, pending
 	if err != nil {
 		t.Fatalf("ReadEvents() error = %v", err)
 	}
-	if res.Committed != nil {
-		defer res.Committed.Close()
-		for res.Committed.Next() {
-			committed = append(committed, res.Committed.Event().Type)
-		}
-		if err := res.Committed.Err(); err != nil {
-			t.Fatalf("iteration error = %v", err)
-		}
+	for _, e := range res.Committed {
+		committed = append(committed, e.Type)
 	}
 	for _, e := range res.Pending {
 		pending = append(pending, e.Type)
@@ -132,16 +126,11 @@ func commit(t *testing.T, r *Registry, id string) {
 // committedEvents returns every committed event.
 func committedEvents(t *testing.T, st *store.Store) []store.ReadEvent {
 	t.Helper()
-	it, err := st.ReadDecision(bg, store.DecisionFilter{Query: dcb.QueryAll()})
+	d, err := st.ReadDecision(bg, store.DecisionFilter{Query: dcb.QueryAll()})
 	if err != nil {
 		t.Fatalf("ReadDecision() error = %v", err)
 	}
-	defer it.Close()
-	var out []store.ReadEvent
-	for it.Next() {
-		out = append(out, it.Event())
-	}
-	return out
+	return d.Events
 }
 
 func projectionPayload(t *testing.T, st *store.Store, key projection.Key) (string, bool) {
@@ -355,10 +344,9 @@ func TestBackwardsReadWithALimit(t *testing.T) {
 		t.Fatalf("ReadEvents() error = %v", err)
 	}
 	var committed []int64
-	for res.Committed.Next() {
-		committed = append(committed, res.Committed.Event().Sequence)
+	for _, e := range res.Committed {
+		committed = append(committed, e.Sequence)
 	}
-	res.Committed.Close()
 	// Every pending match, newest first: the caller sends at most the limit.
 	if len(res.Pending) != 2 || !slices.Equal(committed, []int64{2}) {
 		t.Fatalf("pending = %d, committed = %v, want 2 pending and committed [2]", len(res.Pending), committed)
@@ -384,7 +372,6 @@ func TestBackwardsReversesThePendingEvents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadEvents() error = %v", err)
 	}
-	res.Committed.Close()
 	var got []string
 	for _, e := range res.Pending {
 		got = append(got, e.Type)
@@ -793,6 +780,34 @@ func TestTooManyReads(t *testing.T) {
 	wantTooLarge(t, env.r, id, err, "maxReadsPerTx")
 }
 
+// TestTooManyEventsInARead checks that a read that would return more than
+// maxEventsPerTxRead events, committed and pending together, is refused,
+// and ends the transaction, while a limit that keeps it under passes.
+func TestTooManyEventsInARead(t *testing.T) {
+	env := newTestEnv(t, time.Minute)
+	if _, err := env.wr.WritePending(bg, dcb.NewPendingEvents(events("a", "a", "a", "a", "a", "a"), dcb.Now()), nil, projection.Writes{}); err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+
+	id := begin(t, env.r)
+	decide(t, env.r, id, dcb.QueryNone(), "a", "a", "a", "a")
+	committed, pending := read(t, env.r, id, types("a"))
+	if len(committed) != 6 || len(pending) != 4 {
+		t.Fatalf("read = %d committed, %d pending, want 6 and 4: 10 is maxEventsPerTxRead", len(committed), len(pending))
+	}
+	write(t, env.r, id, "a")
+	res, err := env.r.ReadEvents(bg, id, store.DecisionFilter{Query: types("a"), Limit: 10})
+	if err != nil {
+		t.Fatalf("ReadEvents() with a limit of 10 error = %v, want nil", err)
+	}
+	if n := len(res.Committed) + len(res.Pending); n != 11 {
+		t.Errorf("read with a limit = %d events, want 11: the caller sends at most the limit", n)
+	}
+	write(t, env.r, id)
+	_, err = env.r.ReadEvents(bg, id, store.DecisionFilter{Query: types("a")})
+	wantTooLarge(t, env.r, id, err, "maxEventsPerTxRead")
+}
+
 // TestTooManyProjections checks that the write of projections that would
 // take the transaction over maxProjectionsPerTx is refused, and ends it.
 // A projection written twice counts once, creates, replaces, and deletes
@@ -864,11 +879,9 @@ func TestReadsIgnoreTheClientLeaving(t *testing.T) {
 	if _, _, err := env.r.GetProjection(gone, id, key); err != nil {
 		t.Fatalf("GetProjection() with a cancelled context error = %v, want nil", err)
 	}
-	read, err := env.r.ReadEvents(gone, id, store.DecisionFilter{Query: types("a")})
-	if err != nil {
+	if _, err := env.r.ReadEvents(gone, id, store.DecisionFilter{Query: types("a")}); err != nil {
 		t.Fatalf("ReadEvents() with a cancelled context error = %v, want nil", err)
 	}
-	read.Committed.Close()
 	write(t, env.r, id, "a")
 	commit(t, env.r, id)
 	if s := env.r.Stats(); s.DesignErrors != 0 {
