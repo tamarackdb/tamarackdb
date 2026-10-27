@@ -48,6 +48,7 @@ type transactionsStats struct {
 	Paused       uint64 `json:"paused"`
 	Busy         uint64 `json:"busy"`
 	TooMany      uint64 `json:"tooMany"`
+	LargestRead  int    `json:"largestRead"`
 }
 
 type errorsStats struct {
@@ -79,6 +80,7 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 			Paused:       ts.Paused,
 			Busy:         ts.Busy,
 			TooMany:      ts.TooMany,
+			LargestRead:  ts.LargestRead,
 		},
 		Pause: pauseStats{
 			State:            ps.State.String(),

@@ -106,7 +106,7 @@ curl -X QUERY http://127.0.0.1:8085/events \
 - For the next page, send the same query with `afterSequence` set to the last event's `sequence`.
 - To follow new events, keep polling the same way once `hasMore` is `false`.
 - A page with no trailer was cut short. Resume after the last event fully received.
-- The server gives each line 30 seconds to go out. Read the page as it arrives.
+- The server gives each line 30 seconds to go out. A client that stops reading loses its connection.
 
 ## Transactions
 
@@ -169,6 +169,8 @@ curl -X QUERY http://127.0.0.1:8085/tx/<txId>/events \
 - With `backwards`, the pending events come first, newest first, then the committed events, newest first.
 - `limit` counts the pending and committed events together.
 - `limit` doesn't page: the read returns at most `limit` events, and the condition covers the whole query.
+- A read that would return more than `maxEventsPerTxRead` events gets `400`, and the transaction ends. Give a decision
+  a query whose events don't keep growing with the log.
 - There is no `afterSequence`.
 - The last line is the trailer, `{"end": true}`.
 - The read opens a condition. The next call must be a write of events.
@@ -290,6 +292,7 @@ around a command, and ignore the response.
 |---|---|
 | `maxEventsPerTx` | The events the transaction writes |
 | `maxReadsPerTx` | Its reads of events |
+| `maxEventsPerTxRead` | The events one read returns, committed and pending together |
 | `maxProjectionsPerTx` | The distinct projections it writes |
 
 The call that would go over gets `400`, with the setting named in the `message`. An event over `maxEventSize`, or a

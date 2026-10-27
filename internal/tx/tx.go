@@ -326,6 +326,12 @@ type Read struct {
 	// Pending are the transaction's pending events that match, in the
 	// order they were written, newest first backwards.
 	Pending []dcb.PendingEvent
+
+	// Count is how many events the caller sends: Committed and Pending
+	// together, up to the limit. NearLimit is set when Count is more than
+	// half of MaxEventsPerTxRead: the caller warns the operator.
+	Count     int
+	NearLimit bool
 }
 
 // ReadEvents reads the events f.Query matches and opens a condition on
@@ -374,6 +380,10 @@ func (r *Registry) ReadEvents(ctx context.Context, id string, f store.DecisionFi
 		if n > r.cfg.MaxEventsPerTxRead {
 			return tooLarge(fmt.Sprintf("read %d events or more at once", n), "maxEventsPerTxRead", r.cfg.MaxEventsPerTxRead)
 		}
+		read.Count, read.NearLimit = n, n > r.cfg.MaxEventsPerTxRead/2
+		r.lock()
+		r.stats.LargestRead = max(r.stats.LargestRead, n)
+		r.mu.Unlock()
 		if f.Backwards {
 			slices.Reverse(read.Pending)
 		}

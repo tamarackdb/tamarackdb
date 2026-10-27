@@ -49,6 +49,7 @@ tamarackdb-backup --default-config >> config.toml
 | `maxReadsPerTx` | `TAMARACKDB_MAX_READS_PER_TX` | `100` | The most reads of events in one transaction |
 | `maxProjectionsPerTx` | `TAMARACKDB_MAX_PROJECTIONS_PER_TX` | `500` | The most projections one transaction writes |
 | `maxProjectionsPerWrite` | `TAMARACKDB_MAX_PROJECTIONS_PER_WRITE` | `500` | The most projections in one `POST /projections` |
+| `maxEventsPerTxRead` | `TAMARACKDB_MAX_EVENTS_PER_TX_READ` | `10000` | The most events one read of a transaction returns |
 | `maxRequestBodySize` | `TAMARACKDB_MAX_REQUEST_BODY_SIZE` | `8388608` (8 MiB) | The largest request body, in bytes |
 | `maxQueuedWrites` | `TAMARACKDB_MAX_QUEUED_WRITES` | `100` | The most writes waiting for their turn at once |
 | `readPoolSize` | `TAMARACKDB_READ_POOL_SIZE` | `8` | How many reads run at once |
@@ -69,6 +70,9 @@ tamarackdb-backup --default-config >> config.toml
   application's data, and use the same ones in production. Every error from a limit names the setting to raise.
 - Every limit must be positive, and `defaultEventsPerPage` can't exceed `maxEventsPerPage`. The server refuses to
   start otherwise.
+- The server loads a read in memory before it sends it. At worst, it holds `readPoolSize` reads at once, each of
+  `maxEventsPerPage` (or `maxEventsPerTxRead`) events of `maxEventSize` bytes: about 5 GiB with the defaults. A page
+  of 10,000 events of about 1 KB takes about 10 MB.
 - A client has one minute to send a request, its body included. Past that, the server closes the connection without
   an answer. This limit is fixed.
 - `txIdleTimeout` only ends transactions the application forgot. A transaction that keeps making calls lives as long

@@ -795,13 +795,17 @@ func TestTooManyEventsInARead(t *testing.T) {
 	if len(committed) != 6 || len(pending) != 4 {
 		t.Fatalf("read = %d committed, %d pending, want 6 and 4: 10 is maxEventsPerTxRead", len(committed), len(pending))
 	}
+	if s := env.r.Stats(); s.LargestRead != 10 {
+		t.Errorf("Stats().LargestRead = %d, want 10", s.LargestRead)
+	}
 	write(t, env.r, id, "a")
 	res, err := env.r.ReadEvents(bg, id, store.DecisionFilter{Query: types("a"), Limit: 10})
 	if err != nil {
 		t.Fatalf("ReadEvents() with a limit of 10 error = %v, want nil", err)
 	}
-	if n := len(res.Committed) + len(res.Pending); n != 11 {
-		t.Errorf("read with a limit = %d events, want 11: the caller sends at most the limit", n)
+	if n := len(res.Committed) + len(res.Pending); n != 11 || res.Count != 10 || !res.NearLimit {
+		t.Errorf("read with a limit = %d events, Count %d, NearLimit %v, want 11, 10, and true: the caller sends at most the limit",
+			n, res.Count, res.NearLimit)
 	}
 	write(t, env.r, id)
 	_, err = env.r.ReadEvents(bg, id, store.DecisionFilter{Query: types("a")})

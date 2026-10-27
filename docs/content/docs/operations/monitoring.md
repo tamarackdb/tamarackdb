@@ -46,7 +46,8 @@ change from one version to the next.
     "designErrors": 0,
     "paused": 0,
     "busy": 0,
-    "tooMany": 0
+    "tooMany": 0,
+    "largestRead": 2000
   },
   "pause": {
     "state": "normal",
@@ -68,6 +69,9 @@ What to watch:
 - **`transactions.designErrors`** or **`transactions.busy`** above zero: the client library has a bug.
 - **`transactions.tooMany`** above zero: `maxOpenTx` is too low, or the application begins transactions and never
   ends them (see `expired`).
+- **`transactions.largestRead`**, the most events one read of a transaction returned, getting close to
+  `maxEventsPerTxRead`: a decision reads more events as the log grows. Past the setting, its command fails. The log
+  has a `warning` line for each read over half of it.
 - **`pause.state`** stuck at `pauseRequested`: transactions are still open (`openTransactions`), or whoever asked for
   the pause stopped calling `POST /pause`.
 - **`lastOptimizeAt`** more than a day old: the daily `POST /optimize` doesn't run (see
@@ -87,5 +91,6 @@ tamarackdb-server: [WARNING] POST /projections 503 27B 0.07ms
   request.
 - `debug`: a success, or an expected refusal such as a conflict.
 - `info`: a client's mistake, such as a malformed request or a bad token, or a pause, a resume, an optimize, or a bulk delete.
-- `warning`: the write queue is full, or `maxOpenTx` transactions are open.
+- `warning`: the write queue is full, `maxOpenTx` transactions are open, or a read of a transaction returned more than
+  half of `maxEventsPerTxRead` events.
 - `error`: a failure on the server.

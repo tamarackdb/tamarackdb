@@ -13,7 +13,7 @@ What a client of the protocol has to do, whatever its language. The calls themse
 - Tell a trailer apart from an event by its shape: a `hasMore` key for `QUERY /events`, an `end` key in a transaction.
 - Treat a response with no trailer as cut short. Outside a transaction, resume after the last full event. In a
   transaction, abandon it and run the command again.
-- Parse a read line by line, as it arrives.
+- Parse a read line by line. Each line has 30 seconds to go out: read at your own pace, but don't stop.
 
 ## Transactions
 

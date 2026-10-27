@@ -10,6 +10,11 @@ type Stats struct {
 	Paused       uint64 // Begin calls refused with ErrPaused
 	Busy         uint64 // calls refused with ErrBusy: another call was using the transaction
 	TooMany      uint64 // Begin calls refused with ErrTooManyTransactions
+
+	// LargestRead is the most events one read of a transaction returned.
+	// A read that grows with the log, unlike one bounded by a period,
+	// would one day go over maxEventsPerTxRead: this shows it coming.
+	LargestRead int
 }
 
 // Stats returns the counters.

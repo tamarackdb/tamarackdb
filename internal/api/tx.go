@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 
 	"github.com/tamarackdb/tamarackdb/internal/dcb"
@@ -127,6 +128,12 @@ func (s *Server) handleTxReadEvents(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.handleErr(w, r, err)
 		return
+	}
+	if read.NearLimit && levelWarning >= s.logThreshold {
+		// A decision whose read grows with the log: warn long before
+		// maxEventsPerTxRead refuses it. Like the access log, it never
+		// logs the query.
+		log.Printf("tamarackdb-server: [%s] %s %s read %d events, more than half of maxEventsPerTxRead", levelWarning, r.Method, r.URL.Path, read.Count)
 	}
 	renew, done := s.stallDeadline(w)
 	defer done()
