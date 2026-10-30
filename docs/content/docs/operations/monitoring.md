@@ -93,8 +93,8 @@ tamarackdb-server: [WARNING] POST /projections 503 27B 0.07ms
 ```
 
 - A line holds the level, the method, the path, the status, the response size, and the time taken. Never a body.
-- `logLevel` sets the lowest level written. The default, `warning`, shows only problems. Use `debug` to see every
-  request.
+- `logLevel` sets the lowest level written. The default, `info`, shows no success: only clients' mistakes,
+  administration actions, and problems. Use `debug` to see every request.
 - `debug`: a success, or an expected refusal such as a conflict.
 - `info`: a client's mistake, such as a malformed request or a bad token, or a pause, a resume, an optimize, or a bulk delete.
 - `warning`: the write queue is full, `maxOpenTx` transactions are open, or a read of a transaction returned more than

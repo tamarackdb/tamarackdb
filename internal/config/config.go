@@ -34,7 +34,7 @@ const (
 	DefaultMaxOpenTx              = 1000
 	DefaultMaxProjectionsPerWrite = 500
 	DefaultMaxRequestBodySize     = 8 << 20 // 8 MiB
-	DefaultLogLevel               = "warning"
+	DefaultLogLevel               = "info"
 )
 
 // databaseFilename is the fixed filename TamarackDB uses within DataDir:
@@ -103,7 +103,7 @@ type Config struct {
 	// in the file or environment (Load lowercases it). Anything below
 	// this threshold is not logged at all. Optional; defaulted by Load
 	// when omitted, like the fields above.
-	LogLevel string `toml:"logLevel"` // default: warning
+	LogLevel string `toml:"logLevel"` // default: info
 
 	// Optional; defaulted by Load when omitted (zero value in the file and
 	// unset in the environment).

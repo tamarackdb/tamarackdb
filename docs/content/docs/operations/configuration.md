@@ -39,7 +39,7 @@ tamarackdb-backup --default-config >> config.toml
 | `authTokenFile` | `TAMARACKDB_AUTH_TOKEN_FILE` | none | The file holding the Bearer token. Setting it turns authentication on (see [Security](/docs/operations/security/#bearer-token)) |
 | `allowNoAuth` | `TAMARACKDB_ALLOW_NO_AUTH` | `false` | Whether the server may listen over TCP on an address other than loopback without `authTokenFile`. Ignored on the unix socket |
 | `dataDir` | `TAMARACKDB_DATA_DIR` | `data` | The directory holding the database file, `tamarackdb.sqlite` |
-| `logLevel` | `TAMARACKDB_LOG_LEVEL` | `warning` | The lowest level logged: `debug`, `info`, `warning`, or `error` |
+| `logLevel` | `TAMARACKDB_LOG_LEVEL` | `info` | The lowest level logged: `debug`, `info`, `warning`, or `error` |
 | `devMode` | `TAMARACKDB_DEV_MODE` | `false` | Turns on `DELETE /events` and the profiling endpoints |
 | `defaultEventsPerPage` | `TAMARACKDB_DEFAULT_EVENTS_PER_PAGE` | `10000` | The `limit` of a `QUERY /events` that leaves it out |
 | `maxEventsPerPage` | `TAMARACKDB_MAX_EVENTS_PER_PAGE` | `10000` | The highest `limit` a `QUERY /events` may ask for |
