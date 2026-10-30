@@ -20,7 +20,7 @@ const (
 	DefaultBindAddress            = "127.0.0.1"
 	DefaultPort                   = 8085
 	DefaultDataDir                = "data"
-	DefaultEventsPerPage          = 1000
+	DefaultEventsPerPage          = 10000
 	DefaultMaxEventsPerPage       = 10000
 	DefaultEventSize              = 65536 // 64 KiB
 	DefaultMaxQueuedWrites        = 100
@@ -107,7 +107,7 @@ type Config struct {
 
 	// Optional; defaulted by Load when omitted (zero value in the file and
 	// unset in the environment).
-	DefaultEventsPerPage int `toml:"defaultEventsPerPage"` // default: 1000
+	DefaultEventsPerPage int `toml:"defaultEventsPerPage"` // default: 10000
 	MaxEventsPerPage     int `toml:"maxEventsPerPage"`     // default: 10000
 	MaxEventSize         int `toml:"maxEventSize"`         // default: 65536 (64 KiB)
 

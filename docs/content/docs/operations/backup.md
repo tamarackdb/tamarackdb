@@ -30,7 +30,7 @@ tamarackdb-backup --config backup-config.toml
 | `sourceSocket` | `TAMARACKDB_BACKUP_SOURCE_SOCKET` | none | The unix socket of an instance on the same host |
 | `sourceTokenFile` | `TAMARACKDB_BACKUP_SOURCE_TOKEN_FILE` | none | The file holding the source's Bearer token, when the source has `authTokenFile` set |
 | `dataDir` | `TAMARACKDB_BACKUP_DATA_DIR` | `backup` | The directory the backup files go to. Never the server's own `dataDir` |
-| `pageLimit` | `TAMARACKDB_BACKUP_PAGE_LIMIT` | `1000` | Events read per page. At most the source's `maxEventsPerPage` |
+| `pageLimit` | `TAMARACKDB_BACKUP_PAGE_LIMIT` | `10000` | Events read per page. At most the source's `maxEventsPerPage` |
 
 - Set exactly one of `sourceUrl` and `sourceSocket`.
 - The token file holds the token alone, like the server's (see [Security](/docs/operations/security/#bearer-token)). It

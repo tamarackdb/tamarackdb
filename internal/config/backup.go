@@ -11,7 +11,7 @@ import (
 // values.
 const (
 	DefaultBackupDataDir   = "backup"
-	DefaultBackupPageLimit = 1000
+	DefaultBackupPageLimit = 10000
 )
 
 // BackupConfig is tamarackdb-backup's startup configuration: which source
@@ -41,7 +41,7 @@ type BackupConfig struct {
 	// DataDir and PageLimit are optional; defaulted by LoadBackup when
 	// omitted.
 	DataDir   string `toml:"dataDir"`   // default: backup
-	PageLimit int    `toml:"pageLimit"` // default: 1000
+	PageLimit int    `toml:"pageLimit"` // default: 10000
 }
 
 // LoadBackup reads the [backup] section of the TOML file at path, if it
